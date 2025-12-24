@@ -6,6 +6,10 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from dotenv import load_dotenv
+load_dotenv()
+
+
 from data.stocks import build_stocks_signals_table
 from data.crypto import (
     build_crypto_signals_table,
@@ -30,17 +34,17 @@ OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 STOCKS_CSV = OUTPUTS_DIR / "supertrend_stocks_1d.csv"
 CRYPTO_CSV = OUTPUTS_DIR / "supertrend_crypto_4h.csv"
 
-st.caption(f"cwd: {os.getcwd()}")
-st.caption(f"app.py dir: {APP_DIR}")
-st.caption(f"outputs dir: {OUTPUTS_DIR}")
-st.caption(f"stocks csv path: {STOCKS_CSV}")
-st.caption(f"crypto csv path: {CRYPTO_CSV}")
+# st.caption(f"cwd: {os.getcwd()}")
+# st.caption(f"app.py dir: {APP_DIR}")
+# st.caption(f"outputs dir: {OUTPUTS_DIR}")
+# st.caption(f"stocks csv path: {STOCKS_CSV}")
+# st.caption(f"crypto csv path: {CRYPTO_CSV}")
 
 
 try:
     test_path = OUTPUTS_DIR / "_write_test.txt"
     test_path.write_text("ok\n", encoding="utf-8")
-    st.success(f"Write test OK: {test_path}")
+    # st.success(f"Write test OK: {test_path}")
 except Exception as e:
     st.error("Write test FAILED — outputs folder is not writable:")
     st.exception(e)
@@ -192,6 +196,8 @@ except Exception as e:
 total_hist = None
 try:
     total_hist = fetch_total_mcap_history_coingecko(days=900)
+    if not isinstance(total_hist, pd.DataFrame):
+        raise ValueError(f"Expected DataFrame from CoinGecko history, got: {type(total_hist)}")
 except Exception as e:
     try:
         total_hist = fetch_total_mcap_history_coinmarketcap(days=900)

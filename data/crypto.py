@@ -8,6 +8,10 @@ import requests
 import yfinance as yf
 from datetime import datetime, timezone
 
+# from dotenv import load_dotenv
+# load_dotenv()
+
+
 from core.utils import _fix_yf_cols
 from core.indicators import apply_indicators
 from core.signals import (
@@ -17,6 +21,16 @@ from core.signals import (
     signal_super_most_adxr,
     FINAL_COLUMN_ORDER,
 )
+
+
+from core.utils import get_secret
+
+def _coingecko_headers() -> dict:
+    headers = {}
+    api_key = get_secret("COINGECKO_API_KEY").strip()
+    if api_key:
+        headers["x-cg-pro-api-key"] = api_key
+    return headers
 
 
 def fetch_crypto_4h_df(ticker: str, lookback_days: int = 70) -> pd.DataFrame | None:
@@ -128,15 +142,15 @@ def build_crypto_signals_table(
     return out.reindex(columns=FINAL_COLUMN_ORDER)
 
 
-# -----------------------------
-# Crypto Context (TOTAL vs 200MA, BTC.D, Altcoin Index)
-# -----------------------------
-def _coingecko_headers() -> dict:
-    headers = {}
-    api_key = os.environ.get("COINGECKO_API_KEY", "").strip()
-    if api_key:
-        headers["x-cg-pro-api-key"] = api_key
-    return headers
+# # -----------------------------
+# # Crypto Context (TOTAL vs 200MA, BTC.D, Altcoin Index)
+# # -----------------------------
+# def _coingecko_headers() -> dict:
+#     headers = {}
+#     api_key = os.environ.get("COINGECKO_API_KEY", "").strip()
+#     if api_key:
+#         headers["x-cg-pro-api-key"] = api_key
+#     return headers
 
 
 def fetch_coingecko_global() -> dict:
@@ -171,9 +185,17 @@ def fetch_total_mcap_history_coingecko(days: int = 900) -> pd.DataFrame:
 
 
 def fetch_total_mcap_history_coinmarketcap(days: int = 900) -> pd.DataFrame:
-    api_key = os.environ.get("CMC_API_KEY", "").strip()
+    # api_key = os.environ.get("CMC_API_KEY", "").strip()
+    # if not api_key:
+    #     raise ValueError("CMC_API_KEY not set.")
+    
+    api_key = get_secret("CMC_API_KEY").strip()
     if not api_key:
-        raise ValueError("CMC_API_KEY not set.")
+        raise ValueError("CMC_API_KEY not set")
+    return {
+        "X-CMC_PRO_API_KEY": api_key,
+        "Accepts": "application/json"
+    }
 
     end = datetime.now(timezone.utc)
     start = end - pd.Timedelta(days=days)
@@ -202,14 +224,71 @@ def fetch_total_mcap_history_coinmarketcap(days: int = 900) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["date", "mcap"]).sort_values("date").reset_index(drop=True)
 
 
-def compute_total_vs_200ma(total_df: pd.DataFrame) -> dict:
-    """
-    Your rule:
-      Bull: TOTAL > 200MA
-      Transition: below for <=30 days
-      Bear: below for >30 days
-    """
-    if total_df is None or total_df.empty or len(total_df) < 220:
+# def compute_total_vs_200ma(total_df: pd.DataFrame) -> dict:
+#     """
+#     Your rule:
+#       Bull: TOTAL > 200MA
+#       Transition: below for <=30 days
+#       Bear: below for >30 days
+#     """
+#     if total_df is None or total_df.empty or len(total_df) < 220:
+#         return {"mcap": np.nan, "ma200": np.nan, "status": "N/A", "days_below": None, "phase": "N/A"}
+
+#     s = total_df.copy()
+#     s["ma200"] = s["mcap"].rolling(200).mean()
+
+#     last = s.iloc[-1]
+#     mcap = float(last["mcap"])
+#     ma200 = float(last["ma200"]) if pd.notna(last["ma200"]) else np.nan
+#     if np.isnan(ma200):
+#         return {"mcap": mcap, "ma200": np.nan, "status": "N/A", "days_below": None, "phase": "N/A"}
+
+#     above = mcap >= ma200
+#     status = "ABOVE" if above else "BELOW"
+
+#     days_below = 0
+#     if not above:
+#         i = len(s) - 1
+#         while i >= 0:
+#             row = s.iloc[i]
+#             if pd.isna(row["ma200"]):
+#                 break
+#             if float(row["mcap"]) < float(row["ma200"]):
+#                 days_below += 1
+#                 i -= 1
+#             else:
+#                 break
+
+#     if above:
+#         phase = "BULL (Safe to trade crypto)"
+#         days_below = 0
+#     else:
+#         phase = (
+#             "TRANSITION (<30d below 200MA) — half size, BTC/ETH only"
+#             if days_below <= 30
+#             else "BEAR (>30d below 200MA) — sit out crypto"
+#         )
+
+#     return {"mcap": mcap, "ma200": ma200, "status": status, "days_below": days_below, "phase": phase}
+
+def compute_total_vs_200ma(total_df) -> dict:
+    # Guard: sometimes fetchers may return dicts on failure
+    if total_df is None:
+        return {"mcap": np.nan, "ma200": np.nan, "status": "N/A", "days_below": None, "phase": "N/A"}
+
+    # If a dict slipped through, treat it as an error payload and fail gracefully
+    if isinstance(total_df, dict):
+        return {
+            "mcap": np.nan,
+            "ma200": np.nan,
+            "status": "N/A",
+            "days_below": None,
+            "phase": "N/A",
+            "error": str(total_df),
+        }
+
+    # Now safe to assume DataFrame-like
+    if total_df.empty or len(total_df) < 220:
         return {"mcap": np.nan, "ma200": np.nan, "status": "N/A", "days_below": None, "phase": "N/A"}
 
     s = total_df.copy()
@@ -239,16 +318,10 @@ def compute_total_vs_200ma(total_df: pd.DataFrame) -> dict:
 
     if above:
         phase = "BULL (Safe to trade crypto)"
-        days_below = 0
     else:
-        phase = (
-            "TRANSITION (<30d below 200MA) — half size, BTC/ETH only"
-            if days_below <= 30
-            else "BEAR (>30d below 200MA) — sit out crypto"
-        )
+        phase = "TRANSITION (<30d below 200MA) — half size, BTC/ETH only" if days_below <= 30 else "BEAR (>30d below 200MA) — sit out crypto"
 
-    return {"mcap": mcap, "ma200": ma200, "status": status, "days_below": days_below, "phase": phase}
-
+    return {"mcap": mcap, "ma200": ma200, "status": status, "days_below": (days_below if not above else 0), "phase": phase}
 
 def fetch_altcoin_season_index() -> dict:
     url = "https://www.blockchaincenter.net/api/altcoin-season-index/"

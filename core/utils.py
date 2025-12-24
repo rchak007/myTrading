@@ -5,6 +5,22 @@ import math
 import pandas as pd
 
 
+
+import os
+import streamlit as st
+
+def get_secret(key: str) -> str:
+    """
+    Reads secrets in this priority:
+    1) Streamlit Cloud secrets
+    2) Local environment variables (.env / shell)
+    """
+    try:
+        return st.secrets.get(key, "")
+    except Exception:
+        return os.environ.get(key, "")
+
+
 def _fix_yf_cols(df: pd.DataFrame) -> pd.DataFrame:
     """yfinance sometimes returns MultiIndex columns; flatten safely."""
     if isinstance(df.columns, pd.MultiIndex):
