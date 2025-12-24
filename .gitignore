@@ -1,0 +1,61 @@
+# -------------------------
+# Python
+# -------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+dist/
+build/
+
+# -------------------------
+# Environments
+# -------------------------
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# -------------------------
+# Jupyter / Colab
+# -------------------------
+.ipynb_checkpoints/
+*.ipynb
+
+# -------------------------
+# OS / editor
+# -------------------------
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# -------------------------
+# Logs
+# -------------------------
+*.log
+
+# -------------------------
+# Streamlit
+# -------------------------
+.streamlit/secrets.toml
+
+# -------------------------
+# Outputs (generated)
+# -------------------------
+outputs/*.csv
+outputs/*.parquet
+outputs/*.json
+outputs/*.txt
+!outputs/.gitkeep
+
+# -------------------------
+# Local keys / creds
+# -------------------------
+**/secrets*.json
+**/*key*.json
+**/*token*.json
