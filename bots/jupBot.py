@@ -74,6 +74,11 @@ ADXR_LOW = float(os.getenv("ADXR_LOW", "20.0"))
 ADXR_EPS = float(os.getenv("ADXR_EPS", "1e-6"))
 
 
+TRADE_LOG_PATH = os.getenv(
+    "TRADE_LOG_PATH",
+    "./outputs/jupbot_trades.csv"
+)
+
 @dataclass
 class BotState:
     last_bar_ts: Optional[str] = None
@@ -99,6 +104,9 @@ def _save_state(st: BotState) -> None:
 
 def desired_regime_from_final_signal(final_sig: str) -> str:
     return "IN" if final_sig in ("BUY", "HOLD") else "OUT"
+
+
+
 
 
 def load_keypair() -> Keypair:
@@ -192,7 +200,7 @@ def rebalance_plan(port: dict, sol_price: float, target_sol_pct: float) -> dict:
     return {"action": "SELL_SOL", "sol": sell_sol, "usd_diff": diff}
 
 
-def execute_plan(*, rpc_url: str, kp: Keypair, pubkey: str, plan: dict) -> None:
+def execute_plan(*, rpc_url: str, kp: Keypair, pubkey: str, plan: dict) -> dict | None:
     if plan["action"] == "NONE":
         log.info("Rebalance: NONE (within tolerance)")
         return
@@ -209,9 +217,22 @@ def execute_plan(*, rpc_url: str, kp: Keypair, pubkey: str, plan: dict) -> None:
         tx = swap.get("swapTransaction")
         if not tx:
             raise RuntimeError(f"Jupiter swap response missing swapTransaction: {swap}")
+        
+        if DRY_RUN:
+            return {
+                "action": "BUY_SOL",
+                "amount": usdc_amt,
+                "amount_ccy": "USDC",
+                "tx_sig": None,
+            }
         sig = sign_and_send_swap(rpc_url=rpc_url, swap_tx_b64=tx, keypair=kp)
         log.info("✅ BUY_SOL: spent USDC=%.2f sig=%s", usdc_amt, sig)
-        return
+        return {
+            "action": "BUY_SOL",
+            "amount": usdc_amt,
+            "amount_ccy": "USDC",
+            "tx_sig": sig,
+        }
 
     if plan["action"] == "SELL_SOL":
         sol_amt = float(plan["sol"])
@@ -221,11 +242,60 @@ def execute_plan(*, rpc_url: str, kp: Keypair, pubkey: str, plan: dict) -> None:
         tx = swap.get("swapTransaction")
         if not tx:
             raise RuntimeError(f"Jupiter swap response missing swapTransaction: {swap}")
+        
+        if DRY_RUN:
+            return {
+                "action": "SELL_SOL",
+                "amount": sol_amt,
+                "amount_ccy": "SOL",
+                "tx_sig": None,
+            }
         sig = sign_and_send_swap(rpc_url=rpc_url, swap_tx_b64=tx, keypair=kp)
         log.info("✅ SELL_SOL: sold SOL=%.6f sig=%s", sol_amt, sig)
-        return
+        return {
+            "action": "SELL_SOL",
+            "amount": sol_amt,
+            "amount_ccy": "SOL",
+            "tx_sig": sig,
+        }
 
     raise RuntimeError(f"Unknown plan action: {plan}")
+
+
+from datetime import datetime
+
+def log_trade(
+    *,
+    action: str,
+    regime_from: str,
+    regime_to: str,
+    price: float,
+    amount: float,
+    amount_ccy: str,
+    tx_sig: str | None,
+    dry_run: bool,
+):
+    os.makedirs(os.path.dirname(TRADE_LOG_PATH) or ".", exist_ok=True)
+
+    file_exists = os.path.exists(TRADE_LOG_PATH)
+
+    with open(TRADE_LOG_PATH, "a", encoding="utf-8") as f:
+        if not file_exists:
+            f.write(
+                "timestamp,action,regime_from,regime_to,price,amount,amount_ccy,tx_sig,dry_run\n"
+            )
+
+        f.write(
+            f"{datetime.utcnow().isoformat()},"
+            f"{action},"
+            f"{regime_from},"
+            f"{regime_to},"
+            f"{price:.4f},"
+            f"{amount:.6f},"
+            f"{amount_ccy},"
+            f"{tx_sig or ''},"
+            f"{dry_run}\n"
+        )
 
 
 def main():
@@ -297,7 +367,18 @@ def main():
 
                 port = portfolio(RPC_URL, pubkey, price)
                 plan = rebalance_plan(port, price, target_sol_pct)
-                execute_plan(rpc_url=RPC_URL, kp=kp, pubkey=pubkey, plan=plan)
+                exec_result = execute_plan(rpc_url=RPC_URL, kp=kp, pubkey=pubkey, plan=plan)
+                if exec_result:
+                    log_trade(
+                        action=exec_result["action"],
+                        regime_from=st.regime,
+                        regime_to=desired_regime,
+                        price=price,
+                        amount=exec_result["amount"],
+                        amount_ccy=exec_result["amount_ccy"],
+                        tx_sig=exec_result["tx_sig"],
+                        dry_run=DRY_RUN,
+                    )                
                 if plan.get("action") != "NONE":
                     st.regime = desired_regime
 
