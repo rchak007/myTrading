@@ -1,0 +1,137 @@
+{
+
+    "BTC": {
+      "ticker": "BTC",
+      "blockchain": "",
+      "wallet_address": "",
+      "token_contract": "",
+      "yahoo_ticker": "BTC-USD",
+      "stablecoin_contract": ""
+    },
+    "ETH": {
+      "ticker": "ETH",
+      "blockchain": "",
+      "wallet_address": "",
+      "token_contract": "",
+      "yahoo_ticker": "ETH-USD",
+      "stablecoin_contract": ""
+    },
+    "SOL": {
+      "ticker": "SOL",
+      "blockchain": "",
+      "wallet_address": "",
+      "token_contract": "",
+      "yahoo_ticker": "SOL-USD",
+      "stablecoin_contract": ""
+    },
+  
+
+    "MON": {
+      "ticker": "MON",
+      "blockchain": "solana",
+      "wallet_address": "315aEJ995exQtYuPdxr3EHWn9F8Pd2kciXhVQAePU8PC",
+      "token_contract": "CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2",
+      "yahoo_ticker": "MON30495-USD",
+      "stablecoin_contract": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
+    "PNK": {
+      "ticker": "PNK",
+      "blockchain": "ethereum",
+      "wallet_address": "0x6A30aA8E9Ae3Ed24c565Bf1f4060Ab167b0DA042",
+      "token_contract": "0x93ed3fbe21207ec2e8f2d3c3de6e058cb73bc04d",
+      "yahoo_ticker": "PNK-USD",
+      "stablecoin_contract": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    },
+    "VIRTUAL": {
+      "ticker": "VIRTUAL",
+      "blockchain": "base",
+      "wallet_address": "0xAb7f2cdec9a5706C0c6790dd7A46db16Be59293b",
+      "token_contract": "0x0b3e328455c4059EEb9e3f84b5543F74E24e7E1b",
+      "yahoo_ticker": "VIRTUAL-USD",
+      "stablecoin_contract": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+    },
+  
+    "HYPE32196": {
+      "ticker":"HYPE32196",
+      "blockchain":"",
+      "wallet_address":"",
+      "token_contract":"",
+      "yahoo_ticker":"HYPE32196-USD",
+      "stablecoin_contract":""
+      },
+    "SUI20947": {"ticker":"SUI20947","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"SUI20947-USD","stablecoin_contract":""},
+    "LINK": {
+      "ticker":"LINK",
+      "blockchain":"ethereum",
+      "wallet_address":"0xABabf8bAa35835B72A134ac10e84F72225BCEda4",
+      "token_contract":"0x514910771af9ca656af840dff83e8264ecf986ca",
+      "yahoo_ticker":"LINK-USD",
+      "stablecoin_contract":"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" },
+  
+    "DOGE": {"ticker":"DOGE","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"DOGE-USD","stablecoin_contract":""},
+    "ONDO": {
+      "ticker":"ONDO",
+      "blockchain":"ethereum",
+      "wallet_address":"0xD4847c8975C237a62EaCffE51574E0533b74F043",
+      "token_contract":"0xfaba6f8e4a5e8ab82f62fe7c39859fa577269be3",
+      "yahoo_ticker":"ONDO-USD",
+      "stablecoin_contract":"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48"
+      },
+    "BNB": {"ticker":"BNB","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"BNB-USD","stablecoin_contract":""},
+  
+    "AAVE": {"ticker":"AAVE","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AAVE-USD","stablecoin_contract":""},
+    "ADA": {"ticker":"ADA","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ADA-USD","stablecoin_contract":""},
+    "AIXBT": {"ticker":"AIXBT","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AIXBT-USD","stablecoin_contract":""},
+    "AKT": {"ticker":"AKT","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AKT-USD","stablecoin_contract":""},
+    "ASTER36341": {"ticker":"ASTER36341","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ASTER36341-USD","stablecoin_contract":""},
+    "AUKI": {"ticker":"AUKI","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AUKI-USD","stablecoin_contract":""},
+    "AURORA14803": {"ticker":"AURORA14803","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AURORA14803-USD","stablecoin_contract":""},
+  
+    "BLUE": {"ticker":"BLUE","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"blue-usd","stablecoin_contract":""},
+    "CETUS": {"ticker":"CETUS","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"cetus-usd","stablecoin_contract":""},
+    "COOKIE31838": {"ticker":"COOKIE31838","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"cookie31838-usd","stablecoin_contract":""},
+    "CRV": {"ticker":"CRV","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"CRV-USD","stablecoin_contract":""},
+  
+    "DRIFT31278": {"ticker":"DRIFT31278","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"DRIFT31278-USD","stablecoin_contract":""},
+    "ELIZAOS": {"ticker":"ELIZAOS","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ELIZAOS-USD","stablecoin_contract":""},
+    "ELON": {"ticker":"ELON","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"elon-usd","stablecoin_contract":""},
+    "ENA": {"ticker":"ENA","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ENA-USD","stablecoin_contract":""},
+    "ENS": {"ticker":"ENS","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ENS-USD","stablecoin_contract":""},
+  
+    "FLUID": {"ticker":"FLUID","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"fluid-usd","stablecoin_contract":""},
+    "FAI34330": {"ticker":"FAI34330","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"FAI34330-USD","stablecoin_contract":""},
+    "GRIFFAIN": {"ticker":"GRIFFAIN","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"griffain-USD","stablecoin_contract":""},
+  
+    "HNT": {"ticker":"HNT","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"HNT-USD","stablecoin_contract":""},
+    "JTO": {"ticker":"JTO","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"JTO-USD","stablecoin_contract":""},
+    "JUP29210": {"ticker":"JUP29210","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"JUP29210-USD","stablecoin_contract":""},
+    "LFNTY": {"ticker":"LFNTY","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"LFNTY-USD","stablecoin_contract":""},
+    "NAVX": {"ticker":"NAVX","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"navx-USD","stablecoin_contract":""},
+    "NEAR": {"ticker":"NEAR","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"NEAR-USD","stablecoin_contract":""},
+    "ORCA": {"ticker":"ORCA","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ORCA-USD","stablecoin_contract":""},
+    "ORE32782": {"ticker":"ORE32782","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ore32782-USD","stablecoin_contract":""},
+  
+    "PIPPIN": {"ticker":"PIPPIN","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"pippin-usd","stablecoin_contract":""},
+    "PYTH": {"ticker":"PYTH","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"PYTH-USD","stablecoin_contract":""},
+    "RAY": {"ticker":"RAY","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"RAY-USD","stablecoin_contract":""},
+    "RENDER": {"ticker":"RENDER","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"RENDER-USD","stablecoin_contract":""},
+  
+    "SUAI": {"ticker":"SUAI","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"SUAI-USD","stablecoin_contract":""},
+    "SUINS": {"ticker":"SUINS","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"suins-usd","stablecoin_contract":""},
+    "TAI20605": {"ticker":"TAI20605","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"TAI20605-USD","stablecoin_contract":""},
+  
+    "W": {"ticker":"W","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"W-USD","stablecoin_contract":""},
+    "WAL36119": {"ticker":"WAL36119","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"WAL36119-USD","stablecoin_contract":""},
+    "WLD": {"ticker":"WLD","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"WLD-USD","stablecoin_contract":""},
+  
+    "WLFI33251": {"ticker":"WLFI33251","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"wlfi33251-usd","stablecoin_contract":""},
+    "WLFI33036": {"ticker":"WLFI33036","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"wlfi33036-usd","stablecoin_contract":""},
+    "WLFI": {"ticker":"WLFI","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"wlfi-usd","stablecoin_contract":""},
+  
+    "XBG": {"ticker":"XBG","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"XBG-USD","stablecoin_contract":""},
+    "XRP": {"ticker":"XRP","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"XRP-USD","stablecoin_contract":""},
+    "ZEREBRO": {"ticker":"ZEREBRO","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ZEREBRO-USD","stablecoin_contract":""},
+    "ZEUS30391": {"ticker":"ZEUS30391","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ZEUS30391-USD","stablecoin_contract":""},
+    "ZK24091": {"ticker":"ZK24091","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"zk24091-USD","stablecoin_contract":""}
+  }
+  

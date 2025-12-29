@@ -9,16 +9,28 @@ import pandas as pd
 import os
 import streamlit as st
 
+from dotenv import load_dotenv
+
+# Load .env from current working directory (project root)
+load_dotenv()
+
 def get_secret(key: str) -> str:
     """
-    Reads secrets in this priority:
-    1) Streamlit Cloud secrets
-    2) Local environment variables (.env / shell)
+    Priority:
+    1) Streamlit secrets (if present and non-empty)
+    2) Environment variables (including .env via load_dotenv)
     """
+    # 1) Try Streamlit secrets
     try:
-        return st.secrets.get(key, "")
+        import streamlit as st
+        v = st.secrets.get(key, "")
+        if v not in (None, ""):
+            return str(v)
     except Exception:
-        return os.environ.get(key, "")
+        pass
+
+    # 2) Fallback to env
+    return os.environ.get(key, "")
 
 
 def _fix_yf_cols(df: pd.DataFrame) -> pd.DataFrame:

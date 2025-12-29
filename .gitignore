@@ -59,3 +59,12 @@ outputs/*.txt
 **/secrets*.json
 **/*key*.json
 **/*token*.json
+
+
+privReadme.md
+*priv*.*
+
+
+# bot runtime state
+outputs/jupbot_state.json
+outputs/*.json

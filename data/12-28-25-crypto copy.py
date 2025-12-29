@@ -7,7 +7,10 @@ import pandas as pd
 import requests
 import yfinance as yf
 from datetime import datetime, timezone
-from decimal import Decimal
+
+# from dotenv import load_dotenv
+# load_dotenv()
+
 
 from core.utils import _fix_yf_cols
 from core.indicators import apply_indicators
@@ -19,15 +22,8 @@ from core.signals import (
     FINAL_COLUMN_ORDER,
 )
 
+
 from core.utils import get_secret
-
-# NEW imports
-from core.registry import load_asset_registry, find_registry_entry_by_yahoo_ticker
-from core.prices import get_yahoo_price_usd
-from core.balances.solana import get_spl_token_balance
-from core.balances.evm import get_erc20_balance
-from core.balances.sui import get_coin_balance
-
 
 def _coingecko_headers() -> dict:
     headers = {}
@@ -48,6 +44,7 @@ def fetch_crypto_4h_df(ticker: str, lookback_days: int = 70) -> pd.DataFrame | N
         raw = _fix_yf_cols(raw)
         df = raw[["Open", "High", "Low", "Close", "Volume"]].dropna()
 
+        # yfinance timestamps can include tz; remove so resample works cleanly
         try:
             df.index = df.index.tz_localize(None)
         except Exception:
@@ -141,13 +138,21 @@ def build_crypto_signals_table(
             }
         )
 
-    out = pd.DataFrame(rows).reindex(columns=FINAL_COLUMN_ORDER)
-    return out
+    out = pd.DataFrame(rows)
+    return out.reindex(columns=FINAL_COLUMN_ORDER)
 
 
-# -----------------------------
-# Crypto Context (TOTAL vs 200MA, BTC.D, Altcoin Index)
-# -----------------------------
+# # -----------------------------
+# # Crypto Context (TOTAL vs 200MA, BTC.D, Altcoin Index)
+# # -----------------------------
+# def _coingecko_headers() -> dict:
+#     headers = {}
+#     api_key = os.environ.get("COINGECKO_API_KEY", "").strip()
+#     if api_key:
+#         headers["x-cg-pro-api-key"] = api_key
+#     return headers
+
+
 def fetch_coingecko_global() -> dict:
     url = "https://api.coingecko.com/api/v3/global"
     r = requests.get(url, headers=_coingecko_headers(), timeout=12)
@@ -180,9 +185,17 @@ def fetch_total_mcap_history_coingecko(days: int = 900) -> pd.DataFrame:
 
 
 def fetch_total_mcap_history_coinmarketcap(days: int = 900) -> pd.DataFrame:
+    # api_key = os.environ.get("CMC_API_KEY", "").strip()
+    # if not api_key:
+    #     raise ValueError("CMC_API_KEY not set.")
+    
     api_key = get_secret("CMC_API_KEY").strip()
     if not api_key:
         raise ValueError("CMC_API_KEY not set")
+    return {
+        "X-CMC_PRO_API_KEY": api_key,
+        "Accepts": "application/json"
+    }
 
     end = datetime.now(timezone.utc)
     start = end - pd.Timedelta(days=days)
@@ -211,13 +224,70 @@ def fetch_total_mcap_history_coinmarketcap(days: int = 900) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["date", "mcap"]).sort_values("date").reset_index(drop=True)
 
 
+# def compute_total_vs_200ma(total_df: pd.DataFrame) -> dict:
+#     """
+#     Your rule:
+#       Bull: TOTAL > 200MA
+#       Transition: below for <=30 days
+#       Bear: below for >30 days
+#     """
+#     if total_df is None or total_df.empty or len(total_df) < 220:
+#         return {"mcap": np.nan, "ma200": np.nan, "status": "N/A", "days_below": None, "phase": "N/A"}
+
+#     s = total_df.copy()
+#     s["ma200"] = s["mcap"].rolling(200).mean()
+
+#     last = s.iloc[-1]
+#     mcap = float(last["mcap"])
+#     ma200 = float(last["ma200"]) if pd.notna(last["ma200"]) else np.nan
+#     if np.isnan(ma200):
+#         return {"mcap": mcap, "ma200": np.nan, "status": "N/A", "days_below": None, "phase": "N/A"}
+
+#     above = mcap >= ma200
+#     status = "ABOVE" if above else "BELOW"
+
+#     days_below = 0
+#     if not above:
+#         i = len(s) - 1
+#         while i >= 0:
+#             row = s.iloc[i]
+#             if pd.isna(row["ma200"]):
+#                 break
+#             if float(row["mcap"]) < float(row["ma200"]):
+#                 days_below += 1
+#                 i -= 1
+#             else:
+#                 break
+
+#     if above:
+#         phase = "BULL (Safe to trade crypto)"
+#         days_below = 0
+#     else:
+#         phase = (
+#             "TRANSITION (<30d below 200MA) — half size, BTC/ETH only"
+#             if days_below <= 30
+#             else "BEAR (>30d below 200MA) — sit out crypto"
+#         )
+
+#     return {"mcap": mcap, "ma200": ma200, "status": status, "days_below": days_below, "phase": phase}
+
 def compute_total_vs_200ma(total_df) -> dict:
+    # Guard: sometimes fetchers may return dicts on failure
     if total_df is None:
         return {"mcap": np.nan, "ma200": np.nan, "status": "N/A", "days_below": None, "phase": "N/A"}
 
+    # If a dict slipped through, treat it as an error payload and fail gracefully
     if isinstance(total_df, dict):
-        return {"mcap": np.nan, "ma200": np.nan, "status": "N/A", "days_below": None, "phase": "N/A", "error": str(total_df)}
+        return {
+            "mcap": np.nan,
+            "ma200": np.nan,
+            "status": "N/A",
+            "days_below": None,
+            "phase": "N/A",
+            "error": str(total_df),
+        }
 
+    # Now safe to assume DataFrame-like
     if total_df.empty or len(total_df) < 220:
         return {"mcap": np.nan, "ma200": np.nan, "status": "N/A", "days_below": None, "phase": "N/A"}
 
@@ -246,9 +316,12 @@ def compute_total_vs_200ma(total_df) -> dict:
             else:
                 break
 
-    phase = "BULL (Safe to trade crypto)" if above else ("TRANSITION (<30d below 200MA) — half size, BTC/ETH only" if days_below <= 30 else "BEAR (>30d below 200MA) — sit out crypto")
-    return {"mcap": mcap, "ma200": ma200, "status": status, "days_below": (days_below if not above else 0), "phase": phase}
+    if above:
+        phase = "BULL (Safe to trade crypto)"
+    else:
+        phase = "TRANSITION (<30d below 200MA) — half size, BTC/ETH only" if days_below <= 30 else "BEAR (>30d below 200MA) — sit out crypto"
 
+    return {"mcap": mcap, "ma200": ma200, "status": status, "days_below": (days_below if not above else 0), "phase": phase}
 
 def fetch_altcoin_season_index() -> dict:
     url = "https://www.blockchaincenter.net/api/altcoin-season-index/"
@@ -283,168 +356,3 @@ def fetch_altcoin_season_index() -> dict:
         label = "NEUTRAL"
 
     return {"score": score, "label": label}
-
-
-# ============================================================
-# NEW: Portfolio enrichment (Qty, Price, USD Value, USDC Value)
-# ============================================================
-
-ETH_RPC_URLS = ["https://eth.llamarpc.com", "https://ethereum.publicnode.com"]
-BASE_RPC_URLS = ["https://mainnet.base.org", "https://base.publicnode.com"]
-
-
-def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Adds:
-      - Qty
-      - Price
-      - USD Value
-      - USDC Value
-
-    Uses ASSET_REGISTRY in secrets/env.
-    If blockchain blank/missing => leaves fields blank.
-    """
-    registry = load_asset_registry()
-
-    # Ensure columns exist
-    for col in ["Qty", "Price", "USD Value", "USDC Value"]:
-        if col not in df.columns:
-            df[col] = np.nan
-
-    # If registry missing, just return with blank cols
-    if not registry:
-        return _reorder_crypto_columns(df)
-
-    qty_list = []
-    price_list = []
-    usd_list = []
-    usdc_list = []
-
-    for _, row in df.iterrows():
-        yahoo_ticker = str(row.get("Ticker", "")).strip()
-        entry = find_registry_entry_by_yahoo_ticker(registry, yahoo_ticker)
-
-        if not entry:
-            qty_list.append(np.nan)
-            price_list.append(np.nan)
-            usd_list.append(np.nan)
-            usdc_list.append(np.nan)
-            continue
-
-        chain = str(entry.get("blockchain", "")).strip().lower()
-        wallet = str(entry.get("wallet_address", "")).strip()
-        token_contract = str(entry.get("token_contract", "")).strip()
-        stable_contract = str(entry.get("stablecoin_contract", "")).strip()
-
-        # If chain not provided, leave blank
-        if not chain:
-            qty_list.append(np.nan)
-            price_list.append(np.nan)
-            usd_list.append(np.nan)
-            usdc_list.append(np.nan)
-            continue
-
-        # Price (Yahoo) — if yahoo_ticker exists, we try it; else blank
-        price_dec = None
-        try:
-            if yahoo_ticker:
-                price_dec = get_yahoo_price_usd(yahoo_ticker)
-        except Exception:
-            price_dec = None
-
-        # Qty + USDC balances
-        qty_dec = None
-        usdc_dec = None
-
-        try:
-            if chain == "solana":
-                if wallet and token_contract:
-                    qty_dec = get_spl_token_balance(wallet, token_contract)
-                if wallet and stable_contract:
-                    usdc_dec = get_spl_token_balance(wallet, stable_contract)
-
-            elif chain == "ethereum":
-                if wallet and token_contract:
-                    qty_dec = get_erc20_balance(wallet, token_contract, ETH_RPC_URLS)
-                if wallet and stable_contract:
-                    usdc_dec = get_erc20_balance(wallet, stable_contract, ETH_RPC_URLS)
-
-            elif chain == "base":
-                if wallet and token_contract:
-                    qty_dec = get_erc20_balance(wallet, token_contract, BASE_RPC_URLS)
-                if wallet and stable_contract:
-                    usdc_dec = get_erc20_balance(wallet, stable_contract, BASE_RPC_URLS)
-
-            elif chain == "sui":
-                if wallet and token_contract:
-                    qty_dec = get_coin_balance(wallet, token_contract)
-                if wallet and stable_contract:
-                    usdc_dec = get_coin_balance(wallet, stable_contract)
-
-            else:
-                qty_dec = None
-                usdc_dec = None
-
-        except Exception:
-            # if balance fetch fails, keep blank for that row
-            qty_dec = None
-            usdc_dec = None
-
-        # Compute USD value
-        usd_val = None
-        if qty_dec is not None and price_dec is not None:
-            try:
-                usd_val = qty_dec * price_dec
-            except Exception:
-                usd_val = None
-
-        # Convert to floats for dataframe display
-        qty_list.append(float(qty_dec) if qty_dec is not None else np.nan)
-        price_list.append(float(price_dec) if price_dec is not None else np.nan)
-        usd_list.append(float(usd_val) if usd_val is not None else np.nan)
-
-        # USDC value = USDC qty (assume $1)
-        usdc_list.append(float(usdc_dec) if usdc_dec is not None else np.nan)
-
-    out = df.copy()
-    out["Qty"] = pd.Series(qty_list).round(4)
-    out["Price"] = pd.Series(price_list).round(4)
-    out["USD Value"] = pd.Series(usd_list).round(4)
-    out["USDC Value"] = pd.Series(usdc_list).round(4)
-
-    return _reorder_crypto_columns(out)
-
-
-def _reorder_crypto_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    1) Move 'Bar Time' to end
-    2) Insert Qty/Price/USD Value/USDC Value right after 'SIGNAL-Super-MOST-ADXR'
-    """
-    cols = list(df.columns)
-
-    insert_after = "SIGNAL-Super-MOST-ADXR"
-    new_cols = ["Qty", "Price", "USD Value", "USDC Value"]
-
-    # remove new cols to reinsert
-    cols_wo_new = [c for c in cols if c not in new_cols]
-
-    # move bar time to end later
-    bar_time_present = "Bar Time" in cols_wo_new
-    if bar_time_present:
-        cols_wo_new.remove("Bar Time")
-
-    # insert after signal col
-    if insert_after in cols_wo_new:
-        idx = cols_wo_new.index(insert_after) + 1
-        cols_wo_new = cols_wo_new[:idx] + new_cols + cols_wo_new[idx:]
-    else:
-        # fallback: append them near start
-        cols_wo_new = cols_wo_new[:4] + new_cols + cols_wo_new[4:]
-
-    # put Bar Time at end
-    if bar_time_present:
-        cols_wo_new.append("Bar Time")
-
-    # keep only existing columns
-    cols_final = [c for c in cols_wo_new if c in df.columns]
-    return df.reindex(columns=cols_final)

@@ -100,7 +100,7 @@ CRYPTO_TICKERS = [
     "AAVE-USD" , "ADA-USD" , "AIXBT-USD", "AKT-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , "cetus-usd" ,"cookie31838-usd" ,"CRV-USD",
     "DRIFT31278-USD", "ELIZAOS-USD",  "elon-usd" ,"ENA-USD","ENS-USD",
     "fluid-usd", "FAI34330-USD", "griffain-USD",
-    "HNT-USD","JTO-USD", "JUP29210-USD",  "LFNTY-USD", "navx-USD" , "NEAR-USD", "ORCA-USD" , "ore32782-USD",
+    "HNT-USD","JTO-USD", "JUP29210-USD",  "LFNTY-USD", "MON30495-USD", "navx-USD" , "NEAR-USD", "ORCA-USD" , "ore32782-USD",
     "pippin-usd" , "PNK-USD", "PYTH-USD","RAY-USD","RENDER-USD",
      "SUAI-USD", "suins-usd",  "TAI20605-USD",
     "VIRTUAL-USD", "W-USD" , "WAL36119-USD", "WLD-USD", "wlfi33251-usd", "wlfi33036-usd", "wlfi-usd", "XBG-USD" , "XRP-USD", "ZEREBRO-USD" , "ZEUS30391-USD", "zk24091-USD"
@@ -304,9 +304,28 @@ try:
 except Exception as e:
     st.info(f"No Stocks 1D CSV yet. Click Refresh. ({e})")
 
+# st.subheader("₿ Crypto 4H Signals")
+# try:
+#     df_crypto = pd.read_csv(os.path.join(OUTPUTS_DIR, "supertrend_crypto_4h.csv"))
+#     st.dataframe(df_crypto, use_container_width=True)
+# except Exception as e:
+#     st.info(f"No Crypto 4H CSV yet. Click Refresh. ({e})")
+
 st.subheader("₿ Crypto 4H Signals")
 try:
     df_crypto = pd.read_csv(os.path.join(OUTPUTS_DIR, "supertrend_crypto_4h.csv"))
+
+    # Enrich with wallet qty/price/usd fields from ASSET_REGISTRY
+    from data.crypto import enrich_crypto_portfolio_fields
+
+    @st.cache_data(ttl=120)
+    def _enrich_cached(df_in: pd.DataFrame) -> pd.DataFrame:
+        return enrich_crypto_portfolio_fields(df_in)
+
+    df_crypto = _enrich_cached(df_crypto)
+
     st.dataframe(df_crypto, use_container_width=True)
+
 except Exception as e:
     st.info(f"No Crypto 4H CSV yet. Click Refresh. ({e})")
+
