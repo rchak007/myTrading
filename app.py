@@ -1,6 +1,8 @@
 # app.py
 from __future__ import annotations
 
+import schwabdev
+
 import os
 import numpy as np
 import pandas as pd
@@ -87,11 +89,11 @@ os.makedirs(OUTPUTS_DIR, exist_ok=True)
 # ]
 STOCK_TICKERS = [
     "AAPL","AAOI","ALAB","AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML", "AVGO",
-    "BE","BMNR", "CEG",  "CFG","COIN","COHR","CORZ","CRDO","CRVW", "CRWD", "ETHA","GEV","GOOG",
+    "BE", "BMNR", "BWXT", "CEG",  "CFG","COIN","COHR","CORZ","CRDO","CRVW", "CRWD", "ETHA","GEV","GOOG",
     "HODL","HOOD","IBIT","IDR","INOD","IONQ","IREN","LEU","LITE","LRCX","LTBR",
-    "META","MP","MSFT","MSTR","MSTX","MU","NET","NPPTF","NVDA","OKLO", "ORCL",  "PLTR",
-    "QBTS","QUBT","RGTI","RDDT","SOFI","SSK","STKE",
-    "VRT",  "TER","TSLA","TSM","UPXI",
+    "META","MNST", "MP","MSFT","MSTR","MSTX","MU","NET","NPPTF","NVDA","OKLO", "ORCL",  "PLTR",
+    "QBTS","QUBT","RGTI","RDDT","SOFI", "SMR", "SSK","STKE", "STRC",
+    "TER","TSLA","TSM","UPXI","VRT", "WDC"  
 ]
 
 CRYPTO_TICKERS = [
@@ -100,10 +102,11 @@ CRYPTO_TICKERS = [
     "AAVE-USD" , "ADA-USD" , "AIXBT-USD", "AKT-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , "cetus-usd" ,"cookie31838-usd" ,"CRV-USD",
     "DRIFT31278-USD", "ELIZAOS-USD",  "elon-usd" ,"ENA-USD","ENS-USD",
     "fluid-usd", "FAI34330-USD", "griffain-USD",
-    "HNT-USD","JTO-USD", "JUP29210-USD",  "LFNTY-USD", "MON30495-USD", "navx-USD" , "NEAR-USD", "ORCA-USD" , "ore32782-USD",
+    "HNT-USD","JTO-USD", "JUP29210-USD", "KMNO-USD", "LFNTY-USD", 
+    "MON30495-USD", "navx-USD" , "NEAR-USD", "ORCA-USD" , "ore32782-USD",
     "pippin-usd" , "PNK-USD", "PYTH-USD","RAY-USD","RENDER-USD",
      "SUAI-USD", "suins-usd",  "TAI20605-USD",
-    "VIRTUAL-USD", "W-USD" , "WAL36119-USD", "WLD-USD", "wlfi33251-usd", "wlfi33036-usd", "wlfi-usd", "XBG-USD" , "XRP-USD", "ZEREBRO-USD" , "ZEUS30391-USD", "zk24091-USD"
+    "VIRTUAL-USD", "W-USD" , "WAL36119-USD", "WLD-USD", "wlfi33251-usd",  "XBG-USD" , "XRP-USD", "ZEREBRO-USD" , "ZEUS30391-USD", "zk24091-USD"
 ]
 
 
@@ -115,8 +118,61 @@ CRYPTO_NOT_FOUND_YAHOO = {
 }
 
 
+
+@st.cache_data(ttl=120)
+def fetch_schwab_stock_holdings() -> pd.DataFrame:
+    """
+    Returns a DataFrame: Ticker, QTY, VALUE
+    Aggregated across all accounts, equities only.
+    """
+    app_key = os.getenv("app_key")
+    app_secret = os.getenv("app_secret")
+    callback_url = os.getenv("callback_url")
+
+    if not app_key or not app_secret or not callback_url:
+        # If env missing, return empty so UI still works
+        return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
+
+    client = schwabdev.Client(app_key, app_secret, callback_url)
+
+    try:
+        resp = client.account_details_all(fields="positions")
+    except TypeError:
+        resp = client.account_details_all(fields=["positions"])
+
+    data = resp.json()
+    rows = []
+
+    for acct in data:
+        sa = acct.get("securitiesAccount", {})
+        for pos in sa.get("positions", []) or []:
+            inst = pos.get("instrument", {}) or {}
+            symbol = inst.get("symbol")
+            asset_type = inst.get("assetType")
+
+            # keep only stock-like holdings (equities)
+            if asset_type not in ("EQUITY",):
+                continue
+
+            long_qty = float(pos.get("longQuantity") or 0.0)
+            short_qty = float(pos.get("shortQuantity") or 0.0)
+            qty = long_qty - short_qty
+
+            mkt_value = float(pos.get("marketValue") or 0.0)
+
+            if symbol:
+                rows.append({"Ticker": symbol, "QTY": qty, "VALUE": mkt_value})
+
+    if not rows:
+        return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
+
+    out = pd.DataFrame(rows).groupby("Ticker", as_index=False).agg({"QTY": "sum", "VALUE": "sum"})
+    return out
+
 st.set_page_config(page_title="Supertrend + MOST RSI + ADXR", layout="wide")
 st.title("🟢 Exact KivancOzbilgic Supertrend + MOST RSI + ADXR — Stocks 1D + Crypto 4H")
+
+
 
 
 # -----------------------
@@ -279,6 +335,7 @@ if st.button("🔄 Refresh signals (recompute + rewrite CSVs)"):
         with st.spinner("Computing crypto signals..."):
             df_crypto = build_crypto_signals_table(
                 CRYPTO_TICKERS,
+                gecko_pools=CRYPTO_NOT_FOUND_YAHOO,   # <-- ADD THIS
                 atr_period=ATR_PERIOD,
                 atr_multiplier=ATR_MULTIPLIER,
                 rsi_period=RSI_PERIOD,
@@ -300,6 +357,45 @@ if st.button("🔄 Refresh signals (recompute + rewrite CSVs)"):
 st.subheader("📈 Stocks 1D Signals")
 try:
     df_stocks = pd.read_csv(os.path.join(OUTPUTS_DIR, "supertrend_stocks_1d.csv"))
+
+    # --- Add Schwab portfolio columns (QTY, VALUE) ---
+    try:
+        holdings = fetch_schwab_stock_holdings()
+        df_stocks = df_stocks.merge(holdings, on="Ticker", how="left")
+    except Exception:
+        # If Schwab call fails, still show signals
+        df_stocks["QTY"] = np.nan
+        df_stocks["VALUE"] = np.nan
+
+    # Fill blanks for non-held tickers
+    if "QTY" in df_stocks.columns:
+        df_stocks["QTY"] = df_stocks["QTY"].fillna(0)
+    if "VALUE" in df_stocks.columns:
+        df_stocks["VALUE"] = df_stocks["VALUE"].fillna(0.0)
+
+    # --- Reorder columns ---
+    # Put QTY and VALUE right after SIGNAL-Super-MOST-ADXR
+    cols = list(df_stocks.columns)
+    for c in ["QTY", "VALUE"]:
+        if c in cols:
+            cols.remove(c)
+
+    insert_after = "SIGNAL-Super-MOST-ADXR"
+    if insert_after in cols:
+        idx = cols.index(insert_after) + 1
+        cols[idx:idx] = ["QTY", "VALUE"]
+    else:
+        # fallback if column name changes
+        cols = ["Ticker", "QTY", "VALUE"] + [c for c in cols if c not in ("Ticker",)]
+
+    # Move Timeframe and Bar Time to the end
+    for move_col in ["Timeframe", "Bar Time"]:
+        if move_col in cols:
+            cols.remove(move_col)
+            cols.append(move_col)
+
+    df_stocks = df_stocks[cols]                
+
     st.dataframe(df_stocks, use_container_width=True)
 except Exception as e:
     st.info(f"No Stocks 1D CSV yet. Click Refresh. ({e})")

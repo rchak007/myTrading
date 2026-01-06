@@ -19,14 +19,19 @@ from core.signals import (
 def fetch_stock_1d_df(ticker: str, lookback_days: int = 450) -> pd.DataFrame | None:
     try:
         raw = yf.download(ticker, period=f"{lookback_days}d", interval="1d", progress=False)
+       
         if raw is None or raw.empty:
             return None
         raw = _fix_yf_cols(raw)
         df = raw[["High", "Low", "Close", "Volume"]].dropna()
-        if df.empty or len(df) < 250:
+        if ticker == 'BMNR':
+            print("len(df) = ", len(df))         
+        if df.empty or len(df) < 120:
             return None
         return df
     except Exception:
+        if ticker == 'BMNR':
+            print("BMNR error - fetch_stock_1d_df")
         return None
 
 
@@ -47,10 +52,13 @@ def build_stocks_signals_table(
     rows = []
 
     for t in tickers:
+        if t == 'BMNR':
+            print("BMNR reached") 
         base = fetch_stock_1d_df(t)
         if base is None:
             continue
-
+        if t == 'BMNR':
+            print("BASE = ", base)         
         df = apply_indicators(
             base,
             atr_period=atr_period,

@@ -28,6 +28,11 @@ from core.balances.solana import get_spl_token_balance
 from core.balances.evm import get_erc20_balance
 from core.balances.sui import get_coin_balance
 
+import re
+from functools import lru_cache
+
+
+
 
 def _coingecko_headers() -> dict:
     headers = {}
@@ -53,7 +58,7 @@ def fetch_crypto_4h_df(ticker: str, lookback_days: int = 70) -> pd.DataFrame | N
         except Exception:
             pass
 
-        resampled = df.resample("4H")
+        resampled = df.resample("4h")
         df_4h = pd.DataFrame(
             {
                 "High": resampled["High"].max(),
@@ -63,16 +68,21 @@ def fetch_crypto_4h_df(ticker: str, lookback_days: int = 70) -> pd.DataFrame | N
             }
         ).dropna()
 
-        if df_4h.empty or len(df_4h) < 250:
+        print("Ticker ", ticker, " length= ", len(df_4h) )
+        if df_4h.empty or len(df_4h) < 240:
             return None
         return df_4h
     except Exception:
         return None
 
 
+
+
+
 def build_crypto_signals_table(
     tickers: list[str],
     *,
+    gecko_pools: dict[str, str] | None = None,
     atr_period: int = 10,
     atr_multiplier: float = 3.0,
     rsi_period: int = 14,
@@ -85,6 +95,7 @@ def build_crypto_signals_table(
     adxr_flat_eps: float = 1e-6,
 ) -> pd.DataFrame:
     rows = []
+    gecko_pools = gecko_pools or {}
 
     for t in tickers:
         base = fetch_crypto_4h_df(t)
@@ -141,9 +152,149 @@ def build_crypto_signals_table(
             }
         )
 
+
+# 2) extra geckoterminal pools (LVL/A0X/GAME etc)
+    for sym, pool_url in gecko_pools.items():
+        base = fetch_geckoterminal_4h_df_from_pool_url(pool_url)
+        if base is None:
+            continue
+
+        df = apply_indicators(
+            base,
+            atr_period=atr_period,
+            atr_multiplier=atr_multiplier,
+            rsi_period=rsi_period,
+            vol_lookback=vol_lookback,
+            adxr_len=adxr_len,
+            adxr_lenx=adxr_lenx,
+            adxr_low_threshold=adxr_low_threshold,
+            adxr_flat_eps=adxr_flat_eps,
+        )
+
+        last = df.iloc[-1]
+
+        st_sig = str(last.get("Supertrend_Signal", "SELL"))
+        most_sig = str(last.get("MOST_Signal", "SELL"))
+        adxr_state = str(last.get("ADXR_State", "FLAT"))
+
+        vol_sig = signal_supertrend_plus_volume(
+            st_sig,
+            float(last.get("Volume", np.nan)),
+            float(last.get("Avg_Volume", np.nan)),
+            vol_multiplier=vol_multiplier,
+        )
+        comb_sig = signal_combined(st_sig, vol_sig, float(last.get("RSI", np.nan)), rsi_buy_threshold=rsi_buy_threshold)
+        full_sig = signal_full_combined(comb_sig, most_sig)
+        super_most_adxr = signal_super_most_adxr(st_sig, most_sig, adxr_state)
+
+        rows.append(
+            {
+                "Ticker": sym,              # <-- IMPORTANT: keep it as "LVL" etc
+                "Timeframe": "4H",
+                "Bar Time": last.name,
+                "Last Close": round(float(last["Close"]), 6),
+                "SIGNAL-Super-MOST-ADXR": super_most_adxr,
+                "Supertrend": round(float(last["Supertrend"]), 6) if pd.notna(last["Supertrend"]) else np.nan,
+                "Supertrend Signal": st_sig,
+                "RSI": round(float(last["RSI"]), 2) if pd.notna(last["RSI"]) else np.nan,
+                "MOST MA": round(float(last["MOST_MA"]), 2) if pd.notna(last["MOST_MA"]) else np.nan,
+                "MOST Line": round(float(last["MOST_Line"]), 2) if pd.notna(last["MOST_Line"]) else np.nan,
+                "MOST Signal": most_sig,
+                "ADXR State": adxr_state,
+                "ADXR Signal": str(last.get("ADXR_Signal", "WEAK")),
+                "Volume": float(last["Volume"]) if pd.notna(last["Volume"]) else np.nan,
+                "Supertrend+Vol Signal": vol_sig,
+                "Combined Signal": comb_sig,
+                "Full Combined": full_sig,
+            }
+        )
+
     out = pd.DataFrame(rows).reindex(columns=FINAL_COLUMN_ORDER)
     return out
 
+
+
+
+GECKO_BASE = "https://api.geckoterminal.com/api/v2"
+_GECKO_UA = "myTrading-geckoterminal/1.0"
+
+
+def _parse_geckoterminal_pool_url(url: str) -> tuple[str, str]:
+    """
+    Example:
+      https://www.geckoterminal.com/solana/pools/<POOL>
+      https://www.geckoterminal.com/base/pools/<POOL>
+
+    Returns: (network, pool_address)
+    """
+    m = re.search(r"geckoterminal\.com/([^/]+)/pools/([^/?#]+)", url)
+    if not m:
+        raise ValueError(f"Invalid GeckoTerminal pool URL: {url}")
+    return m.group(1).strip().lower(), m.group(2).strip()
+
+
+def _gecko_get(path: str, params: dict | None = None) -> dict:
+    url = f"{GECKO_BASE}{path}"
+    r = requests.get(url, params=params, headers={"User-Agent": _GECKO_UA}, timeout=25)
+    r.raise_for_status()
+    return r.json()
+
+
+@lru_cache(maxsize=256)
+def fetch_geckoterminal_ohlcv_4h(network: str, pool_address: str, limit: int = 500) -> pd.DataFrame | None:
+    """
+    Fetches 4H OHLCV directly from GeckoTerminal pool candles.
+    Uses timeframe=hour + aggregate=4 => 4H.
+    Returns df indexed by datetime (naive), with Open/High/Low/Close/Volume.
+    """
+    try:
+        j = _gecko_get(
+            f"/networks/{network}/pools/{pool_address}/ohlcv/hour",
+            params={"aggregate": 4, "limit": int(limit)},
+        )
+        attrs = (j.get("data") or {}).get("attributes") or {}
+        rows = attrs.get("ohlcv_list") or []
+        if not rows:
+            return None
+
+        df = pd.DataFrame(rows, columns=["ts", "Open", "High", "Low", "Close", "Volume"])
+        df["dt"] = pd.to_datetime(df["ts"], unit="s", utc=True).dt.tz_convert(None)
+        df = df.drop(columns=["ts"]).set_index("dt").sort_index()
+
+        # numeric
+        for c in ["Open", "High", "Low", "Close", "Volume"]:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+        df = df.dropna()
+
+        # your Yahoo fetch requires ~240 bars; keep consistent
+        if df.empty or len(df) < 240:
+            return None
+
+        return df
+    except Exception:
+        return None
+
+
+def fetch_geckoterminal_4h_df_from_pool_url(pool_url: str) -> pd.DataFrame | None:
+    network, pool = _parse_geckoterminal_pool_url(pool_url)
+    return fetch_geckoterminal_ohlcv_4h(network, pool)
+
+
+@lru_cache(maxsize=256)
+def get_geckoterminal_price_usd_from_pool_url(pool_url: str) -> Decimal | None:
+    """
+    Price proxy: use the last close from 4H candles.
+    This avoids needing any extra endpoints.
+    """
+    df = fetch_geckoterminal_4h_df_from_pool_url(pool_url)
+    if df is None or df.empty:
+        return None
+    last_close = df["Close"].iloc[-1]
+    try:
+        return Decimal(str(float(last_close)))
+    except Exception:
+        return None
 
 # -----------------------------
 # Crypto Context (TOTAL vs 200MA, BTC.D, Altcoin Index)
@@ -291,6 +442,48 @@ def fetch_altcoin_season_index() -> dict:
 
 ETH_RPC_URLS = ["https://eth.llamarpc.com", "https://ethereum.publicnode.com"]
 BASE_RPC_URLS = ["https://mainnet.base.org", "https://base.publicnode.com"]
+BSC_RPC_URLS = [
+    "https://bsc-dataseed.binance.org",
+    "https://bsc.publicnode.com",
+]
+
+
+def get_solana_native_balance(wallet: str) -> Decimal:
+    """
+    Solana native SOL balance via JSON-RPC getBalance.
+    Returns SOL as Decimal.
+    """
+    url = "https://api.mainnet-beta.solana.com"
+    payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [wallet]}
+    r = requests.post(url, json=payload, timeout=12)
+    r.raise_for_status()
+    lamports = int(r.json()["result"]["value"])
+    return Decimal(lamports) / Decimal(1_000_000_000)
+
+
+def get_evm_native_balance(wallet: str, rpc_urls: list[str]) -> Decimal:
+    """
+    EVM native balance (ETH/BNB/etc) via eth_getBalance.
+    Returns native coin amount as Decimal.
+    """
+    payload = {"jsonrpc": "2.0", "id": 1, "method": "eth_getBalance", "params": [wallet, "latest"]}
+
+    last_err = None
+    for url in rpc_urls:
+        try:
+            r = requests.post(url, json=payload, timeout=12)
+            r.raise_for_status()
+            wei_hex = r.json().get("result")
+            if not wei_hex:
+                continue
+            wei = int(wei_hex, 16)
+            return Decimal(wei) / Decimal(10**18)
+        except Exception as e:
+            last_err = e
+            continue
+
+    raise RuntimeError(f"All RPCs failed for native balance: {last_err}")
+
 
 
 def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
@@ -324,6 +517,12 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
         yahoo_ticker = str(row.get("Ticker", "")).strip()
         entry = find_registry_entry_by_yahoo_ticker(registry, yahoo_ticker)
 
+        # fallback: match by symbol key like "LVL"
+        if not entry:
+            sym = str(row.get("Ticker", "")).strip()
+            entry = registry.get(sym) or registry.get(sym.upper()) or registry.get(sym.lower())
+
+
         if not entry:
             qty_list.append(np.nan)
             price_list.append(np.nan)
@@ -346,6 +545,17 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
 
         # Price (Yahoo) — if yahoo_ticker exists, we try it; else blank
         price_dec = None
+
+        # 1) If row ticker is a Gecko-only symbol (like LVL/A0X/GAME), use GeckoTerminal close
+        try:
+            # we let app.py store the mapping in env/registry OR we detect via registry entry
+            # easiest: if entry has "geckoterminal_pool" field use it
+            gecko_pool = str(entry.get("geckoterminal_pool", "")).strip()
+            if gecko_pool:
+                price_dec = get_geckoterminal_price_usd_from_pool_url(gecko_pool)
+        except Exception:
+            price_dec = None
+
         try:
             if yahoo_ticker:
                 price_dec = get_yahoo_price_usd(yahoo_ticker)
@@ -357,29 +567,68 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
         usdc_dec = None
 
         try:
+            # if chain == "solana":
+            #     if wallet and token_contract:
+            #         qty_dec = get_spl_token_balance(wallet, token_contract)
+            #     if wallet and stable_contract:
+            #         usdc_dec = get_spl_token_balance(wallet, stable_contract)
             if chain == "solana":
-                if wallet and token_contract:
+                # Native SOL if token_contract is blank
+                if wallet and not token_contract:
+                    qty_dec = get_solana_native_balance(wallet)
+                elif wallet and token_contract:
                     qty_dec = get_spl_token_balance(wallet, token_contract)
+
                 if wallet and stable_contract:
                     usdc_dec = get_spl_token_balance(wallet, stable_contract)
 
+            # elif chain == "ethereum":
+            #     if wallet and token_contract:
+            #         qty_dec = get_erc20_balance(wallet, token_contract, ETH_RPC_URLS)
+            #     if wallet and stable_contract:
+            #         usdc_dec = get_erc20_balance(wallet, stable_contract, ETH_RPC_URLS)
+
             elif chain == "ethereum":
-                if wallet and token_contract:
+                if wallet and not token_contract:
+                    qty_dec = get_evm_native_balance(wallet, ETH_RPC_URLS)
+                elif wallet and token_contract:
                     qty_dec = get_erc20_balance(wallet, token_contract, ETH_RPC_URLS)
+
                 if wallet and stable_contract:
                     usdc_dec = get_erc20_balance(wallet, stable_contract, ETH_RPC_URLS)
 
+            # elif chain == "base":
+            #     if wallet and token_contract:
+            #         qty_dec = get_erc20_balance(wallet, token_contract, BASE_RPC_URLS)
+            #     if wallet and stable_contract:
+            #         usdc_dec = get_erc20_balance(wallet, stable_contract, BASE_RPC_URLS)
+
             elif chain == "base":
-                if wallet and token_contract:
+                if wallet and not token_contract:
+                    qty_dec = get_evm_native_balance(wallet, BASE_RPC_URLS)
+                elif wallet and token_contract:
                     qty_dec = get_erc20_balance(wallet, token_contract, BASE_RPC_URLS)
+
                 if wallet and stable_contract:
                     usdc_dec = get_erc20_balance(wallet, stable_contract, BASE_RPC_URLS)
+
 
             elif chain == "sui":
                 if wallet and token_contract:
                     qty_dec = get_coin_balance(wallet, token_contract)
                 if wallet and stable_contract:
                     usdc_dec = get_coin_balance(wallet, stable_contract)
+
+            elif chain in ("bsc", "bnb"):
+                if wallet and not token_contract:
+                    qty_dec = get_evm_native_balance(wallet, BSC_RPC_URLS)
+                elif wallet and token_contract:
+                    qty_dec = get_erc20_balance(wallet, token_contract, BSC_RPC_URLS)
+
+                if wallet and stable_contract:
+                    usdc_dec = get_erc20_balance(wallet, stable_contract, BSC_RPC_URLS)
+
+
 
             else:
                 qty_dec = None

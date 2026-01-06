@@ -68,3 +68,67 @@ privReadme.md
 # bot runtime state
 outputs/jupbot_state.json
 outputs/*.json
+
+
+# Schwab secrets
+schwabAPI/tokens.json
+schwabAPI/.env
+**/__pycache__/
+
+
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo   
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+.env
+.env.*
+
+# Jupyter / misc
+.ipynb_checkpoints/
+.DS_Store
+
+# Local data / exports (Schwab)
+data/
+*.csv
+*.parquet
+*.json
+
+# Token caches / auth artifacts (if you store)
+token.json
+tokens.json
+auth_tokens.json
+
+# Private docs
+privReadme.md
+*priv*.md
+
+
+
+# ---- caches / outputs ----
+cache/
+caches/
+data_cache/
+transactions_cache/
+*.parquet
+*.csv
+outputs/
+reports/
+
+# ---- python ----
+__pycache__/
+*.pyc
+.venv/
+venv/
+.envrc
+
+# ---- OS/editor ----
+.DS_Store
+.vscode/
+.idea/
