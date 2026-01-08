@@ -1,134 +1,70 @@
-# -------------------------
+# =========================
 # Python
-# -------------------------
+# =========================
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
-*.so
 *.egg-info/
 dist/
 build/
 
-# -------------------------
-# Environments
-# -------------------------
+# =========================
+# Environments / secrets
+# =========================
 .venv/
 venv/
 env/
 .env
 .env.*
-!.env.example
+.envrc
+.streamlit/secrets.toml
 
-# -------------------------
-# Jupyter / Colab
-# -------------------------
-.ipynb_checkpoints/
-*.ipynb
-
-# -------------------------
+# =========================
 # OS / editor
-# -------------------------
+# =========================
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
 
-# -------------------------
+# =========================
 # Logs
-# -------------------------
+# =========================
 *.log
 
-# -------------------------
-# Streamlit
-# -------------------------
-.streamlit/secrets.toml
-
-# -------------------------
-# Outputs (generated)
-# -------------------------
-outputs/*.csv
-outputs/*.parquet
-outputs/*.json
-outputs/*.txt
-!outputs/.gitkeep
-
-# -------------------------
-# Local keys / creds
-# -------------------------
-**/secrets*.json
-**/*key*.json
-**/*token*.json
-
-
-privReadme.md
-*priv*.*
-
-
-# bot runtime state
-outputs/jupbot_state.json
-outputs/*.json
-
-
-# Schwab secrets
-schwabAPI/tokens.json
-schwabAPI/.env
-**/__pycache__/
-
-
-
-# Python
-__pycache__/
-*.py[cod]
-*.pyo   
-*.pyd
-*.egg-info/
-dist/
-build/
-.venv/
-venv/
-.env
-.env.*
-
-# Jupyter / misc
-.ipynb_checkpoints/
-.DS_Store
-
-# Local data / exports (Schwab)
-data/
-*.csv
-*.parquet
-*.json
-
-# Token caches / auth artifacts (if you store)
-token.json
-tokens.json
-auth_tokens.json
-
-# Private docs
-privReadme.md
-*priv*.md
-
-
-
-# ---- caches / outputs ----
+# =========================
+# Generated outputs
+# =========================
+outputs/
+reports/
 cache/
 caches/
 data_cache/
 transactions_cache/
-*.parquet
+
+# =========================
+# Data files ONLY (not code)
+# =========================
 *.csv
-outputs/
-reports/
+*.parquet
+*.json
 
-# ---- python ----
-__pycache__/
-*.pyc
-.venv/
-venv/
-.envrc
+# BUT keep python source code
+!**/*.py
+!**/__init__.py
 
-# ---- OS/editor ----
-.DS_Store
-.vscode/
-.idea/
+# =========================
+# Token / auth artifacts
+# =========================
+**/tokens.json
+**/tokens.json.bak
+**/*token*.json
+**/*auth*.json
+schwabAPI/.env
+
+# =========================
+# Private docs
+# =========================
+privReadme.md
+*priv*.md
