@@ -1,0 +1,12 @@
+{
+    "access_token_issued": "2026-01-08T01:43:20.332677+00:00",
+    "refresh_token_issued": "2026-01-03T05:40:26.577355+00:00",
+    "token_dictionary": {
+        "expires_in": 1800,
+        "token_type": "Bearer",
+        "scope": "api",
+        "refresh_token": "t6cd84waRkHTW5l-RNro0YZx1gtx4XUTN251KySBHSgcqbvv0wmHMxOrpqIozhBOOnWjbCmd8SqNboD6L2zfif0HUtcyShdQgNyaDN0cs1uLGE_kJOZBuE98kbFatyRPQiHRfar22jE@",
+        "access_token": "I0.b2F1dGgyLmJkYy5zY2h3YWIuY29t.YkethJvFmAQF_-_KFWZvBh7P2gtu-jwbWA4xwaihFJ0@",
+        "id_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIwOWMzMGYyMjkxYjdkODkyZGQ3ZGEyN2RjYzhiMzhjZDczZTgxN2E3NDRlNzQwYmViMzRmMzkwNGRmMWU5YjVlIiwiYXVkIjoia0J1OEZuSDgwZ0VUNlRvNTdBZDFpSERqcVczRVExb2wiLCJpc3MiOiJ1cm46Ly9hcGkuc2Nod2FiYXBpLmNvbSIsImV4cCI6MTc2Nzg0MDIwMCwiaWF0IjoxNzY3ODM2NjAwLCJqdGkiOiJmZGQ1ZDRiYy01NmU4LTQxMDQtOTkwZS03ZDI4OGU2MDdmZDEifQ.m9TmjNWjQIcec8og9BpEPb75IyvUiGfQMPLb7208cKc"
+    }
+}

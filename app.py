@@ -33,6 +33,38 @@ APP_DIR = Path(__file__).resolve().parent
 OUTPUTS_DIR = APP_DIR / "outputs"
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 
+
+from datetime import datetime
+from data.schwab.token_store import load_tokens_db
+from data.schwab.token_sync import sync_db_to_local_multi, sync_local_to_db_multi
+
+# TOKEN_PATH = OUTPUTS_DIR / "schwab_tokens.json"
+# TOKEN_PATH = APP_DIR / "tokens.json"
+
+TOKEN_PATHS = [
+    APP_DIR / "tokens.json",
+    APP_DIR / "data" / "schwab" / "tokens.json",
+]
+USER_ID = "main"
+
+with st.sidebar:
+    st.subheader("🔐 Schwab Token (DB)")
+
+    t = load_tokens_db(USER_ID)
+    if t:
+        st.write("DB token expires:",
+                 datetime.fromtimestamp(t["expires_at"]).strftime("%Y-%m-%d %H:%M:%S"))
+        if st.button("⬇️ Sync DB → local (for schwabdev)"):
+            ok = sync_db_to_local_multi(USER_ID, TOKEN_PATHS)
+            st.success("Synced DB → local ✅" if ok else "No DB token found ❌")
+        if st.button("⬆️ Sync local → DB (after login/refresh)"):
+            ok = sync_local_to_db_multi(USER_ID, TOKEN_PATHS)
+            st.success("Synced local → DB ✅" if ok else "No valid local token ❌")
+    else:
+        st.warning("No token in DB yet.")
+        st.caption("After you login once, click 'Sync local → DB'.")
+
+
 STOCKS_CSV = OUTPUTS_DIR / "supertrend_stocks_1d.csv"
 CRYPTO_CSV = OUTPUTS_DIR / "supertrend_crypto_4h.csv"
 
@@ -75,8 +107,8 @@ ADXR_FLAT_EPS = 1e-6
 # - geo / time session filters
 PLACEHOLDER_FUTURE = True
 
-OUTPUTS_DIR = "outputs"
-os.makedirs(OUTPUTS_DIR, exist_ok=True)
+# OUTPUTS_DIR = "outputs"
+# os.makedirs(OUTPUTS_DIR, exist_ok=True)
 
 
 # Your real lists (keep yours here)
@@ -115,8 +147,10 @@ CRYPTO_NOT_FOUND_YAHOO = {
     "LVL": "https://www.geckoterminal.com/solana/pools/GiRyo4r3kREH8oRCe9GoJJARZuGo4ksto6xXvUok4wdd",
     "A0X": "https://www.geckoterminal.com/base/pools/0xfd100e192d0ff7a284f31a93b367d582666e406b",
     "GAME": "https://www.geckoterminal.com/base/pools/0xd418dfe7670c21f682e041f34250c114db5d7789",
+    "AoT": "https://www.geckoterminal.com/base/pools/0x6e7a1875810afb6074953094c35a101e1cc7aee010fb1372d8f41b0fbe92d83c",   
 }
 
+# AoT 0xcc4adb618253ed0d4d8a188fb901d70c54735e03
 
 
 @st.cache_data(ttl=120)
@@ -132,6 +166,9 @@ def fetch_schwab_stock_holdings() -> pd.DataFrame:
     if not app_key or not app_secret or not callback_url:
         # If env missing, return empty so UI still works
         return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
+
+    # Ensure schwabdev can find tokens locally
+    sync_db_to_local_multi(USER_ID, TOKEN_PATHS)
 
     client = schwabdev.Client(app_key, app_secret, callback_url)
 
@@ -167,6 +204,10 @@ def fetch_schwab_stock_holdings() -> pd.DataFrame:
         return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
 
     out = pd.DataFrame(rows).groupby("Ticker", as_index=False).agg({"QTY": "sum", "VALUE": "sum"})
+
+    # If schwabdev refreshed tokens, save local -> DB
+    sync_local_to_db_multi(USER_ID, TOKEN_PATHS)    
+
     return out
 
 st.set_page_config(page_title="Supertrend + MOST RSI + ADXR", layout="wide")

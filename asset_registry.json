@@ -70,7 +70,13 @@
       "yahoo_ticker":"HYPE32196-USD",
       "stablecoin_contract":""
       },
-    "SUI20947": {"ticker":"SUI20947","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"SUI20947-USD","stablecoin_contract":""},
+    "SUI20947": {
+      "ticker":"SUI20947",
+      "blockchain":"sui",
+      "wallet_address":"0xd873497b6856155fe3fae21917aab0424747ec8eb4f1c3cad1753686294515f8",
+      "token_contract":"",
+      "yahoo_ticker":"SUI20947-USD",
+      "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"},
 
     "LINK": {
       "ticker":"LINK",
@@ -99,6 +105,17 @@
       "stablecoin_contract":"0x55d398326f99059fF775485246999027B3197955"
     },
   
+
+    "AoT": {
+      "ticker":"AoT",
+      "blockchain":"base",
+      "wallet_address":"",
+      "token_contract":"0xcc4adb618253ed0d4d8a188fb901d70c54735e03",
+      "yahoo_ticker":"AoT-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "geckoterminal_pool": "https://www.geckoterminal.com/base/pools/0x6e7a1875810afb6074953094c35a101e1cc7aee010fb1372d8f41b0fbe92d83c"
+    },
+
     "AAVE": {"ticker":"AAVE","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AAVE-USD","stablecoin_contract":""},
     "ADA": {"ticker":"ADA","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ADA-USD","stablecoin_contract":""},
     "AIXBT": {"ticker":"AIXBT","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AIXBT-USD","stablecoin_contract":""},
@@ -116,12 +133,34 @@
     "AUKI": {"ticker":"AUKI","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AUKI-USD","stablecoin_contract":""},
     "AURORA14803": {"ticker":"AURORA14803","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AURORA14803-USD","stablecoin_contract":""},
   
-    "BLUE": {"ticker":"BLUE","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"blue-usd","stablecoin_contract":""},
+    "BLUE": {
+      "ticker":"BLUE",
+      "blockchain":"sui",
+      "wallet_address":"0x5943820ff9a925a23e240282cc0c3e86efdd003ce440f866d816a8ba76cc8f6f",
+      "token_contract":"0xe1b45a0e641b9955a20aa0ad1c1f4ad86aad8afb07296d4085e349a50e90bdca::blue::BLUE",
+      "yahoo_ticker":"blue-usd",
+      "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+    },
 
-    "CETUS": {"ticker":"CETUS","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"cetus-usd","stablecoin_contract":""},
+    "CETUS": {
+      "ticker":"CETUS",
+      "blockchain":"sui",
+      "wallet_address":"0x9bb8ff90acf6fbeb93c5d151aa4db8325144dfd9171ac1fb8565dbcf8ac48799",
+      "token_contract":"0x06864a6f921804860930db6ddbe2e16acdf8504495ea7481637a1c8b9a8fe54b::cetus::CETUS",
+      "yahoo_ticker":"cetus-usd",
+      "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+    },
     "COOKIE31838": {"ticker":"COOKIE31838","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"cookie31838-usd","stablecoin_contract":""},
     "CRV": {"ticker":"CRV","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"CRV-USD","stablecoin_contract":""},
-  
+
+    "DEEP": {
+      "ticker":"DEEP",
+      "blockchain":"sui",
+      "wallet_address":"0x246c7037d5fd8c424e45631b930c2f3acacbee27a07a6863e797b8700a6f331d",
+      "token_contract":"0xdeeb7a4662eec9f2f3def03fb937a663dddaa2e215b8078a284d026b7946c270::deep::DEEP",
+      "yahoo_ticker":"DEEP33391-USD",
+      "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+    },
     "DRIFT31278": {
       "ticker":"DRIFT",
       "blockchain":"solana",
@@ -157,6 +196,15 @@
     },
   
     "HNT": {"ticker":"HNT","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"HNT-USD","stablecoin_contract":""},
+
+    "IKA": {
+      "ticker":"IKA",
+      "blockchain":"sui",
+      "wallet_address":"0x5a84161a0ea678fd90d34565ec5ebc6259cad522bd93c26fa9b5d7dc11d66c21",
+      "token_contract":"0x7262fb2f7a3a14c888c438a3cd9b912469a58cf60f367352c46584262e8299aa::ika::IKA",
+      "yahoo_ticker":"ika-usd",
+      "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+    },    
     "JTO": {"ticker":"JTO","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"JTO-USD","stablecoin_contract":""},
     "JUP29210": {"ticker":"JUP29210","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"JUP29210-USD","stablecoin_contract":""},
     "KMNO": {
@@ -178,7 +226,14 @@
       "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       "geckoterminal_pool": "https://www.geckoterminal.com/solana/pools/GiRyo4r3kREH8oRCe9GoJJARZuGo4ksto6xXvUok4wdd"
     },
-    "NAVX": {"ticker":"NAVX","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"navx-USD","stablecoin_contract":""},
+    "NAVX": {
+      "ticker":"NAVX",
+      "blockchain":"sui",
+      "wallet_address":"0x9dac507bad115c2fddba3bb5fe6434e8bd60674fae75048b7111ae7a7eb56abf",
+      "token_contract":"0xa99b8952d4f7d947ea77fe0ecdcc9e5fc0bcab2841d6e2a5aa00c3044e5544b5::navx::NAVX",
+      "yahoo_ticker":"navx-USD",
+      "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+    },
     "NEAR": {"ticker":"NEAR","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"NEAR-USD","stablecoin_contract":""},
     "ORCA": {"ticker":"ORCA","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ORCA-USD","stablecoin_contract":""},
     "ORE32782": {"ticker":"ORE32782","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ore32782-USD","stablecoin_contract":""},
@@ -201,13 +256,44 @@
       "yahoo_ticker":"RENDER-USD",
       "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     },
-  
-    "SUAI": {"ticker":"SUAI","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"SUAI-USD","stablecoin_contract":""},
-    "SUINS": {"ticker":"SUINS","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"suins-usd","stablecoin_contract":""},
+
+    
+    "SODENG": {
+      "ticker":"SODENG",
+      "blockchain":"sui",
+      "wallet_address":"0x964cc21d377fe3a523c34016d19202c026ce83e46e1af567c340c8a983d4a6ab",
+      "token_contract":"0x8993129d72e733985f7f1a00396cbd055bad6f817fee36576ce483c8bbb8b87b::sudeng::SUDENG",
+      "yahoo_ticker":"HIPPO33258-USD",
+      "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+    },
+
+    "SUAI": {
+      "ticker":"SUAI",
+      "blockchain":"sui",
+      "wallet_address":"0xaa4c4c998d1d8cf57b08bc214aa927e85991d738ce00059e9cc4b9cec1fbc6e6",
+      "token_contract":"0xbc732bc5f1e9a9f4bdf4c0672ee538dbf56c161afe04ff1de2176efabdf41f92::suai::SUAI",
+      "yahoo_ticker":"SUAI-USD",
+      "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+    },
+    "SUINS": {
+      "ticker":"SUINS",
+      "blockchain":"sui",
+      "wallet_address":"0x5e3b35edfe2e1ff8974bf0f81f3ecc51dc4885d458187655fdaf130f202d4207",
+      "token_contract":"0x5145494a5f5100e645e4b0aa950fa6b68f614e8c59e17bc5ded3495123a79178::ns::NS",
+      "yahoo_ticker":"suins-usd",
+      "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+    },
     "TAI20605": {"ticker":"TAI20605","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"TAI20605-USD","stablecoin_contract":""},
   
     "W": {"ticker":"W","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"W-USD","stablecoin_contract":""},
-    "WAL36119": {"ticker":"WAL36119","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"WAL36119-USD","stablecoin_contract":""},
+    "WAL36119": {
+      "ticker":"WAL36119",
+      "blockchain":"sui",
+      "wallet_address":"0xc1f69b991e16866d0246fa773f650b07c95449e792bdd85175f76d98fe9f36d9",
+      "token_contract":"0xb1b0650a8862e30e3f604fd6c5838bc25464b8d3d827fbd58af7cb9685b832bf::wwal::WWAL",
+      "yahoo_ticker":"WAL36119-USD",
+      "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
+    },
     "WLD": {"ticker":"WLD","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"WLD-USD","stablecoin_contract":""},
   
     "WLFI33251": {
@@ -221,6 +307,7 @@
 
     "XBG": {"ticker":"XBG","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"XBG-USD","stablecoin_contract":""},
     "XRP": {"ticker":"XRP","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"XRP-USD","stablecoin_contract":""},
+    "ZEC": {"ticker":"ZEC","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ZEC-USD","stablecoin_contract":""},
     "ZEREBRO": {"ticker":"ZEREBRO","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ZEREBRO-USD","stablecoin_contract":""},
     "ZEUS30391": {"ticker":"ZEUS30391","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ZEUS30391-USD","stablecoin_contract":""},
     "ZK24091": {"ticker":"ZK24091","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"zk24091-USD","stablecoin_contract":""}

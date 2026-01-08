@@ -3,7 +3,13 @@ import logging
 
 from dotenv import load_dotenv
 import schwabdev
+from pathlib import Path
+from data.schwab.token_sync import sync_db_to_local, sync_local_to_db
 
+
+APP_DIR = Path(__file__).resolve().parents[1]  # points to repo root
+TOKEN_PATH = APP_DIR / "tokens.json"
+USER_ID = "main"
 
 def get_env(name: str, fallback: str | None = None) -> str:
     """Try lowercase first (Schwabdev docs), then uppercase fallback."""
@@ -31,7 +37,9 @@ def main():
 
     # This is exactly how the official example creates the client
     # docs/examples/api_demo.py on the repo :contentReference[oaicite:1]{index=1}
+    sync_db_to_local(USER_ID, TOKEN_PATH)
     client = schwabdev.Client(app_key, app_secret, callback_url)
+    sync_local_to_db(USER_ID, TOKEN_PATH)
 
     print("\n✅ Connected to Schwabdev client, fetching linked accounts…")
 
