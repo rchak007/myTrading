@@ -1,55 +1,70 @@
+# =========================
 # Python
+# =========================
 __pycache__/
 *.py[cod]
-*.pyo   
+*.pyo
 *.pyd
 *.egg-info/
 dist/
 build/
+
+# =========================
+# Environments / secrets
+# =========================
 .venv/
 venv/
+env/
 .env
 .env.*
+.envrc
+.streamlit/secrets.toml
 
-# Jupyter / misc
-.ipynb_checkpoints/
+# =========================
+# OS / editor
+# =========================
 .DS_Store
+Thumbs.db
+.vscode/
+.idea/
 
-# Local data / exports (Schwab)
-data/
-*.csv
-*.parquet
-*.json
+# =========================
+# Logs
+# =========================
+*.log
 
-# Token caches / auth artifacts (if you store)
-token.json
-tokens.json
-auth_tokens.json
-
-# Private docs
-privReadme.md
-*priv*.md
-
-
-
-# ---- caches / outputs ----
+# =========================
+# Generated outputs
+# =========================
+outputs/
+reports/
 cache/
 caches/
 data_cache/
 transactions_cache/
-*.parquet
+
+# =========================
+# Data files ONLY (not code)
+# =========================
 *.csv
-outputs/
-reports/
+*.parquet
+*.json
 
-# ---- python ----
-__pycache__/
-*.pyc
-.venv/
-venv/
-.envrc
+# BUT keep python source code
+!**/*.py
+!**/__init__.py
 
-# ---- OS/editor ----
-.DS_Store
-.vscode/
-.idea/
+# =========================
+# Token / auth artifacts
+# =========================
+**/tokens.json
+**/tokens.json.bak
+**/*token*.json
+**/*auth*.json
+schwabAPI/.env
+
+# =========================
+# Private docs
+# =========================
+privReadme.md
+*priv*.md

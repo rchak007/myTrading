@@ -29,9 +29,18 @@ import os
 from pathlib import Path
 import streamlit as st
 
+import sys
+from pathlib import Path
+
 APP_DIR = Path(__file__).resolve().parent
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
+
+# APP_DIR = Path(__file__).resolve().parent
 OUTPUTS_DIR = APP_DIR / "outputs"
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
 
 
 from datetime import datetime
