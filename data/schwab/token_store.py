@@ -32,6 +32,10 @@ def load_tokens_db(user_id: str = "main") -> Optional[Dict[str, Any]]:
         "expires_at": int(dt.timestamp()),
     }
 
+def delete_tokens_db(user_id: str = "main") -> None:
+    sb = _sb()
+    sb.table("schwab_tokens").delete().eq("user_id", user_id).execute()
+
 
 def save_tokens_db(tokens: Dict[str, Any], user_id: str = "main") -> None:
     exp = tokens["expires_at"]
