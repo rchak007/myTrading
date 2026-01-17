@@ -31,12 +31,14 @@ class SchwabClient:
         app_key: str,
         app_secret: str,
         callback_url: str,
+        local_only: bool = False,
     ):
         self.user_id = user_id
         self.token_paths = token_paths
         self.app_key = app_key
         self.app_secret = app_secret
         self.callback_url = callback_url
+        self.local_only = local_only  # If True, skip DB entirely
         self._client: Optional[schwabdev.Client] = None
         
     def _sync_db_to_local(self) -> bool:
@@ -83,8 +85,8 @@ class SchwabClient:
                 p.unlink(missing_ok=True)
             # Don't check expiry, just proceed to create client
             pass
-        else:
-            # Check token status only if not forcing new auth
+        elif not self.local_only:
+            # Only check DB if not in local-only mode
             status = self._check_token_expiry()
             
             if status["expired"]:
@@ -97,6 +99,10 @@ class SchwabClient:
             if not self._sync_db_to_local():
                 # No tokens in DB - we'll create client which will trigger OAuth
                 print("⚠️  No tokens found. Starting OAuth flow...")
+        else:
+            # Local-only mode: just check if local token file exists
+            if not any(p.exists() for p in self.token_paths):
+                print("⚠️  No local tokens found. Starting OAuth flow...")
         
         # Point schwabdev to the first token file
         os.environ["SCHWAB_TOKEN_PATH"] = str(self.token_paths[0])
@@ -126,8 +132,9 @@ class SchwabClient:
                 )
             raise
         
-        # After client creation, sync local → DB (in case tokens were refreshed)
-        self._sync_local_to_db()
+        # After client creation, sync local → DB (only if not local-only)
+        if not self.local_only:
+            self._sync_local_to_db()
         
         return self._client
     
@@ -166,9 +173,14 @@ class SchwabClient:
         return resp.json()
 
 
-def create_schwab_client(user_id: str, token_paths: list[Path]) -> SchwabClient:
+def create_schwab_client(user_id: str, token_paths: list[Path], local_only: bool = False) -> SchwabClient:
     """
     Factory function to create a SchwabClient with env vars.
+    
+    Args:
+        user_id: User ID for database storage
+        token_paths: List of paths where tokens might be stored
+        local_only: If True, skip database entirely and only use local token files
     """
     app_key = os.getenv("app_key")
     app_secret = os.getenv("app_secret")
@@ -185,4 +197,5 @@ def create_schwab_client(user_id: str, token_paths: list[Path]) -> SchwabClient:
         app_key=app_key,
         app_secret=app_secret,
         callback_url=callback_url,
+        local_only=local_only,
     )

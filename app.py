@@ -234,6 +234,94 @@ def schwab_token_status(user_id: str, token_paths: list[Path]) -> dict:
     return status
 
 
+# Replace your fetch_schwab_stock_holdings() function in app.py with this:
+
+from data.schwab.schwab_helper import create_schwab_client, SchwabAuthError
+
+def fetch_schwab_stock_holdings() -> pd.DataFrame:
+    """
+    Returns a DataFrame: Ticker, QTY, VALUE
+    Aggregated across all accounts, equities only.
+    """
+    try:
+        # For local development: skip DB, use local tokens only
+        # Set local_only=True to bypass database token checks
+        LOCAL_ONLY = True  # Change to False when deploying to Streamlit Cloud
+        
+        client_wrapper = create_schwab_client(USER_ID, TOKEN_PATHS, local_only=LOCAL_ONLY)
+        
+        # Fetch positions (handles token refresh automatically)
+        data = client_wrapper.fetch_positions()
+        
+        # DEBUG: Show raw response structure
+        st.write("🔍 DEBUG: Number of accounts:", len(data))
+        
+        # Parse positions
+        rows = []
+        for i, acct in enumerate(data):
+            st.write(f"📊 Account {i+1}:")
+            
+            sa = acct.get("securitiesAccount", {})
+            acct_type = sa.get("type", "UNKNOWN")
+            st.write(f"  - Type: {acct_type}")
+            
+            positions = sa.get("positions", []) or []
+            st.write(f"  - Total positions: {len(positions)}")
+            
+            equity_count = 0
+            for pos in positions:
+                inst = pos.get("instrument", {}) or {}
+                symbol = inst.get("symbol")
+                asset_type = inst.get("assetType")
+                
+                st.write(f"    - {symbol}: {asset_type}")
+                
+                if asset_type != "EQUITY":
+                    continue
+                
+                equity_count += 1
+                long_qty = float(pos.get("longQuantity") or 0.0)
+                short_qty = float(pos.get("shortQuantity") or 0.0)
+                qty = long_qty - short_qty
+                mkt_value = float(pos.get("marketValue") or 0.0)
+                
+                if symbol:
+                    rows.append({"Ticker": symbol, "QTY": qty, "VALUE": mkt_value})
+                    st.write(f"      ✅ Added: {symbol} | Qty: {qty} | Value: ${mkt_value:,.2f}")
+            
+            st.write(f"  - EQUITY positions: {equity_count}")
+        
+        st.write(f"🎯 Total equity rows collected: {len(rows)}")
+        
+        if not rows:
+            st.warning("⚠️ No EQUITY positions found in any Schwab accounts.")
+            st.info("This could mean: 1) All positions are cash/options/futures, or 2) Account structure is different than expected")
+            return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
+        
+        out = (
+            pd.DataFrame(rows)
+            .groupby("Ticker", as_index=False)
+            .agg({"QTY": "sum", "VALUE": "sum"})
+        )
+        
+        st.write(f"📈 Final holdings DataFrame ({len(out)} unique tickers):")
+        st.dataframe(out)
+        
+        return out
+        
+    except SchwabAuthError as e:
+        # User-friendly error message
+        st.error(f"🔐 Schwab Authentication Error:\n\n{str(e)}")
+        return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
+    
+    except Exception as e:
+        st.error(f"Unexpected error fetching Schwab holdings:\n{str(e)}")
+        st.exception(e)
+        return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
+
+
+# Also update your schwab_auth_panel() test button:
+
 def schwab_auth_panel():
     st.sidebar.header("🔐 Schwab Auth")
 
@@ -345,70 +433,11 @@ def schwab_auth_panel():
             st.sidebar.error(f"Login failed: {str(e)}")
             st.sidebar.exception(e)
 
-
-
-            
 schwab_auth_panel()
 
 # @st.cache_data(ttl=120)
 
 
-
-def fetch_schwab_stock_holdings() -> pd.DataFrame:
-    """
-    Returns a DataFrame: Ticker, QTY, VALUE
-    Aggregated across all accounts, equities only.
-    """
-    try:
-        # Create client wrapper
-        client_wrapper = create_schwab_client(USER_ID, TOKEN_PATHS)
-        
-        # Fetch positions (handles token refresh automatically)
-        data = client_wrapper.fetch_positions()
-        
-        # Parse positions
-        rows = []
-        for acct in data:
-            sa = acct.get("securitiesAccount", {})
-            positions = sa.get("positions", []) or []
-            
-            for pos in positions:
-                inst = pos.get("instrument", {}) or {}
-                symbol = inst.get("symbol")
-                asset_type = inst.get("assetType")
-                
-                if asset_type != "EQUITY":
-                    continue
-                
-                long_qty = float(pos.get("longQuantity") or 0.0)
-                short_qty = float(pos.get("shortQuantity") or 0.0)
-                qty = long_qty - short_qty
-                mkt_value = float(pos.get("marketValue") or 0.0)
-                
-                if symbol:
-                    rows.append({"Ticker": symbol, "QTY": qty, "VALUE": mkt_value})
-        
-        if not rows:
-            st.warning("No EQUITY positions found in Schwab accounts.")
-            return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
-        
-        out = (
-            pd.DataFrame(rows)
-            .groupby("Ticker", as_index=False)
-            .agg({"QTY": "sum", "VALUE": "sum"})
-        )
-        
-        return out
-
-    except SchwabAuthError as e:
-        # User-friendly error message
-        st.error(f"🔐 Schwab Authentication Error:\n\n{str(e)}")
-        return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
-    
-    except Exception as e:
-        st.error(f"Unexpected error fetching Schwab holdings:\n{str(e)}")
-        st.exception(e)
-        return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
 
 st.set_page_config(page_title="Supertrend + MOST RSI + ADXR", layout="wide")
 st.title("🟢 Exact KivancOzbilgic Supertrend + MOST RSI + ADXR — Stocks 1D + Crypto 4H")
@@ -475,6 +504,71 @@ with right:
 st.divider()
 
 
+
+
+st.subheader("📈 Stocks 1D Signals")
+try:
+    df_stocks = pd.read_csv(os.path.join(OUTPUTS_DIR, "supertrend_stocks_1d.csv"))
+
+    # --- Add Schwab portfolio columns (QTY, VALUE) ---
+    st.write("🔄 Fetching Schwab holdings...")
+    try:
+        holdings = fetch_schwab_stock_holdings()
+        st.write(f"✅ Got {len(holdings)} holdings from Schwab")
+        
+        # Show what we got
+        if not holdings.empty:
+            st.write("Holdings preview:")
+            st.dataframe(holdings)
+        
+        df_stocks = df_stocks.merge(holdings, on="Ticker", how="left")
+        st.write("✅ Merged holdings with signals")
+        
+    except SchwabAuthError as e:
+        st.error(f"Schwab auth failed: {e}")
+        df_stocks["QTY"] = np.nan
+        df_stocks["VALUE"] = np.nan
+        
+    except Exception as e:
+        # Don't silence errors - show them!
+        st.error(f"Error fetching Schwab holdings: {str(e)}")
+        st.exception(e)
+        df_stocks["QTY"] = np.nan
+        df_stocks["VALUE"] = np.nan
+
+    # Fill blanks for non-held tickers
+    if "QTY" in df_stocks.columns:
+        df_stocks["QTY"] = df_stocks["QTY"].fillna(0)
+    if "VALUE" in df_stocks.columns:
+        df_stocks["VALUE"] = df_stocks["VALUE"].fillna(0.0)
+
+    # --- Reorder columns ---
+    # Put QTY and VALUE right after SIGNAL-Super-MOST-ADXR
+    cols = list(df_stocks.columns)
+    for c in ["QTY", "VALUE"]:
+        if c in cols:
+            cols.remove(c)
+
+    insert_after = "SIGNAL-Super-MOST-ADXR"
+    if insert_after in cols:
+        idx = cols.index(insert_after) + 1
+        cols[idx:idx] = ["QTY", "VALUE"]
+    else:
+        # fallback if column name changes
+        cols = ["Ticker", "QTY", "VALUE"] + [c for c in cols if c not in ("Ticker",)]
+
+    # Move Timeframe and Bar Time to the end
+    for move_col in ["Timeframe", "Bar Time"]:
+        if move_col in cols:
+            cols.remove(move_col)
+            cols.append(move_col)
+
+    df_stocks = df_stocks[cols]
+
+    st.dataframe(df_stocks, width="stretch")
+
+except Exception as e:
+    st.info(f"No Stocks 1D CSV yet. Click Refresh. ({e})")
 # -----------------------
 # Crypto Context block
 # -----------------------
@@ -595,53 +689,6 @@ if st.button("🔄 Refresh signals (recompute + rewrite CSVs)"):
         st.error("Refresh failed — here is the exact error:")
         st.exception(e)
 
-st.subheader("📈 Stocks 1D Signals")
-try:
-    df_stocks = pd.read_csv(os.path.join(OUTPUTS_DIR, "supertrend_stocks_1d.csv"))
-
-    # --- Add Schwab portfolio columns (QTY, VALUE) ---
-    try:
-        holdings = fetch_schwab_stock_holdings()
-        df_stocks = df_stocks.merge(holdings, on="Ticker", how="left")
-    except Exception:
-        # If Schwab call fails, still show signals
-        df_stocks["QTY"] = np.nan
-        df_stocks["VALUE"] = np.nan
-
-    # Fill blanks for non-held tickers
-    if "QTY" in df_stocks.columns:
-        df_stocks["QTY"] = df_stocks["QTY"].fillna(0)
-    if "VALUE" in df_stocks.columns:
-        df_stocks["VALUE"] = df_stocks["VALUE"].fillna(0.0)
-
-    # --- Reorder columns ---
-    # Put QTY and VALUE right after SIGNAL-Super-MOST-ADXR
-    cols = list(df_stocks.columns)
-    for c in ["QTY", "VALUE"]:
-        if c in cols:
-            cols.remove(c)
-
-    insert_after = "SIGNAL-Super-MOST-ADXR"
-    if insert_after in cols:
-        idx = cols.index(insert_after) + 1
-        cols[idx:idx] = ["QTY", "VALUE"]
-    else:
-        # fallback if column name changes
-        cols = ["Ticker", "QTY", "VALUE"] + [c for c in cols if c not in ("Ticker",)]
-
-    # Move Timeframe and Bar Time to the end
-    for move_col in ["Timeframe", "Bar Time"]:
-        if move_col in cols:
-            cols.remove(move_col)
-            cols.append(move_col)
-
-    df_stocks = df_stocks[cols]                
-
-    # st.dataframe(df_stocks, use_container_width=True)
-    st.dataframe(df_stocks, width="stretch")
-
-except Exception as e:
-    st.info(f"No Stocks 1D CSV yet. Click Refresh. ({e})")
 
 # st.subheader("₿ Crypto 4H Signals")
 # try:
