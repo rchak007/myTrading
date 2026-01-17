@@ -1,9 +1,6 @@
 # app.py
 from __future__ import annotations
 
-from data.schwab.schwab_helper import create_schwab_client, SchwabAuthError
-
-
 import schwabdev
 
 import os
@@ -241,7 +238,10 @@ def schwab_auth_panel():
     profile = st.sidebar.radio("Token profile", ["LOCAL", "HOSTED"], horizontal=True)
     user_id = "main_local" if profile == "LOCAL" else "main_hosted"
 
+    # Your local token file(s)
+    # IMPORTANT: use the same TOKEN_PATHS you already use elsewhere
     token_paths = [Path(p) for p in TOKEN_PATHS]
+
     st.sidebar.caption(f"DB user_id: `{user_id}`")
 
     with st.sidebar.expander("Status", expanded=True):
@@ -290,125 +290,155 @@ def schwab_auth_panel():
             delete_tokens_db(user_id=user_id)
         except Exception as e:
             st.sidebar.error(f"DB delete failed: {e}")
-        st.sidebar.success("✅ Cleared DB + Local. Next Schwab call will require login.")
+        st.sidebar.success("Cleared DB + Local. Next Schwab call will require login.")
 
     st.sidebar.divider()
 
-    # Test connection with better error handling
+    # Test connection (quick, no portfolio parsing)
     st.sidebar.subheader("Test")
-    
-    col_a, col_b = st.sidebar.columns(2)
-    
-    # Normal test (uses existing tokens)
-    if col_a.button("✅ Test", help="Test with existing tokens"):
+    if st.sidebar.button("✅ Test Schwab (positions)"):
+        app_key = os.getenv("app_key")
+        app_secret = os.getenv("app_secret")
+        callback_url = os.getenv("callback_url")
+
+        st.sidebar.write("callback_url:", callback_url)
+
+        ok = sync_db_to_local_multi(user_id, token_paths)
+        st.sidebar.write("DB → Local ok:", ok)
+
+        # Point schwabdev to the first token file
+        os.environ["SCHWAB_TOKEN_PATH"] = str(token_paths[0])
+        st.sidebar.write("SCHWAB_TOKEN_PATH:", os.environ["SCHWAB_TOKEN_PATH"])
+
+        client = schwabdev.Client(app_key, app_secret, callback_url)
+
         try:
-            client_wrapper = create_schwab_client(user_id, token_paths)
-            data = client_wrapper.fetch_positions()
-            st.sidebar.success(f"✅ Schwab OK! Found {len(data)} accounts.")
-            
-        except SchwabAuthError as e:
-            st.sidebar.error(str(e))
-            
-        except Exception as e:
-            st.sidebar.error(f"Unexpected error: {str(e)}")
-            st.sidebar.exception(e)
-    
-    # Force new login (clears tokens and triggers OAuth)
-    if col_b.button("🔐 Login", help="Force new OAuth login", type="primary"):
-        st.sidebar.info("🌐 Starting OAuth flow...")
-        st.sidebar.warning(
-            "⚠️ IMPORTANT:\n"
-            "1. A browser window will open\n"
-            "2. Login to Schwab\n"
-            "3. After login, you'll see 'Site can't be reached'\n"
-            "4. COPY the full URL from browser\n"
-            "5. Check your VSCode TERMINAL below\n"
-            "6. Look for: 'Paste the callback URL here:'\n"
-            "7. PASTE the URL and hit Enter"
-        )
-        
-        try:
-            # Clear tokens first
-            for p in token_paths:
-                p.unlink(missing_ok=True)
-            delete_tokens_db(user_id=user_id)
-            
-            # Force OAuth flow
-            client_wrapper = create_schwab_client(user_id, token_paths)
-            client = client_wrapper.get_client(force_new_auth=True)
-            
-            # If we get here, auth succeeded
-            st.sidebar.success("✅ Login successful!")
-            st.sidebar.info("Now click 'Local → DB' to save tokens to database.")
-            
-        except Exception as e:
-            st.sidebar.error(f"Login failed: {str(e)}")
-            st.sidebar.exception(e)
+            resp = client.account_details_all(fields="positions")
+        except TypeError as e:
+            st.sidebar.write("TypeError; retry list:", str(e))
+            resp = client.account_details_all(fields=["positions"])
+
+        st.sidebar.write("HTTP status:", resp.status_code)
+        if resp.status_code != 200:
+            st.sidebar.error("Schwab call failed. This usually means tokens need re-auth or callback_url mismatch.")
+            try:
+                st.sidebar.code(resp.text)
+            except Exception:
+                pass
+        else:
+            st.sidebar.success("Schwab OK ✅ (200)")
 
 
-
-            
 schwab_auth_panel()
 
 # @st.cache_data(ttl=120)
-
-
 
 def fetch_schwab_stock_holdings() -> pd.DataFrame:
     """
     Returns a DataFrame: Ticker, QTY, VALUE
     Aggregated across all accounts, equities only.
     """
-    try:
-        # Create client wrapper
-        client_wrapper = create_schwab_client(USER_ID, TOKEN_PATHS)
-        
-        # Fetch positions (handles token refresh automatically)
-        data = client_wrapper.fetch_positions()
-        
-        # Parse positions
-        rows = []
-        for acct in data:
-            sa = acct.get("securitiesAccount", {})
-            positions = sa.get("positions", []) or []
-            
-            for pos in positions:
-                inst = pos.get("instrument", {}) or {}
-                symbol = inst.get("symbol")
-                asset_type = inst.get("assetType")
-                
-                if asset_type != "EQUITY":
-                    continue
-                
-                long_qty = float(pos.get("longQuantity") or 0.0)
-                short_qty = float(pos.get("shortQuantity") or 0.0)
-                qty = long_qty - short_qty
-                mkt_value = float(pos.get("marketValue") or 0.0)
-                
-                if symbol:
-                    rows.append({"Ticker": symbol, "QTY": qty, "VALUE": mkt_value})
-        
-        if not rows:
-            st.warning("No EQUITY positions found in Schwab accounts.")
-            return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
-        
-        out = (
-            pd.DataFrame(rows)
-            .groupby("Ticker", as_index=False)
-            .agg({"QTY": "sum", "VALUE": "sum"})
-        )
-        
-        return out
+    st.write("========== SCHWAB DEBUG START ==========")
 
-    except SchwabAuthError as e:
-        # User-friendly error message
-        st.error(f"🔐 Schwab Authentication Error:\n\n{str(e)}")
+    app_key = os.getenv("app_key")
+    app_secret = os.getenv("app_secret")
+    callback_url = os.getenv("callback_url")
+
+    st.write("ENV app_key present:", bool(app_key))
+    st.write("ENV app_secret present:", bool(app_secret))
+    st.write("ENV callback_url:", callback_url)
+
+    if not app_key or not app_secret or not callback_url:
+        st.warning("Missing Schwab env vars (app_key/app_secret/callback_url)")
         return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
-    
+
+    # 1) Sync DB -> local token files (so schwabdev can read them)
+    st.write("Sync DB → local tokens")
+    ok = sync_db_to_local_multi(USER_ID, TOKEN_PATHS)
+    st.write("sync_db_to_local_multi:", ok)
+
+    if not ok:
+        st.warning("No token found in DB (or failed to write local token files).")
+        return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
+
+    # 2) Tell schwabdev EXACTLY where to look (pick the first path)
+    os.environ["SCHWAB_TOKEN_PATH"] = str(TOKEN_PATHS[0])
+    st.write("SCHWAB_TOKEN_PATH set to:", os.environ["SCHWAB_TOKEN_PATH"])
+
+    # 3) Create client + fetch positions
+    st.write("Creating schwabdev.Client(...)")
+    client = schwabdev.Client(app_key, app_secret, callback_url)
+
+    st.write("Calling account_details_all(fields='positions')")
+    try:
+        resp = client.account_details_all(fields="positions")
+    except TypeError as e:
+        st.write("TypeError, retrying with list:", str(e))
+        resp = client.account_details_all(fields=["positions"])
+
+    st.write("HTTP status:", getattr(resp, "status_code", None))
+
+    # If Schwab returns non-200, show body
+    if getattr(resp, "status_code", 0) != 200:
+        st.error(f"Schwab API call failed (status={resp.status_code})")
+        try:
+            st.code(resp.text)
+        except Exception:
+            pass
+        return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
+
+    try:
+        data = resp.json()
     except Exception as e:
-        st.error(f"Unexpected error fetching Schwab holdings:\n{str(e)}")
-        st.exception(e)
+        st.error(f"resp.json() failed: {e}")
+        try:
+            st.code(resp.text)
+        except Exception:
+            pass
         return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
+
+    st.write("Accounts returned:", len(data))
+
+    rows = []
+    for acct in data:
+        sa = acct.get("securitiesAccount", {})
+        positions = sa.get("positions", []) or []
+
+        for pos in positions:
+            inst = pos.get("instrument", {}) or {}
+            symbol = inst.get("symbol")
+            asset_type = inst.get("assetType")
+
+            if asset_type != "EQUITY":
+                continue
+
+            long_qty = float(pos.get("longQuantity") or 0.0)
+            short_qty = float(pos.get("shortQuantity") or 0.0)
+            qty = long_qty - short_qty
+            mkt_value = float(pos.get("marketValue") or 0.0)
+
+            if symbol:
+                rows.append({"Ticker": symbol, "QTY": qty, "VALUE": mkt_value})
+
+    st.write("Equity rows collected:", len(rows))
+
+    if not rows:
+        st.warning("No EQUITY rows found in positions payload.")
+        return pd.DataFrame(columns=["Ticker", "QTY", "VALUE"])
+
+    out = (
+        pd.DataFrame(rows)
+        .groupby("Ticker", as_index=False)
+        .agg({"QTY": "sum", "VALUE": "sum"})
+    )
+
+    # 4) If schwabdev refreshed the local token file, push it back to DB
+    st.write("Sync local → DB tokens")
+    sync_local_to_db_multi(USER_ID, TOKEN_PATHS)
+
+    st.write("========== SCHWAB DEBUG END ==========")
+    return out
+
 
 st.set_page_config(page_title="Supertrend + MOST RSI + ADXR", layout="wide")
 st.title("🟢 Exact KivancOzbilgic Supertrend + MOST RSI + ADXR — Stocks 1D + Crypto 4H")
