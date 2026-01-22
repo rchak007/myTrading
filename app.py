@@ -159,12 +159,12 @@ STOCK_TICKERS = [
 CRYPTO_TICKERS = [
     "BTC-USD","ETH-USD","SOL-USD","HYPE32196-USD", "SUI20947-USD", "LINK-USD","DOGE-USD", "ONDO-USD","BNB-USD",
 
-    "AAVE-USD" , "ADA-USD" , "AIXBT-USD", "AKT-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , "cetus-usd" ,"cookie31838-usd" ,"CRV-USD",
-    "DRIFT31278-USD", "ELIZAOS-USD",  "elon-usd" ,"ENA-USD","ENS-USD",
+    "AAVE-USD" , "ADA-USD" , "AIXBT-USD", "AKT-USD", "ANON30846-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , "cetus-usd" ,"cookie31838-usd" ,"CRV-USD",
+    "DOGE-USD", "DRIFT31278-USD", "ELIZAOS-USD",  "elon-usd" ,"ENA-USD","ENS-USD",
     "fluid-usd", "FAI34330-USD", "griffain-USD",
     "HNT-USD","JTO-USD", "JUP29210-USD", "KMNO-USD", "LFNTY-USD", 
-    "MON30495-USD", "navx-USD" , "NEAR-USD", "ORCA-USD" , "ore32782-USD",
-    "pippin-usd" , "PNK-USD", "PYTH-USD","RAY-USD","RENDER-USD",
+    "MOBILE-USD",  "MON30495-USD", "navx-USD" , "NEAR-USD", "ORCA-USD" , "ore32782-USD",
+    "pippin-usd" , "PNK-USD", "PROVE-USD", "PYTH-USD","RAY-USD","RENDER-USD",
      "SUAI-USD", "suins-usd",  "TAI20605-USD",
     "VIRTUAL-USD", "W-USD" , "WAL36119-USD", "WLD-USD", "wlfi33251-usd",  "XBG-USD" , "XRP-USD", "ZEREBRO-USD" , "ZEUS30391-USD", "zk24091-USD"
 ]
@@ -710,7 +710,106 @@ try:
 
     df_crypto = _enrich_cached(df_crypto)
 
+    # ---------------------------
+    # Add Total Val + ALT% columns
+    # ---------------------------
+    # 1) Rename "USD Value" -> "ALT USD Val"
+    if "USD Value" in df_crypto.columns:
+        df_crypto = df_crypto.rename(columns={"USD Value": "ALT USD Val"})
+
+    # 2) Compute Total Val = ALT USD Val + USDC Value
+    # Ensure numeric (handles None / strings)
+    for c in ["ALT USD Val", "USDC Value"]:
+        if c in df_crypto.columns:
+            df_crypto[c] = pd.to_numeric(df_crypto[c], errors="coerce").fillna(0.0)
+
+    if "ALT USD Val" in df_crypto.columns and "USDC Value" in df_crypto.columns:
+        df_crypto["Total Val"] = df_crypto["ALT USD Val"] + df_crypto["USDC Value"]
+        df_crypto["ALT%"] = np.where(
+            df_crypto["Total Val"] > 0,
+            (df_crypto["ALT USD Val"] / df_crypto["Total Val"]) * 100.0,
+            0.0,
+        ).round(2)
+    else:
+        # If columns aren't present, still create them so UI is consistent
+        df_crypto["Total Val"] = 0.0
+        df_crypto["ALT%"] = 0.0
+
+
+    # ---------------------------
+    # Reorder columns for clarity
+    # ALT USD Val -> ALT% -> USDC Value -> Total Val
+    # ---------------------------
+    desired_order = []
+    cols = list(df_crypto.columns)
+
+    def _move_after(col_to_move, after_col):
+        if col_to_move in cols and after_col in cols:
+            cols.remove(col_to_move)
+            idx = cols.index(after_col) + 1
+            cols.insert(idx, col_to_move)
+
+    # Move ALT% right after ALT USD Val
+    _move_after("ALT%", "ALT USD Val")
+
+    # Move Total Val right after USDC Value
+    _move_after("Total Val", "USDC Value")
+
+    df_crypto = df_crypto[cols]
+
+
+
     st.dataframe(df_crypto, use_container_width=True)
+
+    # # ---------------------------
+    # # Grand Total (sum of Total Val)
+    # # ---------------------------
+    # if "Total Val" in df_crypto.columns:
+    #     grand_total = float(pd.to_numeric(df_crypto["Total Val"], errors="coerce").fillna(0.0).sum())
+    #     # st.markdown(f"**Grand Total (ALT + USDC): ${grand_total:,.2f}**")
+    #     st.metric("Grand Total (ALT + USDC)", f"${grand_total:,.2f}")
+    # else:
+    #     st.markdown("**Grand Total (ALT + USDC): $0.00**")
+
+    # ---------------------------
+    # Portfolio Totals
+    # ---------------------------
+    alt_total = 0.0
+    usdc_total = 0.0
+    grand_total = 0.0
+    alt_pct_total = 0.0
+
+    if "ALT USD Val" in df_crypto.columns:
+        alt_total = float(
+            pd.to_numeric(df_crypto["ALT USD Val"], errors="coerce")
+            .fillna(0.0)
+            .sum()
+        )
+
+    if "USDC Value" in df_crypto.columns:
+        usdc_total = float(
+            pd.to_numeric(df_crypto["USDC Value"], errors="coerce")
+            .fillna(0.0)
+            .sum()
+        )
+
+    if "Total Val" in df_crypto.columns:
+        grand_total = float(
+            pd.to_numeric(df_crypto["Total Val"], errors="coerce")
+            .fillna(0.0)
+            .sum()
+        )
+    if grand_total > 0:
+        alt_pct_total = (alt_total / grand_total) * 100.0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Total ALT USD Val", f"${alt_total:,.2f}")
+    c2.metric("Total USDC Value", f"${usdc_total:,.2f}")
+    c3.metric("Grand Total (ALT + USDC)", f"${grand_total:,.2f}")
+    c4.metric("Total ALT %", f"{alt_pct_total:.2f}%")
+
+
+
 
 except Exception as e:
     st.info(f"No Crypto 4H CSV yet. Click Refresh. ({e})")

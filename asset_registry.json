@@ -86,7 +86,22 @@
       "yahoo_ticker":"LINK-USD",
       "stablecoin_contract":"0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48" },
   
-    "DOGE": {"ticker":"DOGE","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"DOGE-USD","stablecoin_contract":""},
+    "DOGE": {
+      "ticker":"DOGE",
+      "blockchain":"bnb",
+      "wallet_address":"0x7b3747705a3bc1e9fc1fcdec5adfe1ca49da020d",
+      "token_contract":"0xbA2aE424d960c26247Dd6c32edC70B295c744C43",
+      "yahoo_ticker":"DOGE-USD",
+      "stablecoin_contract":"0x55d398326f99059fF775485246999027B3197955"
+    },
+    "PROVE": {
+      "ticker":"PROVE",
+      "blockchain":"bnb",
+      "wallet_address":"0x09005b3d49f3e6c49ffe474d1a2dbbb6e43d62a6",
+      "token_contract":"0x7DDf164CEcfddd0f992299D033B5a11279A15929",
+      "yahoo_ticker":"PROVE-USD",
+      "stablecoin_contract":"0x55d398326f99059fF775485246999027B3197955"
+    },    
     "ONDO": {
       "ticker":"ONDO",
       "blockchain":"ethereum",
@@ -117,9 +132,32 @@
     },
 
     "AAVE": {"ticker":"AAVE","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AAVE-USD","stablecoin_contract":""},
-    "ADA": {"ticker":"ADA","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ADA-USD","stablecoin_contract":""},
-    "AIXBT": {"ticker":"AIXBT","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AIXBT-USD","stablecoin_contract":""},
+    "ADA": {
+      "ticker":"ADA",
+      "blockchain":"bnb",
+      "wallet_address":"0xea215eb8969235e558e09f240bce5ec6f78730da",
+      "token_contract":"0x3EE2200Efb3400fAbB9AacF31297cBdD1d435D47",
+      "yahoo_ticker":"ADA-USD",
+      "stablecoin_contract":"0x55d398326f99059fF775485246999027B3197955"
+    },
+    "AIXBT": {
+      "ticker":"AIXBT",
+      "blockchain":"solana",
+      "wallet_address":"4CWQudVAtbWe5ShMQwbqCLc6qGNeesyB88XsJYD7CcnS",
+      "token_contract":"14zP2ToQ79XWvc7FQpm4bRnp9d6Mp1rFfsUW3gpLcRX",
+      "yahoo_ticker":"AIXBT-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
     "AKT": {"ticker":"AKT","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AKT-USD","stablecoin_contract":""},
+
+    "ANON30846": {
+      "ticker":"ANON30846",
+      "blockchain":"solana",
+      "wallet_address":"CGJgAwcLCD7HUeagp1phoAXKgx3uU9kCVuAj4JwihAjb",
+      "token_contract":"9McvH6w97oewLmPxqQEoHUAv3u5iYMyQ9AeZZhguYf1T",
+      "yahoo_ticker":"ANON30846-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
 
     "ASTER36341": {
       "ticker":"ASTER36341",
@@ -188,14 +226,21 @@
 
     "GRIFFAIN": {
       "ticker":"GRIFFAIN",
-      "blockchain":"",
-      "wallet_address":"",
-      "token_contract":"",
+      "blockchain":"solana",
+      "wallet_address":"9ijxHwmUsr8ohnpFUDcYnJRDqN8eHmKYQoXT363d2DYh",
+      "token_contract":"KENJSUYLASHUMfHyy5o4Hp2FdNqZg1AsUPhfH2kYvEP",
       "yahoo_ticker":"griffain-USD",
       "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     },
   
-    "HNT": {"ticker":"HNT","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"HNT-USD","stablecoin_contract":""},
+    "HNT": {
+      "ticker":"HNT",
+      "blockchain":"solana",
+      "wallet_address":"6zKXVstuCamxtM3CTGhBTYbKfGMiCW2Aj834kRE7UHTi",
+      "token_contract":"hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux",
+      "yahoo_ticker":"HNT-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
 
     "IKA": {
       "ticker":"IKA",
@@ -215,6 +260,8 @@
       "yahoo_ticker":"KMNO-USD",
       "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     },
+
+
     "LFNTY": {"ticker":"LFNTY","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"LFNTY-USD","stablecoin_contract":""},
 
     "LQL": {
@@ -226,6 +273,15 @@
       "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       "geckoterminal_pool": "https://www.geckoterminal.com/solana/pools/GiRyo4r3kREH8oRCe9GoJJARZuGo4ksto6xXvUok4wdd"
     },
+    "MOBILE": {
+      "ticker":"MOBILE",
+      "blockchain":"solana",
+      "wallet_address":"DGv2V76rSDS6ftmNWjWQFLKrKza9b1LYWrEyM4bNvCUB",
+      "token_contract":"mb1eu7TzEc71KxDpsmsKoucSSuuoGLv1drys1oP2jh6",
+      "yahoo_ticker":"MOBILE-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
+
     "NAVX": {
       "ticker":"NAVX",
       "blockchain":"sui",
@@ -235,8 +291,22 @@
       "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
     },
     "NEAR": {"ticker":"NEAR","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"NEAR-USD","stablecoin_contract":""},
-    "ORCA": {"ticker":"ORCA","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ORCA-USD","stablecoin_contract":""},
-    "ORE32782": {"ticker":"ORE32782","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ore32782-USD","stablecoin_contract":""},
+    "ORCA": {
+      "ticker":"ORCA",
+      "blockchain":"solana",
+      "wallet_address":"DwYbApngL1uh7bbvi9wzm248aaa2NNLQ2hnUktUf7QDt",
+      "token_contract":"orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+      "yahoo_ticker":"ORCA-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
+    "ORE32782": {
+      "ticker":"ORE32782",
+      "blockchain":"solana",
+      "wallet_address":"G43a8dQr2AdTGdyJfeujGzpRRKLLYew1Hnd3ArVmqfMR",
+      "token_contract":"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
+      "yahoo_ticker":"ore32782-USD",
+      "stablecoin_contract":""
+    },
   
     "PIPPIN": {
       "ticker":"PIPPIN",
@@ -283,9 +353,23 @@
       "yahoo_ticker":"suins-usd",
       "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
     },
-    "TAI20605": {"ticker":"TAI20605","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"TAI20605-USD","stablecoin_contract":""},
+    "TAI20605": {
+      "ticker":"TAI20605",
+      "blockchain":"solana",
+      "wallet_address":"BX25iYZ4nL7c1Gf2Unp81bFP6X5wYoYAzsvSjDumhj1m",
+      "token_contract":"Hax9LTgsQkze1YFychnBLtFH8gYbQKtKfWKKg2SP6gdD",
+      "yahoo_ticker":"TAI20605-USD",
+      "stablecoin_contract":""
+    },
   
-    "W": {"ticker":"W","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"W-USD","stablecoin_contract":""},
+    "W": {
+      "ticker":"W",
+      "blockchain":"solana",
+      "wallet_address":"Ge3jaSE6QDGD6d6fTwNA8J2bfRdFW7XATX2oGMtBfpcH",
+      "token_contract":"85VBFQZC9TZkfaptBWjvUw7YbZjy52A6mjtPGjstQAmQ",
+      "yahoo_ticker":"W-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
     "WAL36119": {
       "ticker":"WAL36119",
       "blockchain":"sui",
@@ -306,9 +390,30 @@
     },
 
     "XBG": {"ticker":"XBG","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"XBG-USD","stablecoin_contract":""},
-    "XRP": {"ticker":"XRP","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"XRP-USD","stablecoin_contract":""},
-    "ZEC": {"ticker":"ZEC","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ZEC-USD","stablecoin_contract":""},
-    "ZEREBRO": {"ticker":"ZEREBRO","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ZEREBRO-USD","stablecoin_contract":""},
+    "XRP": {
+      "ticker":"XRP",
+      "blockchain":"bnb",
+      "wallet_address":"0x7009a88dfa91561025bf9bf8a3e8aca63cb15243",
+      "token_contract":"0x1D2F0da169ceB9fC7B3144628dB156f3F6c60dBE",
+      "yahoo_ticker":"XRP-USD",
+      "stablecoin_contract":"0x55d398326f99059fF775485246999027B3197955"
+    },
+    "ZEC": {
+      "ticker":"ZEC",
+      "blockchain":"bnb",
+      "wallet_address":"0x5834ecec1afb82e0ee891036ab6195e771f55818",
+      "token_contract":"0x1Ba42e5193dfA8B03D15dd1B86a3113bbBEF8Eeb",
+      "yahoo_ticker":"ZEC-USD",
+      "stablecoin_contract":"0x55d398326f99059fF775485246999027B3197955"
+    },
+    "ZEREBRO": {
+      "ticker":"ZEREBRO",
+      "blockchain":"solana",
+      "wallet_address":"GuhZL2YqSqEMgs5wJcDimdiVKKBUPMVKa5WfCAZvyLJP",
+      "token_contract":"8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn",
+      "yahoo_ticker":"ZEREBRO-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
     "ZEUS30391": {"ticker":"ZEUS30391","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ZEUS30391-USD","stablecoin_contract":""},
     "ZK24091": {"ticker":"ZK24091","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"zk24091-USD","stablecoin_contract":""}
   }

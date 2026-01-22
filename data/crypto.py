@@ -24,14 +24,14 @@ from core.utils import get_secret
 # NEW imports
 from core.registry import load_asset_registry, find_registry_entry_by_yahoo_ticker
 from core.prices import get_yahoo_price_usd
-from core.balances.solana import get_spl_token_balance
+# from core.balances.solana import get_spl_token_balance
 from core.balances.evm import get_erc20_balance
 from core.balances.sui import get_coin_balance
 
 import re
 from functools import lru_cache
 
-
+from core.balances.solana import get_spl_token_balance_from_cache
 
 
 def _coingecko_headers() -> dict:
@@ -512,6 +512,7 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
     price_list = []
     usd_list = []
     usdc_list = []
+    sol_wallet_cache = {}
 
     for _, row in df.iterrows():
         yahoo_ticker = str(row.get("Ticker", "")).strip()
@@ -567,26 +568,20 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
         usdc_dec = None
 
         try:
-            # if chain == "solana":
-            #     if wallet and token_contract:
-            #         qty_dec = get_spl_token_balance(wallet, token_contract)
-            #     if wallet and stable_contract:
-            #         usdc_dec = get_spl_token_balance(wallet, stable_contract)
+            
             if chain == "solana":
                 # Native SOL if token_contract is blank
                 if wallet and not token_contract:
                     qty_dec = get_solana_native_balance(wallet)
                 elif wallet and token_contract:
-                    qty_dec = get_spl_token_balance(wallet, token_contract)
+                    # qty_dec = get_spl_token_balance(wallet, token_contract)
+                    qty_dec = get_spl_token_balance_from_cache(wallet, token_contract, sol_wallet_cache)
 
                 if wallet and stable_contract:
-                    usdc_dec = get_spl_token_balance(wallet, stable_contract)
+                    # usdc_dec = get_spl_token_balance(wallet, stable_contract)
+                    usdc_dec = get_spl_token_balance_from_cache(wallet, stable_contract, sol_wallet_cache)
 
-            # elif chain == "ethereum":
-            #     if wallet and token_contract:
-            #         qty_dec = get_erc20_balance(wallet, token_contract, ETH_RPC_URLS)
-            #     if wallet and stable_contract:
-            #         usdc_dec = get_erc20_balance(wallet, stable_contract, ETH_RPC_URLS)
+
 
             elif chain == "ethereum":
                 if wallet and not token_contract:
