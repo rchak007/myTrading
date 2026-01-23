@@ -159,11 +159,11 @@ STOCK_TICKERS = [
 CRYPTO_TICKERS = [
     "BTC-USD","ETH-USD","SOL-USD","HYPE32196-USD", "SUI20947-USD", "LINK-USD","DOGE-USD", "ONDO-USD","BNB-USD",
 
-    "AAVE-USD" , "ADA-USD" , "AIXBT-USD", "AKT-USD", "ANON30846-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , "cetus-usd" ,"cookie31838-usd" ,"CRV-USD",
+    "AAVE-USD" , "ADA-USD" , "AIXBT-USD", "AKT-USD", "ANON35092-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , "cetus-usd" ,"cookie31838-usd" ,"CRV-USD",
     "DOGE-USD", "DRIFT31278-USD", "ELIZAOS-USD",  "elon-usd" ,"ENA-USD","ENS-USD",
-    "fluid-usd", "FAI34330-USD", "griffain-USD",
+    "fluid-usd", "fluxb-usd","FAI34330-USD", "griffain-USD",
     "HNT-USD","JTO-USD", "JUP29210-USD", "KMNO-USD", "LFNTY-USD", 
-    "MOBILE-USD",  "MON30495-USD", "navx-USD" , "NEAR-USD", "ORCA-USD" , "ore32782-USD",
+    "MOBILE-USD",  "MON30495-USD", "navx-USD" , "NEAR-USD", "NOS-USD",  "ORCA-USD" , "ore32782-USD",
     "pippin-usd" , "PNK-USD", "PROVE-USD", "PYTH-USD","RAY-USD","RENDER-USD",
      "SUAI-USD", "suins-usd",  "TAI20605-USD",
     "VIRTUAL-USD", "W-USD" , "WAL36119-USD", "WLD-USD", "wlfi33251-usd",  "XBG-USD" , "XRP-USD", "ZEREBRO-USD" , "ZEUS30391-USD", "zk24091-USD"
@@ -735,6 +735,32 @@ try:
         df_crypto["Total Val"] = 0.0
         df_crypto["ALT%"] = 0.0
 
+    # ---------------------------
+    # ACTION column (rebalance alert)
+    # ---------------------------
+    SIGNAL_COL = "SIGNAL-Super-MOST-ADXR"
+
+    # Ensure numeric ALT% (it already is, but keep safe)
+    if "ALT%" in df_crypto.columns:
+        df_crypto["ALT%"] = pd.to_numeric(df_crypto["ALT%"], errors="coerce").fillna(0.0)
+
+    def _action_row(r):
+        sig = str(r.get(SIGNAL_COL, "")).upper()
+        alt_pct = float(r.get("ALT%", 0.0))
+
+        # BUY signal but ALT exposure low -> buy ALT
+        if sig == "BUY" and alt_pct < 50.0:
+            return "🔴 BUY ALT"
+
+        # EXIT signal but ALT exposure high -> sell ALT
+        if sig == "EXIT" and alt_pct > 50.0:
+            return "🔴 SELL ALT"
+
+        return ""  # no action
+
+    df_crypto["ACTION"] = df_crypto.apply(_action_row, axis=1)
+
+
 
     # ---------------------------
     # Reorder columns for clarity
@@ -749,6 +775,9 @@ try:
             idx = cols.index(after_col) + 1
             cols.insert(idx, col_to_move)
 
+
+    # Put ACTION right after SIGNAL
+    _move_after("ACTION", "SIGNAL-Super-MOST-ADXR")
     # Move ALT% right after ALT USD Val
     _move_after("ALT%", "ALT USD Val")
 
@@ -759,7 +788,15 @@ try:
 
 
 
-    st.dataframe(df_crypto, use_container_width=True)
+    # st.dataframe(df_crypto, use_container_width=True)
+    def _style_action(val):
+        if isinstance(val, str) and val.startswith("🔴"):
+            return "color: red; font-weight: 700;"
+        return ""
+
+    styled = df_crypto.style.applymap(_style_action, subset=["ACTION"])
+    st.dataframe(styled, use_container_width=True)
+    
 
     # # ---------------------------
     # # Grand Total (sum of Total Val)

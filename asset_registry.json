@@ -150,12 +150,12 @@
     },
     "AKT": {"ticker":"AKT","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"AKT-USD","stablecoin_contract":""},
 
-    "ANON30846": {
-      "ticker":"ANON30846",
+    "ANON35092": {
+      "ticker":"ANON35092",
       "blockchain":"solana",
       "wallet_address":"CGJgAwcLCD7HUeagp1phoAXKgx3uU9kCVuAj4JwihAjb",
       "token_contract":"9McvH6w97oewLmPxqQEoHUAv3u5iYMyQ9AeZZhguYf1T",
-      "yahoo_ticker":"ANON30846-USD",
+      "yahoo_ticker":"ANON35092-USD",
       "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     },
 
@@ -222,6 +222,18 @@
     "ENS": {"ticker":"ENS","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"ENS-USD","stablecoin_contract":""},
   
     "FLUID": {"ticker":"FLUID","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"fluid-usd","stablecoin_contract":""},
+
+    "FLUXB": {
+      "ticker":"FLUXB",
+      "blockchain":"",
+      "wallet_address":"cTtz15UjQBHW9H4MVxirSMoYsSUcJ5twbjBeWQ1mWRu",
+      "token_contract":"FLUXBmPhT3Fd1EDVFdg46YREqHBeNypn1h4EbnTzWERX",
+      "yahoo_ticker": "fluxb-usd",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
+
+
+
     "FAI34330": {"ticker":"FAI34330","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"FAI34330-USD","stablecoin_contract":""},
 
     "GRIFFAIN": {
@@ -250,8 +262,23 @@
       "yahoo_ticker":"ika-usd",
       "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
     },    
-    "JTO": {"ticker":"JTO","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"JTO-USD","stablecoin_contract":""},
-    "JUP29210": {"ticker":"JUP29210","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"JUP29210-USD","stablecoin_contract":""},
+    "JTO": {
+      "ticker":"JTO",
+      "blockchain":"solana",
+      "wallet_address":"B7o87X5crsgz7AsJv4oSpen6dgnWHyutKsG9H2focJyq",
+      "token_contract":"jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+      "yahoo_ticker":"JTO-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
+
+    "JUP29210": {
+      "ticker":"JUP29210",
+      "blockchain":"solana",
+      "wallet_address":"8YY9M2q5LHCkWogphBT9dP2BehYPkTPXEXBF9sK3EDPJ",
+      "token_contract":"JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+      "yahoo_ticker":"JUP29210-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
     "KMNO": {
       "ticker":"KMNO",
       "blockchain":"solana",
@@ -262,7 +289,14 @@
     },
 
 
-    "LFNTY": {"ticker":"LFNTY","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"LFNTY-USD","stablecoin_contract":""},
+    "LFNTY": {
+      "ticker":"LFNTY",
+      "blockchain":"solana",
+      "wallet_address":"4BuJaMYRVMTsupCU4dEAN4YH6FTcKqF7syu1PLHSswZ5",
+      "token_contract":"LFNTYraetVioAPnGJht4yNg2aUZFXR776cMeN9VMjXp",
+      "yahoo_ticker":"LFNTY-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
 
     "LQL": {
       "ticker":"LQL",
@@ -291,6 +325,15 @@
       "stablecoin_contract":"0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC"
     },
     "NEAR": {"ticker":"NEAR","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"NEAR-USD","stablecoin_contract":""},
+
+    "NOS-USD": {
+      "ticker":"NOS-USD",
+      "blockchain":"solana",
+      "wallet_address":"8ikiT5UHQNpVmPTe2RCvF3sb5pfvZQB8yDsZgqJqFWDD",
+      "token_contract":"nosXBVoaCTtYdLvKY6Csb4AC8JCdQKKAaWYtx2ZMoo7",
+      "yahoo_ticker":"NOS-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
     "ORCA": {
       "ticker":"ORCA",
       "blockchain":"solana",
@@ -305,7 +348,7 @@
       "wallet_address":"G43a8dQr2AdTGdyJfeujGzpRRKLLYew1Hnd3ArVmqfMR",
       "token_contract":"oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
       "yahoo_ticker":"ore32782-USD",
-      "stablecoin_contract":""
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     },
   
     "PIPPIN": {
@@ -316,8 +359,22 @@
       "yahoo_ticker":"pippin-usd",
       "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     },
-    "PYTH": {"ticker":"PYTH","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"PYTH-USD","stablecoin_contract":""},
-    "RAY": {"ticker":"RAY","blockchain":"","wallet_address":"","token_contract":"","yahoo_ticker":"RAY-USD","stablecoin_contract":""},
+    "PYTH": {
+      "ticker":"PYTH",
+      "blockchain":"solana",
+      "wallet_address":"yAZkK2XeFKqtn9PStXxdsTnaooU3QDGAKeLvarkXmRD",
+      "token_contract":"HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+      "yahoo_ticker":"PYTH-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
+    "RAY": {
+      "ticker":"RAY",
+      "blockchain":"solana",
+      "wallet_address":"37mAzzfg52dGrdysKt5j2sEDz7wh23HieTKHub3FQsvf",
+      "token_contract":"4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+      "yahoo_ticker":"RAY-USD",
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
     "RENDER": {
       "ticker":"RENDER",
       "blockchain":"solana",
@@ -359,7 +416,7 @@
       "wallet_address":"BX25iYZ4nL7c1Gf2Unp81bFP6X5wYoYAzsvSjDumhj1m",
       "token_contract":"Hax9LTgsQkze1YFychnBLtFH8gYbQKtKfWKKg2SP6gdD",
       "yahoo_ticker":"TAI20605-USD",
-      "stablecoin_contract":""
+      "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     },
   
     "W": {
