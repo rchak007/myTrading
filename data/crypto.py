@@ -448,6 +448,39 @@ BSC_RPC_URLS = [
 ]
 
 
+OPTIMISM_RPC_URLS = [
+    "https://mainnet.optimism.io",          # official OP docs
+    "https://optimism-rpc.publicnode.com",  # publicnode
+]
+
+ARBITRUM_RPC_URLS = [
+    "https://arb1.arbitrum.io/rpc",             # Arbitrum public RPC (official docs)
+    "https://arbitrum-one-rpc.publicnode.com",  # publicnode
+]
+
+ZKSYNC_RPC_URLS = [
+    "https://mainnet.era.zksync.io",        # official zkSync RPC
+    "https://zksync-era.publicnode.com",    # publicnode backup
+]
+
+
+import requests
+
+HL_INFO_URL = "https://api.hyperliquid.xyz/info"
+
+def hl_spot_balances(user_evm_address: str):
+    payload = {"type": "spotClearinghouseState", "user": user_evm_address}
+    r = requests.post(HL_INFO_URL, json=payload, timeout=20)
+    r.raise_for_status()
+    return r.json()
+def hl_all_mids():
+    payload = {"type": "allMids"}
+    r = requests.post(HL_INFO_URL, json=payload, timeout=20)
+    r.raise_for_status()
+    return r.json()  # dict-like mids
+
+
+
 def get_solana_native_balance(wallet: str) -> Decimal:
     """
     Solana native SOL balance via JSON-RPC getBalance.
@@ -557,11 +590,12 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
         except Exception:
             price_dec = None
 
-        try:
-            if yahoo_ticker:
-                price_dec = get_yahoo_price_usd(yahoo_ticker)
-        except Exception:
-            price_dec = None
+        if price_dec is None:
+            try:
+                if yahoo_ticker:
+                    price_dec = get_yahoo_price_usd(yahoo_ticker)
+            except Exception:
+                price_dec = None
 
         # Qty + USDC balances
         qty_dec = None
@@ -596,42 +630,108 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                     qty_dec = get_evm_native_balance(wallet, ETH_RPC_URLS)
                 elif wallet and token_contract:
                     qty_dec = get_erc20_balance(wallet, token_contract, ETH_RPC_URLS)
-
+                    debug = True
+                    if debug and qty_dec != 0:
+                        print(f"[ETH] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")
                 if wallet and stable_contract:
                     usdc_dec = get_erc20_balance(wallet, stable_contract, ETH_RPC_URLS)
+                    debug = True
+                    if debug and usdc_dec != 0:
+                        print(f"[ETH] USDC | Wallet={wallet} | Qty={usdc_dec}")
 
-            # elif chain == "base":
-            #     if wallet and token_contract:
-            #         qty_dec = get_erc20_balance(wallet, token_contract, BASE_RPC_URLS)
-            #     if wallet and stable_contract:
-            #         usdc_dec = get_erc20_balance(wallet, stable_contract, BASE_RPC_URLS)
 
             elif chain == "base":
                 if wallet and not token_contract:
                     qty_dec = get_evm_native_balance(wallet, BASE_RPC_URLS)
                 elif wallet and token_contract:
                     qty_dec = get_erc20_balance(wallet, token_contract, BASE_RPC_URLS)
-
+                    debug = True
+                    if debug and qty_dec != 0:
+                        print(f"[BASE] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")
                 if wallet and stable_contract:
                     usdc_dec = get_erc20_balance(wallet, stable_contract, BASE_RPC_URLS)
-
+                    debug = True
+                    if debug and usdc_dec != 0:
+                        print(f"[BASE] USDC | Wallet={wallet} | Qty={usdc_dec}")
 
             elif chain == "sui":
                 if wallet and token_contract:
                     qty_dec = get_coin_balance(wallet, token_contract)
+                    debug = True
+                    if debug and qty_dec != 0:
+                        print(f"[SUI] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")                    
                 if wallet and stable_contract:
                     usdc_dec = get_coin_balance(wallet, stable_contract)
-
+                    debug = True
+                    if debug and usdc_dec != 0:
+                        print(f"[SUI] USDC | Wallet={wallet} | Qty={usdc_dec}")
             elif chain in ("bsc", "bnb"):
                 if wallet and not token_contract:
                     qty_dec = get_evm_native_balance(wallet, BSC_RPC_URLS)
                 elif wallet and token_contract:
                     qty_dec = get_erc20_balance(wallet, token_contract, BSC_RPC_URLS)
-
+                    debug = True
+                    if debug and qty_dec != 0:
+                        print(f"[BNB] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")    
                 if wallet and stable_contract:
                     usdc_dec = get_erc20_balance(wallet, stable_contract, BSC_RPC_URLS)
+                    debug = True
+                    if debug and usdc_dec != 0:
+                        print(f"[BNB] USDT | Wallet={wallet} | Qty={usdc_dec}")                    
+            elif chain == "hyperliquid":
+                state = hl_spot_balances(wallet)
+                mids = hl_all_mids()
 
+                balances = state.get("balances", [])
 
+                # find HYPE balance
+                for b in balances:
+                    if b.get("coin") == "HYPE":
+                        qty_dec = Decimal(b.get("total", "0"))
+                        break
+
+                # price from Hyperliquid mids
+                if "HYPE" in mids:
+                    price_dec = Decimal(mids["HYPE"])
+
+            elif chain == "optimism":
+                rpc_urls = OPTIMISM_RPC_URLS
+                if wallet and token_contract:
+                    qty_dec = get_erc20_balance(wallet, token_contract, rpc_urls)
+                    debug = True
+                    if debug and qty_dec != 0:
+                        print(f"[Optimism] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")                        
+                if wallet and stable_contract:
+                    usdc_dec = get_erc20_balance(wallet, stable_contract, rpc_urls)
+                    debug = True
+                    if debug and usdc_dec != 0:
+                        print(f"[OPTIMISM] USDC | Wallet={wallet} | Qty={usdc_dec}")
+            elif chain == "arbitrum":
+                rpc_urls = ARBITRUM_RPC_URLS
+                if wallet and token_contract:
+                    qty_dec = get_erc20_balance(wallet, token_contract, rpc_urls)
+                    debug = True
+                    if debug and qty_dec != 0:
+                        print(f"[Arbitrum] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")    
+                if wallet and stable_contract:
+                    usdc_dec = get_erc20_balance(wallet, stable_contract, rpc_urls)
+                    debug = True
+                    if debug and usdc_dec != 0:
+                        print(f"[Arbitrum] USDC | Wallet={wallet} | Qty={usdc_dec}")
+
+            elif chain == "zksync":
+                rpc_urls = ZKSYNC_RPC_URLS
+
+                if wallet and token_contract:
+                    qty_dec = get_erc20_balance(wallet, token_contract, rpc_urls)
+                    debug = True
+                    if debug and qty_dec != 0:
+                        print(f"[ZK] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")    
+                if wallet and stable_contract:
+                    usdc_dec = get_erc20_balance(wallet, stable_contract, rpc_urls)
+                    debug = True
+                    if debug and usdc_dec != 0:
+                        print(f"[ZK] USDC | Wallet={wallet} | Qty={usdc_dec}")
 
             else:
                 qty_dec = None

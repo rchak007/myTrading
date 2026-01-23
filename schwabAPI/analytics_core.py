@@ -55,6 +55,7 @@ def get_linked_accounts(client) -> List[Dict]:
 # --- Low-level transaction fetch ---------------------------------------------
 
 
+
 def _fetch_transactions_chunk(client, account_hash, start_date, end_date, types=None):
     """
     Fetch a chunk of transactions for a single account using Schwabdev client's transactions().
@@ -68,14 +69,13 @@ def _fetch_transactions_chunk(client, account_hash, start_date, end_date, types=
     except Exception:
         timeout_exceptions = (ReadTimeout,)
 
-    start_str = start_date.strftime("%Y-%m-%d")
-    end_str = end_date.strftime("%Y-%m-%d")
+    # start_str = start_date.strftime("%Y-%m-%d")
+    # end_str = end_date.strftime("%Y-%m-%d")
+    start_str = start_date.strftime("%Y-%m-%dT00:00:00.000Z")
+    end_str   = end_date.strftime("%Y-%m-%dT23:59:59.999Z")
 
-    # Schwabdev requires `types` positional argument.
-    # if types is None:
-    #     types_list = ["TRADE", "CASH"]
+
     if types is None:
-        # broad + valid defaults (safe)
         types_list = [
             "TRADE",
             "DIVIDEND_OR_INTEREST",
@@ -88,7 +88,7 @@ def _fetch_transactions_chunk(client, account_hash, start_date, end_date, types=
             "WIRE_OUT",
             "JOURNAL",
             "MEMORANDUM",
-        ]    
+        ]
     elif isinstance(types, (list, tuple)):
         types_list = list(types)
     else:
@@ -101,13 +101,26 @@ def _fetch_transactions_chunk(client, account_hash, start_date, end_date, types=
     for attempt in range(1, max_tries + 1):
         try:
             resp = client.transactions(account_hash, start_str, end_str, types_list)
-            resp.raise_for_status()
+
+            if resp.status_code != 200:
+                logger.error(
+                    "HTTP %s for hash=%s %s..%s types=%s body=%s",
+                    resp.status_code,
+                    account_hash,
+                    start_str,
+                    end_str,
+                    types_list,
+                    getattr(resp, "text", ""),
+                )
+                return []
+
+            # optional
+            # resp.raise_for_status()
 
             data = resp.json() or []
             if isinstance(data, list):
                 return data
 
-            # Defensive: sometimes nested list
             if isinstance(data, dict):
                 if isinstance(data.get("transactions"), list):
                     return data["transactions"]
@@ -122,25 +135,18 @@ def _fetch_transactions_chunk(client, account_hash, start_date, end_date, types=
                 "ReadTimeout fetching tx (attempt %d/%d) hash=%s %s..%s : %s",
                 attempt, max_tries, account_hash, start_str, end_str, repr(e)
             )
-        # except RequestException as e:
-        #     last_err = e
-        #     logger.warning(
-        #         "Request error fetching tx (attempt %d/%d) hash=%s %s..%s : %s",
-        #         attempt, max_tries, account_hash, start_str, end_str, repr(e)
-        #     )
 
         except HTTPError as e:
             status = getattr(e.response, "status_code", None)
+            body = getattr(getattr(e, "response", None), "text", "")
 
-            # 400 = bad request (invalid params). Retrying is useless.
             if status == 400:
                 logger.error(
-                    "HTTP 400 (Bad Request) for hash=%s %s..%s types=%s. Skipping chunk.",
-                    account_hash, start_str, end_str, types_list
+                    "HTTP 400 (Bad Request) for hash=%s %s..%s types=%s body=%s",
+                    account_hash, start_str, end_str, types_list, body
                 )
-                return []   # ⬅️ KEY LINE: skip this chunk cleanly
+                return []
 
-            # other HTTP errors (e.g. 5xx) can still retry
             last_err = e
             logger.warning(
                 "HTTP error fetching tx (attempt %d/%d) hash=%s %s..%s : %s",
@@ -153,14 +159,12 @@ def _fetch_transactions_chunk(client, account_hash, start_date, end_date, types=
                 "Request error fetching tx (attempt %d/%d) hash=%s %s..%s : %s",
                 attempt, max_tries, account_hash, start_str, end_str, repr(e)
             )
-                    
 
         if attempt < max_tries:
             time.sleep(backoff)
             backoff = min(backoff * 2, 30)
         else:
             raise last_err
-
 
 
 
@@ -435,26 +439,46 @@ def normalize_txns_to_df(txs: list, account_hash: str) -> pd.DataFrame:
     df = pd.DataFrame(rows)
     return df
 
+from pandas.errors import EmptyDataError
+
 def append_cache(account_hash: str, new_df: pd.DataFrame) -> pd.DataFrame:
-    _ensure_cache_dir()
-    csvp = _csv_path(account_hash)
+    # csvp = _cache_path(account_hash)
+    csvp = _state_path(account_hash)
 
+
+    # If API returned nothing, don't create/append to cache at all
+    if new_df is None or new_df.empty:
+        if csvp.exists() and csvp.stat().st_size == 0:
+            # clean up bad/empty cache file
+            csvp.unlink(missing_ok=True)
+        # return existing cache if present, else empty df
+        if csvp.exists():
+            try:
+                return pd.read_csv(csvp)
+            except EmptyDataError:
+                csvp.unlink(missing_ok=True)
+        return pd.DataFrame()
+
+    # Read old cache safely
+    old = pd.DataFrame()
     if csvp.exists():
-        old = pd.read_csv(csvp)
-        combined = pd.concat([old, new_df], ignore_index=True)
-    else:
-        combined = new_df.copy()
+        try:
+            old = pd.read_csv(csvp)
+        except EmptyDataError:
+            # empty file -> treat as no cache
+            old = pd.DataFrame()
+            csvp.unlink(missing_ok=True)
 
-    # Dedup: prefer txn id, else fallback to (date,type,amount,description)
-    if "transaction_id" in combined.columns:
-        combined["transaction_id"] = combined["transaction_id"].astype(str)
-    combined = combined.drop_duplicates(
-        subset=["transaction_id", "date", "type", "amount", "description"],
-        keep="last"
-    )
+    # Combine + de-dupe (adjust keys as appropriate)
+    combined = pd.concat([old, new_df], ignore_index=True)
+
+    # (Optional) if you have a unique transaction id column:
+    if "transactionId" in combined.columns:
+        combined = combined.drop_duplicates(subset=["transactionId"])
 
     combined.to_csv(csvp, index=False)
     return combined
+
 
 
 def _to_date(x):

@@ -45,4 +45,5 @@ def get_erc20_balance(wallet: str, contract: str, rpc_urls: list[str]) -> Decima
     raw = _rpc_call(rpc_urls, "eth_call", [{"to": contract, "data": data}, "latest"])
     bal_int = Decimal(int(raw, 16))
     decimals = get_erc20_decimals(contract, rpc_urls)
+    print("evm balances - wallet, contract , bal = ", wallet, contract, (bal_int / (Decimal(10) ** decimals)) )
     return bal_int / (Decimal(10) ** decimals)

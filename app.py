@@ -172,7 +172,7 @@ CRYPTO_TICKERS = [
 
 
 CRYPTO_NOT_FOUND_YAHOO = {
-    "LVL": "https://www.geckoterminal.com/solana/pools/GiRyo4r3kREH8oRCe9GoJJARZuGo4ksto6xXvUok4wdd",
+    "LQL": "https://www.geckoterminal.com/solana/pools/GiRyo4r3kREH8oRCe9GoJJARZuGo4ksto6xXvUok4wdd",
     "A0X": "https://www.geckoterminal.com/base/pools/0xfd100e192d0ff7a284f31a93b367d582666e406b",
     "GAME": "https://www.geckoterminal.com/base/pools/0xd418dfe7670c21f682e041f34250c114db5d7789",
     "AoT": "https://www.geckoterminal.com/base/pools/0x6e7a1875810afb6074953094c35a101e1cc7aee010fb1372d8f41b0fbe92d83c",   
