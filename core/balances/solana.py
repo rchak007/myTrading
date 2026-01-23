@@ -140,6 +140,13 @@ def get_wallet_token_balances_by_mint(
         mint, ui = item
         balances[mint] = balances.get(mint, Decimal("0")) + ui
 
+    if debug:
+        print("---- Token balances (by mint) ----")
+        for mint, amt in balances.items():
+            if amt != 0:
+                print(f"Mint: {mint} | Balance: {amt}")
+        print("----------------------------------")
+
     return balances
 
 

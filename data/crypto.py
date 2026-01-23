@@ -576,10 +576,18 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                 elif wallet and token_contract:
                     # qty_dec = get_spl_token_balance(wallet, token_contract)
                     qty_dec = get_spl_token_balance_from_cache(wallet, token_contract, sol_wallet_cache)
+                    debug = True
+                    if debug and qty_dec != 0:
+                        print(f"[SOL] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")
+
 
                 if wallet and stable_contract:
                     # usdc_dec = get_spl_token_balance(wallet, stable_contract)
                     usdc_dec = get_spl_token_balance_from_cache(wallet, stable_contract, sol_wallet_cache)
+                    debug = True
+                    if debug and usdc_dec != 0:
+                        print(f"[SOL] USDC | Wallet={wallet} | Qty={usdc_dec}")
+
 
 
 

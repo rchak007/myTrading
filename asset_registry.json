@@ -210,7 +210,7 @@
 
     "ELIZAOS": {
       "ticker":"ELIZAOS",
-      "blockchain":"",
+      "blockchain":"solana",
       "wallet_address":"5MpvKjK9PGvx2LoHJ14NqGwG8n4qvGrSbuEUpZMqrwX7",
       "token_contract":"DuMbhu7mvQvqQHGcnikDgb4XegXJRyhUBfdU22uELiZA",
       "yahoo_ticker":"ELIZAOS-USD",
@@ -225,7 +225,7 @@
 
     "FLUXB": {
       "ticker":"FLUXB",
-      "blockchain":"",
+      "blockchain":"solana",
       "wallet_address":"cTtz15UjQBHW9H4MVxirSMoYsSUcJ5twbjBeWQ1mWRu",
       "token_contract":"FLUXBmPhT3Fd1EDVFdg46YREqHBeNypn1h4EbnTzWERX",
       "yahoo_ticker": "fluxb-usd",
