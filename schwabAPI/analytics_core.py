@@ -76,9 +76,29 @@ def _fetch_transactions_chunk(client, account_hash, start_date, end_date, types=
 
 
     if types is None:
+        # types_list = [
+        #     "TRADE",
+        #     "DIVIDEND_OR_INTEREST",
+        #     "ACH_RECEIPT",
+        #     "ACH_DISBURSEMENT",
+        #     "CASH_RECEIPT",
+        #     "CASH_DISBURSEMENT",
+        #     "ELECTRONIC_FUND",
+        #     "WIRE_IN",
+        #     "WIRE_OUT",
+        #     "JOURNAL",
+        #     "MEMORANDUM",
+        # ]
         types_list = [
+            # ===== Trading & Investment =====
             "TRADE",
             "DIVIDEND_OR_INTEREST",
+            "CORPORATE_ACTION",
+
+            # ===== Security movement =====
+            "SECURITY_TRANSFER",
+
+            # ===== Cash movement =====
             "ACH_RECEIPT",
             "ACH_DISBURSEMENT",
             "CASH_RECEIPT",
@@ -86,9 +106,17 @@ def _fetch_transactions_chunk(client, account_hash, start_date, end_date, types=
             "ELECTRONIC_FUND",
             "WIRE_IN",
             "WIRE_OUT",
+
+            # ===== Fees / adjustments =====
+            "FEE",
+            "TAX",
+            "ADJUSTMENT",
             "JOURNAL",
+
+            # ===== Catch-all =====
             "MEMORANDUM",
         ]
+
     elif isinstance(types, (list, tuple)):
         types_list = list(types)
     else:
