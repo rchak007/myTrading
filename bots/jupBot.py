@@ -34,6 +34,9 @@ from core.execution.jupiter import (
     to_smallest,
 )
 
+from cryptography.fernet import Fernet
+
+
 # -----------------
 # Config
 # -----------------
@@ -106,15 +109,30 @@ def desired_regime_from_final_signal(final_sig: str) -> str:
     return "IN" if final_sig in ("BUY", "HOLD") else "OUT"
 
 
-
-
+def _read_fernet_key() -> bytes:
+    key_path = os.getenv("JUPBOT_FERNET_KEY_PATH", "/etc/myTrading/jupbot.key")
+    with open(key_path, "rb") as f:
+        return f.read().strip()
 
 def load_keypair() -> Keypair:
     load_dotenv()
-    pk = (os.getenv("SOLANA_PRIVATE_KEY_B58") or "").strip()
-    if not pk:
-        raise RuntimeError("Missing SOLANA_PRIVATE_KEY_B58 in .env")
-    return Keypair.from_base58_string(pk)
+
+    enc = (os.getenv("SOLANA_PRIVATE_KEY_ENC") or "").strip()
+    if not enc:
+        raise RuntimeError("Missing SOLANA_PRIVATE_KEY_ENC in .env")
+
+    f = Fernet(_read_fernet_key())
+    pk_b58 = f.decrypt(enc.encode("utf-8")).decode("utf-8").strip()
+
+    return Keypair.from_base58_string(pk_b58)
+
+
+# def load_keypair() -> Keypair:
+#     load_dotenv()
+#     pk = (os.getenv("SOLANA_PRIVATE_KEY_B58") or "").strip()
+#     if not pk:
+#         raise RuntimeError("Missing SOLANA_PRIVATE_KEY_B58 in .env")
+#     return Keypair.from_base58_string(pk)
 
 
 def fetch_1h_df() -> pd.DataFrame:
