@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 import pandas as pd
 import numpy as np
+import pytz
 
 
 # -----------------------------
@@ -159,7 +160,9 @@ def main():
     except Exception as e:
         raise RuntimeError(f"Could not import config from myTrading/app.py: {e}")
 
-    updated_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    # updated_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    pacific = pytz.timezone('America/Los_Angeles')
+    updated_pst = datetime.now(pacific).strftime("%Y-%m-%d %H:%M:%S %Z")    
 
     log("Job start: building complete crypto table (signals + balances + ACTION)...")
 
@@ -189,7 +192,7 @@ def main():
 
     # Crypto context (optional metadata)
     meta = {
-        "updated_at_utc": updated_utc,
+        "updated_at_utc": updated_pst,
         "totals": {
             "alt_total_usd": alt_total,
             "usdc_total_usd": usdc_total,
@@ -229,13 +232,13 @@ def main():
     html = build_html_table(
         df_crypto,
         title="Crypto 4H Signals + Wallet Balances",
-        updated_utc=updated_utc,
+        updated_utc=updated_pst,
     )
     OUT_HTML.write_text(html, encoding="utf-8")
 
     readme = f"""# Crypto Signals Snapshot
 
-Last updated: **{updated_utc}**
+Last updated: **{updated_pst}**
 
 ## Totals
 - **Total ALT USD Val:** ${alt_total:,.2f}
@@ -264,7 +267,7 @@ Open **crypto_signals.html** in the repo for the formatted table.
         return
 
     run_cmd(["git", "add", "-A"], cwd=JOB_DIR)
-    msg = f"Hourly crypto snapshot: {updated_utc}"
+    msg = f"Hourly crypto snapshot: {updated_pst}"
     code, out = run_cmd(["git", "commit", "-m", msg], cwd=JOB_DIR)
     if code != 0:
         log(f"git commit failed:\n{out}")
