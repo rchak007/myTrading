@@ -56,9 +56,16 @@ def git_has_changes(repo_dir: Path) -> bool:
     return out.strip() != ""
 
 
+def safe_to_float(x, default=0.0) -> float:
+    try:
+        return float(pd.to_numeric(x, errors="coerce"))
+    except Exception:
+        return float(default)
+
+
 def build_html_table(df: pd.DataFrame, title: str, updated_utc: str) -> str:
     # keep it readable on GitHub
-    # We won't depend on external CSS.
+    # We won’t depend on external CSS.
     html = []
     html.append("<!doctype html><html><head><meta charset='utf-8'>")
     html.append(f"<title>{title}</title>")
@@ -126,9 +133,10 @@ def main():
     if str(MYTRADING_DIR) not in sys.path:
         sys.path.insert(0, str(MYTRADING_DIR))
 
-    # NEW: Import the consolidated function from myTrading
+    # Imports from your existing myTrading code
     from data.crypto import (
-        build_complete_crypto_table,  # <-- ONE FUNCTION DOES IT ALL
+        build_crypto_signals_table,
+        enrich_crypto_portfolio_fields,
         fetch_coingecko_global,
         fetch_total_mcap_history_coingecko,
         fetch_total_mcap_history_coinmarketcap,
@@ -136,7 +144,9 @@ def main():
         fetch_altcoin_season_index,
     )
 
-    # Load config from myTrading/app.py
+    # Load config lists from myTrading/app.py style:
+    # We’ll read asset_registry + use hard-coded tickers if you want,
+    # but easiest: import from app.py if present.
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("myTrading_app", str(MYTRADING_DIR / "app.py"))
@@ -161,10 +171,9 @@ def main():
 
     updated_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    log("Job start: building complete crypto table (signals + balances + ACTION)...")
+    log("Job start: building crypto signals table...")
 
-    # NEW: ONE FUNCTION CALL DOES EVERYTHING!
-    df_crypto = build_complete_crypto_table(
+    df_crypto = build_crypto_signals_table(
         CRYPTO_TICKERS,
         gecko_pools=CRYPTO_NOT_FOUND_YAHOO,
         atr_period=ATR_PERIOD,
@@ -179,9 +188,66 @@ def main():
         adxr_flat_eps=ADXR_FLAT_EPS,
     )
 
-    log(f"Complete crypto table built with {len(df_crypto)} rows.")
+    log("Enriching with wallet balances/portfolio fields (can be slow)...")
+    df_crypto = enrich_crypto_portfolio_fields(df_crypto)
 
-    # Totals (already computed in the DataFrame)
+    # ---------------------------
+    # Match your Streamlit logic:
+    # ALT USD Val + USDC Value + Total Val + ALT% + ACTION
+    # ---------------------------
+    if "USD Value" in df_crypto.columns:
+        df_crypto = df_crypto.rename(columns={"USD Value": "ALT USD Val"})
+
+    for c in ["ALT USD Val", "USDC Value"]:
+        if c in df_crypto.columns:
+            df_crypto[c] = pd.to_numeric(df_crypto[c], errors="coerce").fillna(0.0)
+
+    if "ALT USD Val" not in df_crypto.columns:
+        df_crypto["ALT USD Val"] = 0.0
+    if "USDC Value" not in df_crypto.columns:
+        df_crypto["USDC Value"] = 0.0
+
+    df_crypto["Total Val"] = df_crypto["ALT USD Val"] + df_crypto["USDC Value"]
+    df_crypto["ALT%"] = np.where(
+        df_crypto["Total Val"] > 0,
+        (df_crypto["ALT USD Val"] / df_crypto["Total Val"]) * 100.0,
+        0.0,
+    ).round(2)
+
+    SIGNAL_COL = "SIGNAL-Super-MOST-ADXR"
+
+    def _action_row(r):
+        sig = str(r.get(SIGNAL_COL, "")).upper()
+        alt_pct = float(pd.to_numeric(r.get("ALT%", 0.0), errors="coerce") or 0.0)
+        if sig == "BUY" and alt_pct < 50.0:
+            return "🔴 BUY ALT"
+        if sig == "EXIT" and alt_pct > 50.0:
+            return "🔴 SELL ALT"
+        return ""
+
+    df_crypto["ACTION"] = df_crypto.apply(_action_row, axis=1)
+
+    # Reorder columns similar to Streamlit
+    cols = list(df_crypto.columns)
+
+    def move_after(col_to_move, after_col):
+        nonlocal cols
+        if col_to_move in cols and after_col in cols:
+            cols.remove(col_to_move)
+            idx = cols.index(after_col) + 1
+            cols.insert(idx, col_to_move)
+
+    move_after("ACTION", SIGNAL_COL)
+    move_after("ALT%", "ALT USD Val")
+    move_after("Total Val", "USDC Value")
+
+    df_crypto = df_crypto[cols]
+
+    # Sort by Total Val desc if exists
+    if "Total Val" in df_crypto.columns:
+        df_crypto = df_crypto.sort_values("Total Val", ascending=False)
+
+    # Totals
     alt_total = float(pd.to_numeric(df_crypto["ALT USD Val"], errors="coerce").fillna(0.0).sum())
     usdc_total = float(pd.to_numeric(df_crypto["USDC Value"], errors="coerce").fillna(0.0).sum())
     grand_total = float(pd.to_numeric(df_crypto["Total Val"], errors="coerce").fillna(0.0).sum())
@@ -284,3 +350,4 @@ if __name__ == "__main__":
     except Exception as e:
         log(f"FATAL: {repr(e)}")
         raise
+

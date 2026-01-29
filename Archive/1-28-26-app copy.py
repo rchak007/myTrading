@@ -28,7 +28,7 @@ load_dotenv()
 
 from data.stocks import build_stocks_signals_table
 from data.crypto import (
-    build_complete_crypto_table,  # <-- NEW: Use consolidated function
+    build_crypto_signals_table,
     fetch_coingecko_global,
     fetch_total_mcap_history_coingecko,
     fetch_total_mcap_history_coinmarketcap,
@@ -497,46 +497,7 @@ def main():
 
     st.subheader("📈 Stocks 1D Signals")
     try:
-        # Check CSV age and auto-refresh if older than 1 hour
-        csv_exists = STOCKS_CSV.exists()
-        csv_age_minutes = None
-        needs_refresh = False
-        
-        if csv_exists:
-            csv_mtime = STOCKS_CSV.stat().st_mtime
-            csv_age_seconds = datetime.now(timezone.utc).timestamp() - csv_mtime
-            csv_age_minutes = int(csv_age_seconds / 60)
-            
-            if csv_age_minutes > 60:  # Older than 1 hour
-                needs_refresh = True
-                st.warning(f"⚠️ Stock data is {csv_age_minutes} minutes old (>{csv_age_minutes//60}h). Auto-refreshing...")
-        else:
-            needs_refresh = True
-            st.info("No stock data found. Computing for the first time...")
-        
-        # Auto-refresh if needed
-        if needs_refresh:
-            with st.spinner("Computing stock signals..."):
-                df_stocks = build_stocks_signals_table(
-                    STOCK_TICKERS,
-                    atr_period=ATR_PERIOD,
-                    atr_multiplier=ATR_MULTIPLIER,
-                    rsi_period=RSI_PERIOD,
-                    vol_lookback=VOL_LOOKBACK,
-                    vol_multiplier=VOL_MULTIPLIER,
-                    rsi_buy_threshold=RSI_BUY_THRESHOLD,
-                    adxr_len=ADXR_LEN,
-                    adxr_lenx=ADXR_LENX,
-                    adxr_low_threshold=ADXR_LOW_THRESHOLD,
-                    adxr_flat_eps=ADXR_FLAT_EPS,
-                )
-                df_stocks.to_csv(STOCKS_CSV, index=False)
-                st.success("✅ Stock data refreshed!")
-        else:
-            # Read existing CSV
-            df_stocks = pd.read_csv(STOCKS_CSV)
-            if csv_age_minutes is not None:
-                st.caption(f"📅 Stock data age: {csv_age_minutes} minutes old")
+        df_stocks = pd.read_csv(os.path.join(OUTPUTS_DIR, "supertrend_stocks_1d.csv"))
 
         # --- Add Schwab portfolio columns (QTY, VALUE) ---
         st.write("🔄 Fetching Schwab holdings...")
@@ -596,8 +557,7 @@ def main():
         st.dataframe(df_stocks, width="stretch")
 
     except Exception as e:
-        st.error(f"Error loading stock signals: {e}")
-        st.exception(e)
+        st.info(f"No Stocks 1D CSV yet. Click Refresh. ({e})")
     # -----------------------
     # Crypto Context block
     # -----------------------
@@ -696,11 +656,10 @@ def main():
                 )
                 df_stocks.to_csv(os.path.join(OUTPUTS_DIR, "supertrend_stocks_1d.csv"), index=False)
 
-            with st.spinner("Computing crypto signals + wallet balances..."):
-                # NEW: Use the consolidated function that does everything
-                df_crypto = build_complete_crypto_table(
+            with st.spinner("Computing crypto signals..."):
+                df_crypto = build_crypto_signals_table(
                     CRYPTO_TICKERS,
-                    gecko_pools=CRYPTO_NOT_FOUND_YAHOO,
+                    gecko_pools=CRYPTO_NOT_FOUND_YAHOO,   # <-- ADD THIS
                     atr_period=ATR_PERIOD,
                     atr_multiplier=ATR_MULTIPLIER,
                     rsi_period=RSI_PERIOD,
@@ -720,54 +679,105 @@ def main():
             st.exception(e)
 
 
-    # -----------------------
-    # Display Crypto Table
-    # -----------------------
+    # st.subheader("₿ Crypto 4H Signals")
+    # try:
+    #     df_crypto = pd.read_csv(os.path.join(OUTPUTS_DIR, "supertrend_crypto_4h.csv"))
+    #     st.dataframe(df_crypto, use_container_width=True)
+    # except Exception as e:
+    #     st.info(f"No Crypto 4H CSV yet. Click Refresh. ({e})")
+
     st.subheader("₿ Crypto 4H Signals")
     try:
-        # Check CSV age and auto-refresh if older than 1 hour
-        csv_exists = CRYPTO_CSV.exists()
-        csv_age_minutes = None
-        needs_refresh = False
-        
-        if csv_exists:
-            csv_mtime = CRYPTO_CSV.stat().st_mtime
-            csv_age_seconds = datetime.now(timezone.utc).timestamp() - csv_mtime
-            csv_age_minutes = int(csv_age_seconds / 60)
-            
-            if csv_age_minutes > 60:  # Older than 1 hour
-                needs_refresh = True
-                st.warning(f"⚠️ Data is {csv_age_minutes} minutes old (>{csv_age_minutes//60}h). Auto-refreshing...")
-        else:
-            needs_refresh = True
-            st.info("No crypto data found. Computing for the first time...")
-        
-        # Auto-refresh if needed
-        if needs_refresh:
-            with st.spinner("Computing crypto signals + wallet balances..."):
-                df_crypto = build_complete_crypto_table(
-                    CRYPTO_TICKERS,
-                    gecko_pools=CRYPTO_NOT_FOUND_YAHOO,
-                    atr_period=ATR_PERIOD,
-                    atr_multiplier=ATR_MULTIPLIER,
-                    rsi_period=RSI_PERIOD,
-                    vol_lookback=VOL_LOOKBACK,
-                    vol_multiplier=VOL_MULTIPLIER,
-                    rsi_buy_threshold=RSI_BUY_THRESHOLD,
-                    adxr_len=ADXR_LEN,
-                    adxr_lenx=ADXR_LENX,
-                    adxr_low_threshold=ADXR_LOW_THRESHOLD,
-                    adxr_flat_eps=ADXR_FLAT_EPS,
-                )
-                df_crypto.to_csv(CRYPTO_CSV, index=False)
-                st.success("✅ Crypto data refreshed!")
-        else:
-            # Read existing CSV
-            df_crypto = pd.read_csv(CRYPTO_CSV)
-            if csv_age_minutes is not None:
-                st.caption(f"📅 Data age: {csv_age_minutes} minutes old")
+        df_crypto = pd.read_csv(os.path.join(OUTPUTS_DIR, "supertrend_crypto_4h.csv"))
 
-        # Style ACTION column
+        # Enrich with wallet qty/price/usd fields from ASSET_REGISTRY
+        from data.crypto import enrich_crypto_portfolio_fields
+
+        @st.cache_data(ttl=120)
+        def _enrich_cached(df_in: pd.DataFrame) -> pd.DataFrame:
+            return enrich_crypto_portfolio_fields(df_in)
+
+        df_crypto = _enrich_cached(df_crypto)
+
+        # ---------------------------
+        # Add Total Val + ALT% columns
+        # ---------------------------
+        # 1) Rename "USD Value" -> "ALT USD Val"
+        if "USD Value" in df_crypto.columns:
+            df_crypto = df_crypto.rename(columns={"USD Value": "ALT USD Val"})
+
+        # 2) Compute Total Val = ALT USD Val + USDC Value
+        # Ensure numeric (handles None / strings)
+        for c in ["ALT USD Val", "USDC Value"]:
+            if c in df_crypto.columns:
+                df_crypto[c] = pd.to_numeric(df_crypto[c], errors="coerce").fillna(0.0)
+
+        if "ALT USD Val" in df_crypto.columns and "USDC Value" in df_crypto.columns:
+            df_crypto["Total Val"] = df_crypto["ALT USD Val"] + df_crypto["USDC Value"]
+            df_crypto["ALT%"] = np.where(
+                df_crypto["Total Val"] > 0,
+                (df_crypto["ALT USD Val"] / df_crypto["Total Val"]) * 100.0,
+                0.0,
+            ).round(2)
+        else:
+            # If columns aren't present, still create them so UI is consistent
+            df_crypto["Total Val"] = 0.0
+            df_crypto["ALT%"] = 0.0
+
+        # ---------------------------
+        # ACTION column (rebalance alert)
+        # ---------------------------
+        SIGNAL_COL = "SIGNAL-Super-MOST-ADXR"
+
+        # Ensure numeric ALT% (it already is, but keep safe)
+        if "ALT%" in df_crypto.columns:
+            df_crypto["ALT%"] = pd.to_numeric(df_crypto["ALT%"], errors="coerce").fillna(0.0)
+
+        def _action_row(r):
+            sig = str(r.get(SIGNAL_COL, "")).upper()
+            alt_pct = float(r.get("ALT%", 0.0))
+
+            # BUY signal but ALT exposure low -> buy ALT
+            if sig == "BUY" and alt_pct < 50.0:
+                return "🔴 BUY ALT"
+
+            # EXIT signal but ALT exposure high -> sell ALT
+            if sig == "EXIT" and alt_pct > 50.0:
+                return "🔴 SELL ALT"
+
+            return ""  # no action
+
+        df_crypto["ACTION"] = df_crypto.apply(_action_row, axis=1)
+
+
+
+        # ---------------------------
+        # Reorder columns for clarity
+        # ALT USD Val -> ALT% -> USDC Value -> Total Val
+        # ---------------------------
+        desired_order = []
+        cols = list(df_crypto.columns)
+
+        def _move_after(col_to_move, after_col):
+            if col_to_move in cols and after_col in cols:
+                cols.remove(col_to_move)
+                idx = cols.index(after_col) + 1
+                cols.insert(idx, col_to_move)
+
+
+        # Put ACTION right after SIGNAL
+        _move_after("ACTION", "SIGNAL-Super-MOST-ADXR")
+        # Move ALT% right after ALT USD Val
+        _move_after("ALT%", "ALT USD Val")
+
+        # Move Total Val right after USDC Value
+        _move_after("Total Val", "USDC Value")
+
+        df_crypto = df_crypto[cols]
+
+
+
+        # st.dataframe(df_crypto, use_container_width=True)
         def _style_action(val):
             if isinstance(val, str) and val.startswith("🔴"):
                 return "color: red; font-weight: 700;"
@@ -776,6 +786,16 @@ def main():
         styled = df_crypto.style.applymap(_style_action, subset=["ACTION"])
         st.dataframe(styled, use_container_width=True)
         
+
+        # # ---------------------------
+        # # Grand Total (sum of Total Val)
+        # # ---------------------------
+        # if "Total Val" in df_crypto.columns:
+        #     grand_total = float(pd.to_numeric(df_crypto["Total Val"], errors="coerce").fillna(0.0).sum())
+        #     # st.markdown(f"**Grand Total (ALT + USDC): ${grand_total:,.2f}**")
+        #     st.metric("Grand Total (ALT + USDC)", f"${grand_total:,.2f}")
+        # else:
+        #     st.markdown("**Grand Total (ALT + USDC): $0.00**")
 
         # ---------------------------
         # Portfolio Totals
@@ -816,9 +836,9 @@ def main():
 
 
 
+
     except Exception as e:
-        st.error(f"Error loading crypto signals: {e}")
-        st.exception(e)
+        st.info(f"No Crypto 4H CSV yet. Click Refresh. ({e})")
 
 
 
