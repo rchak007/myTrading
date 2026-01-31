@@ -108,7 +108,7 @@ STOCK_TICKERS = [
     "BE", "BMNR", "BWXT", "CEG",  "CFG","COIN","COHR","COPX", "CORZ","CRDO","CRVW", "CRWD", "ETHA","GEV", "GLD", "GOOG",
     "HODL","HOOD","IBIT","IDR","INOD","IONQ","IREN","LEU","LITE","LRCX","LTBR",
     "META","MNST", "MP","MSFT","MSTR","MSTX","MU","NET","NPPTF","NVDA","OKLO", "ORCL",  "PLTR",
-    "QBTS","QUBT","RGTI","RDDT","SLV", "SOFI", "SMR", "SSK","STKE", "STRC",
+    "QBTS","QUBT","RGTI","RDDT","SLV", "SOFI", "SMR","SNDK", "SSK","STKE", "STRC",
     "TER","TSLA","TSM","UPXI","VRT", "WDC"  
 ]
 
@@ -118,7 +118,7 @@ CRYPTO_TICKERS = [
     "AAVE-USD" , "ADA-USD" , "AIXBT-USD", "AKT-USD", "ANON35092-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , "cetus-usd" ,"cookie31838-usd" ,"CRV-USD",
     "DOGE-USD", "DRIFT31278-USD", "ELIZAOS-USD",  "elon-usd" ,"ENA-USD","ENS-USD",
     "fluid-usd", "fluxb-usd","FAI34330-USD", "griffain-USD",
-    "HNT-USD","JTO-USD", "JUP29210-USD", "KMNO-USD", "LFNTY-USD", 
+    "HNT-USD", "IKA37454-USD", "JTO-USD", "JUP29210-USD", "KMNO-USD", "LFNTY-USD", 
     "MOBILE-USD",  "MON30495-USD", "navx-USD" , "NEAR-USD", "NOS-USD",  "ORCA-USD" , "ore32782-USD",
     "pippin-usd" , "PNK-USD", "PROVE-USD", "PYTH-USD","RAY-USD","RENDER-USD",
      "SUAI-USD", "suins-usd",  "TAI20605-USD",
