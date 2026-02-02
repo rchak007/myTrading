@@ -370,7 +370,16 @@ def main():
             )
 
             last = ind.iloc[-1]
-            bar_ts = str(last.name)
+            # bar_ts = str(last.name)
+            tz = ZoneInfo("America/Los_Angeles") if BOT_TZ.upper() == "PST" else ZoneInfo("UTC")
+
+            bar_ts = (
+                pd.Timestamp(last.name)
+                .tz_localize("UTC", nonexistent="shift_forward", ambiguous="NaT")
+                .tz_convert(tz)
+                .strftime("%Y-%m-%d %H:%M:%S")
+            )
+
 
             # Only act once per new hour bar
             if st.last_bar_ts == bar_ts:
