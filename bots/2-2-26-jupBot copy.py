@@ -107,31 +107,10 @@ def _load_state() -> BotState:
         return BotState()
 
 
-# def _save_state(st: BotState) -> None:
-#     os.makedirs(os.path.dirname(STATE_PATH) or ".", exist_ok=True)
-#     with open(STATE_PATH, "w", encoding="utf-8") as f:
-#         json.dump({"last_bar_ts": st.last_bar_ts, "regime": st.regime}, f, indent=2)
-
-
 def _save_state(st: BotState) -> None:
     os.makedirs(os.path.dirname(STATE_PATH) or ".", exist_ok=True)
-
-    payload = {
-        "last_bar_ts": st.last_bar_ts,
-        "regime": st.regime,
-    }
-
     with open(STATE_PATH, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-
-    # 🔁 Mirror state to jobMyTrading (if configured)
-    if STATE_MIRROR_PATH:
-        try:
-            os.makedirs(os.path.dirname(STATE_MIRROR_PATH), exist_ok=True)
-            shutil.copyfile(STATE_PATH, STATE_MIRROR_PATH)
-        except Exception as e:
-            log.warning("State mirror failed: %s", e)
-
+        json.dump({"last_bar_ts": st.last_bar_ts, "regime": st.regime}, f, indent=2)
 
 
 def desired_regime_from_final_signal(final_sig: str) -> str:
