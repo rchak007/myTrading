@@ -412,6 +412,6 @@ def scan_universe(
     if not results:
         return pd.DataFrame()
     
-    # Create and sort DataFrame
-    df = pd.DataFrame(results).sort_values("Score", ascending=False).reset_index(drop=True)
+    # Create and sort DataFrame by Score_Weighted
+    df = pd.DataFrame(results).sort_values("Score_Weighted", ascending=False).reset_index(drop=True)
     return df
