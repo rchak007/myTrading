@@ -40,15 +40,6 @@ def get_erc20_decimals(contract: str, rpc_urls: list[str]) -> int:
     return int(result, 16)
 
 
-def get_native_balance(wallet: str, rpc_urls: list[str]) -> Decimal:
-    """Get native coin balance (ETH, BNB etc) using eth_getBalance. Always 18 decimals."""
-    raw = _rpc_call(rpc_urls, "eth_getBalance", [wallet, "latest"])
-    bal_int = Decimal(int(raw, 16))
-    result = bal_int / (Decimal(10) ** 18)
-    print(f"evm native balance - wallet={wallet}, bal={result}")
-    return result
-
-
 def get_erc20_balance(wallet: str, contract: str, rpc_urls: list[str]) -> Decimal:
     data = BALANCE_OF_SIG + _pad_address(wallet)
     raw = _rpc_call(rpc_urls, "eth_call", [{"to": contract, "data": data}, "latest"])

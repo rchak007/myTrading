@@ -17,7 +17,7 @@ from core.signals import (
 
 # Import scoring functions
 from data.stock_scoring import (
-    calculate_all_scores,
+    calculate_45_degree_score,
     get_earnings_alert,
 )
 
@@ -145,19 +145,17 @@ def build_stocks_signals_table(
         super_most_adxr = signal_super_most_adxr(st_sig, most_sig, adxr_state)
 
         # Calculate scoring and earnings if enabled
-        score_30 = score_60 = score_90 = score_120 = score_weighted = np.nan
+        score = np.nan
         earnings_alert = ""
         if include_scoring:
             try:
-                score_data = calculate_all_scores(base, spy_close)
-                score_30  = score_data["Score_30"]
-                score_60  = score_data["Score_60"]
-                score_90  = score_data["Score_90"]
-                score_120 = score_data["Score_120"]
-                score_weighted = score_data["Score_Weighted"]
+                score_data = calculate_45_degree_score(base, spy_close)
+                score = score_data["score"]
                 earnings_alert = get_earnings_alert(t)
             except Exception as e:
                 print(f"Warning: Could not calculate score for {t}: {e}")
+                score = np.nan
+                earnings_alert = ""
 
         # Fetch market cap — always, graceful N/A on failure (no crypto, stocks only)
         market_cap = fetch_market_cap(t)
@@ -172,11 +170,7 @@ def build_stocks_signals_table(
         
         # Add scoring columns after SIGNAL-Super-MOST-ADXR
         if include_scoring:
-            row["Score_30"]  = int(score_30)  if pd.notna(score_30)  else 0
-            row["Score_60"]  = int(score_60)  if pd.notna(score_60)  else 0
-            row["Score_90"]  = int(score_90)  if pd.notna(score_90)  else 0
-            row["Score_120"] = int(score_120) if pd.notna(score_120) else 0
-            row["Score_Weighted"] = int(score_weighted) if pd.notna(score_weighted) else 0
+            row["Score"] = int(score) if pd.notna(score) else np.nan
             row["Earnings_Alert"] = earnings_alert
 
         # Market_Cap always after signal block
@@ -206,8 +200,7 @@ def build_stocks_signals_table(
     if include_scoring:
         columns_order = [
             "Ticker", "Timeframe", "Bar Time", "Last Close",
-            "SIGNAL-Super-MOST-ADXR", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
-            "Earnings_Alert", "Market_Cap",
+            "SIGNAL-Super-MOST-ADXR", "Score", "Earnings_Alert", "Market_Cap",
             "Supertrend", "Supertrend Signal", "RSI",
             "MOST MA", "MOST Line", "MOST Signal",
             "ADXR State", "ADXR Signal", "Volume",

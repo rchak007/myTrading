@@ -165,20 +165,3 @@ def get_spl_token_balance_from_cache(
         wallet_cache[wallet] = get_wallet_token_balances_by_mint(wallet, rpc_urls=rpc_urls, debug=debug)
 
     return wallet_cache[wallet].get(mint, Decimal("0"))
-
-
-def get_native_sol_balance(
-    wallet: str,
-    *,
-    rpc_urls: List[str] | None = None,
-) -> Decimal:
-    """
-    Returns native SOL balance for a wallet.
-    1 SOL = 1,000,000,000 lamports.
-    """
-    urls = rpc_urls or DEFAULT_SOL_RPCS
-    result = _rpc_call(urls, "getBalance", [wallet])
-    lamports = Decimal(result.get("value", 0))
-    sol = lamports / Decimal(10 ** 9)
-    print(f"[SOL] Native SOL | Wallet={wallet} | Qty={sol}")
-    return sol

@@ -433,15 +433,14 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
     print("In enrich_crypto_portfolio_fields function")
     # Import balance functions - these may not exist in all setups
     try:
-        from core.balances.solana import get_native_sol_balance, get_wallet_token_balances_by_mint
+        from core.balances.solana import get_wallet_token_balances_by_mint
     except ImportError:
-        get_native_sol_balance = None
         get_wallet_token_balances_by_mint = None
     
     try:
-        from core.balances.evm import get_erc20_balance, get_native_balance
+        from core.balances.evm import get_erc20_balance
     except ImportError:
-        get_native_balance = None
+        pass  # get_erc20_balance already imported at top
     
     try:
         from core.balances.hyperliquid import get_spot_balances, get_mid_prices
@@ -527,15 +526,11 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
             try:
                 
                 if chain == "solana":
-                    if wallet and not token_contract:
-                        # Native SOL
-                        if get_native_sol_balance:
-                            qty_dec = get_native_sol_balance(wallet)
-                        else:
-                            print(f"⚠️  get_native_sol_balance not available")
-                    elif wallet and token_contract and sol_wallet_cache is not None:
+                    # SPL token balance
+                    if wallet and token_contract and sol_wallet_cache is not None:
                         qty_dec = get_spl_token_balance_from_cache(wallet, token_contract, sol_wallet_cache)
-                        if qty_dec != 0:
+                        debug = True
+                        if debug and qty_dec != 0:
                             print(f"[SOL] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")
 
                     if wallet and stable_contract and sol_wallet_cache is not None:
@@ -548,13 +543,10 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
 
 
                 elif chain == "ethereum":
-                    if wallet and not token_contract:
-                        # Native ETH
-                        qty_dec = get_native_balance(wallet, ETH_RPC_URLS)
-                        print(f"[ETH] Native ETH | Wallet={wallet} | Qty={qty_dec}")
-                    elif wallet and token_contract:
+                    if wallet and token_contract:
                         qty_dec = get_erc20_balance(wallet, token_contract, ETH_RPC_URLS)
-                        if qty_dec != 0:
+                        debug = True
+                        if debug and qty_dec != 0:
                             print(f"[ETH] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")
                     if wallet and stable_contract:
                         usdc_dec = get_erc20_balance(wallet, stable_contract, ETH_RPC_URLS)
@@ -564,13 +556,10 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
 
 
                 elif chain == "base":
-                    if wallet and not token_contract:
-                        # Native ETH on Base
-                        qty_dec = get_native_balance(wallet, BASE_RPC_URLS)
-                        print(f"[BASE] Native ETH | Wallet={wallet} | Qty={qty_dec}")
-                    elif wallet and token_contract:
+                    if wallet and token_contract:
                         qty_dec = get_erc20_balance(wallet, token_contract, BASE_RPC_URLS)
-                        if qty_dec != 0:
+                        debug = True
+                        if debug and qty_dec != 0:
                             print(f"[BASE] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")
                     if wallet and stable_contract:
                         usdc_dec = get_erc20_balance(wallet, stable_contract, BASE_RPC_URLS)
@@ -590,13 +579,10 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                         if debug and usdc_dec != 0:
                             print(f"[SUI] USDC | Wallet={wallet} | Qty={usdc_dec}")
                 elif chain in ("bsc", "bnb"):
-                    if wallet and not token_contract:
-                        # Native BNB
-                        qty_dec = get_native_balance(wallet, BSC_RPC_URLS)
-                        print(f"[BNB] Native BNB | Wallet={wallet} | Qty={qty_dec}")
-                    elif wallet and token_contract:
+                    if wallet and token_contract:
                         qty_dec = get_erc20_balance(wallet, token_contract, BSC_RPC_URLS)
-                        if qty_dec != 0:
+                        debug = True
+                        if debug and qty_dec != 0:
                             print(f"[BNB] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")    
                     if wallet and stable_contract:
                         usdc_dec = get_erc20_balance(wallet, stable_contract, BSC_RPC_URLS)

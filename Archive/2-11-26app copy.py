@@ -571,24 +571,25 @@ def main():
             df_stocks["VALUE"] = df_stocks["VALUE"].fillna(0.0)
 
         # --- Reorder columns ---
-        # Desired order after SIGNAL: QTY, VALUE, Score_30/60/90/120/Weighted, Market_Cap, Earnings_Alert
+        # Desired order after SIGNAL: QTY, VALUE, Market_Cap, then the rest
         cols = list(df_stocks.columns)
 
-        # Pull out columns we want to place explicitly
-        priority_cols = ["QTY", "VALUE", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted", "Earnings_Alert", "Market_Cap"]
-        for c in priority_cols:
+        # Pull out the columns we want to place explicitly
+        for c in ["QTY", "VALUE", "Market_Cap"]:
             if c in cols:
                 cols.remove(c)
 
         insert_after = "SIGNAL-Super-MOST-ADXR"
         if insert_after in cols:
             idx = cols.index(insert_after) + 1
-            for extra_col in reversed(priority_cols):
+            # Insert in desired order: QTY, VALUE, Market_Cap
+            for extra_col in reversed(["QTY", "VALUE", "Market_Cap"]):
                 if extra_col in df_stocks.columns:
                     cols.insert(idx, extra_col)
         else:
-            cols = ["Ticker", "QTY", "VALUE"] + priority_cols + [
-                c for c in cols if c not in ("Ticker", "QTY", "VALUE") + tuple(priority_cols)
+            # fallback if column name changes
+            cols = ["Ticker", "QTY", "VALUE", "Market_Cap"] + [
+                c for c in cols if c not in ("Ticker", "QTY", "VALUE", "Market_Cap")
             ]
 
         # Move Timeframe and Bar Time to the end

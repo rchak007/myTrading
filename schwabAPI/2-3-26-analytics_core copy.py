@@ -40,15 +40,6 @@ def get_linked_accounts(client) -> List[Dict]:
 
     accounts = []
     for a in data:
-        # Handle case where API returns strings instead of dicts
-        if isinstance(a, str):
-            logger.warning(f"API returned string instead of dict: {a}")
-            continue
-        
-        if not isinstance(a, dict):
-            logger.warning(f"API returned unexpected type: {type(a)}")
-            continue
-            
         accounts.append(
             {
                 "account_number": a.get("accountNumber"),
@@ -479,12 +470,9 @@ def normalize_txns_to_df(txs: list, account_hash: str) -> pd.DataFrame:
 from pandas.errors import EmptyDataError
 
 def append_cache(account_hash: str, new_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Appends new transactions to the CSV cache file.
-    The .state.json file stores only metadata (last_date).
-    The .csv file stores the actual transaction data.
-    """
-    csvp = _csv_path(account_hash)  # Use CSV for data
+    # csvp = _cache_path(account_hash)
+    csvp = _state_path(account_hash)
+
 
     # If API returned nothing, don't create/append to cache at all
     if new_df is None or new_df.empty:
@@ -539,10 +527,6 @@ def get_transactions_cached(client, account_hash: str, start_date, end_date, typ
     start_date/end_date: datetime.date, datetime.datetime, or 'YYYY-MM-DD'
     Fetches only missing range and caches to CSV.
     Returns the full cached DF for that account.
-    
-    Cache structure:
-    - {hash}.csv: Contains all transaction data
-    - {hash}.state.json: Contains metadata (last_date)
     """
     _ensure_cache_dir()
 
@@ -557,7 +541,7 @@ def get_transactions_cached(client, account_hash: str, start_date, end_date, typ
     last_cached = load_last_cached_date(account_hash)
     fetch_start = req_start if last_cached is None else max(req_start, last_cached + timedelta(days=1))
 
-    csvp = _csv_path(account_hash)  # FIXED: Use CSV for data storage
+    csvp = _csv_path(account_hash)
 
     # If cache already covers requested end date, just return cache
     if last_cached is not None and last_cached >= req_end and csvp.exists():

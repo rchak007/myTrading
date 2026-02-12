@@ -115,6 +115,7 @@ STOCK_TICKERS = [
 
 CRYPTO_TICKERS = [
     "BTC-USD","ETH-USD","SOL-USD","HYPE32196-USD", "SUI20947-USD", "LINK-USD","DOGE-USD", "ONDO-USD","BNB-USD",
+
     "AAVE-USD" , "ADA-USD" , "AIXBT-USD", "AKT-USD", "ANON35092-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , "cetus-usd" ,"cookie31838-usd" ,"CRV-USD",
     "DOGE-USD", "DRIFT31278-USD", "ELIZAOS-USD",  "elon-usd" ,"ENA-USD","ENS-USD",
     "fluid-usd", "fluxb-usd","FAI34330-USD", "griffain-USD",
@@ -571,25 +572,19 @@ def main():
             df_stocks["VALUE"] = df_stocks["VALUE"].fillna(0.0)
 
         # --- Reorder columns ---
-        # Desired order after SIGNAL: QTY, VALUE, Score_30/60/90/120/Weighted, Market_Cap, Earnings_Alert
+        # Put QTY and VALUE right after SIGNAL-Super-MOST-ADXR
         cols = list(df_stocks.columns)
-
-        # Pull out columns we want to place explicitly
-        priority_cols = ["QTY", "VALUE", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted", "Earnings_Alert", "Market_Cap"]
-        for c in priority_cols:
+        for c in ["QTY", "VALUE"]:
             if c in cols:
                 cols.remove(c)
 
         insert_after = "SIGNAL-Super-MOST-ADXR"
         if insert_after in cols:
             idx = cols.index(insert_after) + 1
-            for extra_col in reversed(priority_cols):
-                if extra_col in df_stocks.columns:
-                    cols.insert(idx, extra_col)
+            cols[idx:idx] = ["QTY", "VALUE"]
         else:
-            cols = ["Ticker", "QTY", "VALUE"] + priority_cols + [
-                c for c in cols if c not in ("Ticker", "QTY", "VALUE") + tuple(priority_cols)
-            ]
+            # fallback if column name changes
+            cols = ["Ticker", "QTY", "VALUE"] + [c for c in cols if c not in ("Ticker",)]
 
         # Move Timeframe and Bar Time to the end
         for move_col in ["Timeframe", "Bar Time"]:

@@ -17,33 +17,9 @@ from core.signals import (
 
 # Import scoring functions
 from data.stock_scoring import (
-    calculate_all_scores,
+    calculate_45_degree_score,
     get_earnings_alert,
 )
-
-
-def fetch_market_cap(ticker: str) -> str:
-    """
-    Fetch market cap for a single ticker via yfinance.info.
-    Returns a compact string like '$1.23T', '$456B', '$12.3M'.
-    Falls back to 'N/A' gracefully — never raises.
-    ETFs / missing data → 'N/A'.
-    """
-    try:
-        info = yf.Ticker(ticker).info
-        val = info.get("marketCap") or info.get("market_cap")
-        if val and isinstance(val, (int, float)) and val > 0:
-            v = float(val)
-            if v >= 1e12:
-                return f"${v/1e12:.2f}T"
-            if v >= 1e9:
-                return f"${v/1e9:.1f}B"
-            if v >= 1e6:
-                return f"${v/1e6:.1f}M"
-            return f"${v:,.0f}"
-    except Exception:
-        pass
-    return "N/A"
 
 
 def fetch_stock_1d_df(ticker: str, lookback_days: int = 450) -> pd.DataFrame | None:
@@ -145,22 +121,17 @@ def build_stocks_signals_table(
         super_most_adxr = signal_super_most_adxr(st_sig, most_sig, adxr_state)
 
         # Calculate scoring and earnings if enabled
-        score_30 = score_60 = score_90 = score_120 = score_weighted = np.nan
+        score = np.nan
         earnings_alert = ""
         if include_scoring:
             try:
-                score_data = calculate_all_scores(base, spy_close)
-                score_30  = score_data["Score_30"]
-                score_60  = score_data["Score_60"]
-                score_90  = score_data["Score_90"]
-                score_120 = score_data["Score_120"]
-                score_weighted = score_data["Score_Weighted"]
+                score_data = calculate_45_degree_score(base, spy_close)
+                score = score_data["score"]
                 earnings_alert = get_earnings_alert(t)
             except Exception as e:
                 print(f"Warning: Could not calculate score for {t}: {e}")
-
-        # Fetch market cap — always, graceful N/A on failure (no crypto, stocks only)
-        market_cap = fetch_market_cap(t)
+                score = np.nan
+                earnings_alert = ""
 
         row = {
             "Ticker": t,
@@ -172,15 +143,8 @@ def build_stocks_signals_table(
         
         # Add scoring columns after SIGNAL-Super-MOST-ADXR
         if include_scoring:
-            row["Score_30"]  = int(score_30)  if pd.notna(score_30)  else 0
-            row["Score_60"]  = int(score_60)  if pd.notna(score_60)  else 0
-            row["Score_90"]  = int(score_90)  if pd.notna(score_90)  else 0
-            row["Score_120"] = int(score_120) if pd.notna(score_120) else 0
-            row["Score_Weighted"] = int(score_weighted) if pd.notna(score_weighted) else 0
+            row["Score"] = int(score) if pd.notna(score) else np.nan
             row["Earnings_Alert"] = earnings_alert
-
-        # Market_Cap always after signal block
-        row["Market_Cap"] = market_cap
         
         # Continue with existing columns
         row.update({
@@ -206,20 +170,14 @@ def build_stocks_signals_table(
     if include_scoring:
         columns_order = [
             "Ticker", "Timeframe", "Bar Time", "Last Close",
-            "SIGNAL-Super-MOST-ADXR", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
-            "Earnings_Alert", "Market_Cap",
+            "SIGNAL-Super-MOST-ADXR", "Score", "Earnings_Alert",  # New columns here
             "Supertrend", "Supertrend Signal", "RSI",
             "MOST MA", "MOST Line", "MOST Signal",
             "ADXR State", "ADXR Signal", "Volume",
             "Supertrend+Vol Signal", "Combined Signal", "Full Combined"
         ]
     else:
-        # Non-scoring path: insert Market_Cap right after SIGNAL-Super-MOST-ADXR
-        base_order = list(FINAL_COLUMN_ORDER)
-        sig_col = "SIGNAL-Super-MOST-ADXR"
-        if sig_col in base_order:
-            base_order.insert(base_order.index(sig_col) + 1, "Market_Cap")
-        columns_order = base_order
+        columns_order = FINAL_COLUMN_ORDER
     
     # Reindex with available columns only
     available_cols = [col for col in columns_order if col in out.columns]

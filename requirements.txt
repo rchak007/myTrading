@@ -8,3 +8,4 @@ python-dotenv
 schwabdev
 supabase>=2.6.0
 python-dateutil
+lxml
