@@ -17,6 +17,15 @@
       "stablecoin_contract": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
     },
 
+    "WETH": {
+      "ticker": "ETH",
+      "blockchain": "solana",
+      "wallet_address": "FxZzjuPYBBL5mr1LnGCNaqvGb5VLdy5AH88qwpEDCtE3",
+      "token_contract": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+      "yahoo_ticker": "ETH-USD",
+      "stablecoin_contract": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    },
+
 
     "ETH_BASE": {
       "ticker": "ETH",

@@ -64,7 +64,6 @@ ASSET_REGISTRY_PATH = os.getenv("ASSET_REGISTRY_PATH", "./asset_registry.json")
 STATE_DIR = os.getenv("JUPBOT_STATE_DIR", "./outputs")
 TRADE_LOG_DIR = os.getenv("JUPBOT_TRADE_LOG_DIR", "./outputs")
 STATE_MIRROR_DIR = os.getenv("JUPBOT_STATE_MIRROR_DIR")  # optional
-TRADE_LOG_MIRROR_DIR = os.getenv("JUPBOT_TRADE_LOG_MIRROR_DIR")  # optional
 
 # Trading behavior
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
@@ -518,12 +517,8 @@ def log_trade(
                 "timestamp,bot_name,action,regime_from,regime_to,"
                 "price,amount,amount_ccy,tx_sig,dry_run\n"
             )
-
-        pst = ZoneInfo("America/Los_Angeles")
-        ts = datetime.now(pst).strftime("%Y-%m-%d %H:%M:%S")
-
         f.write(
-            f"{ts},"
+            f"{datetime.utcnow().isoformat()},"
             f"{bot_name},"
             f"{action},"
             f"{regime_from},"
@@ -534,15 +529,6 @@ def log_trade(
             f"{tx_sig or ''},"
             f"{dry_run}\n"
         )
-
-    # Mirror trade log (if configured)
-    if TRADE_LOG_MIRROR_DIR:
-        try:
-            mirror = os.path.join(TRADE_LOG_MIRROR_DIR, f"jupbot_trades_{bot_id}.csv")
-            os.makedirs(os.path.dirname(mirror), exist_ok=True)
-            shutil.copyfile(path, mirror)
-        except Exception as e:
-            log.warning("[%s] Trade log mirror failed: %s", bot_id, e)
 
 
 # ═══════════════════════════════════════════════════════════════════
