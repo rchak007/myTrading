@@ -900,6 +900,7 @@ def main():
                 states[bot.bot_id] = tick_bot(bot, kp, st)
             except Exception as e:
                 log.exception("[%s] Error: %s", bot.name, e)
+            time.sleep(10)  # 10 sec pause between bots
 
         time.sleep(SLEEP_SECONDS)
 
