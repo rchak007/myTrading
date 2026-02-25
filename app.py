@@ -105,13 +105,15 @@ PLACEHOLDER_FUTURE = True
 # ]
 STOCK_TICKERS = [
     "AAPL","AAOI","ABTC", "ALAB","AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML", "AVGO",
-    "BABA", "BE", "BMNR", "BWXT", "CEG",  "CFG","CLSK", "COIN","COHR","COPX", "CORZ","CRDO","CRWV", "CRWD", 
+    "BABA", "BE", "BMNR", "BWXT", "CEG",  "CFG","CLSK", "COIN","COHR","COPX", "CORZ","CRDO","CRWV", "CRWD", "CTVA",
     "ETHA","GEV", "GLD", "GOOG",
     "HIMS", "HODL","HOOD","IBIT","IDR","INOD","IONQ","IREN","LEU","LITE","LRCX","LTBR",
-    "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU","NET","NPPTF","NVDA","OKLO", "ONDS", "ORCL",  "PLTR",
-    "QBTS","QUBT","RGTI","RDDT","SE", "SLV", "SOFI", "SPY", "SMR","SNDK", "SSK","STKE", "STRC",
+    "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU","NET","NPPTF","NVDA", "O", "OKLO", "ONDS", "ORCL",  "PLTR",
+    "QBTS","QUBT","RGTI","RDDT","SE", "SLV", "SOFI", "SPY", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC",
     "TER","TSLA","TSM","UMAC", "UPXI","VRT", "WDC"  
 ]
+
+# SNA, O and CTVA - just momemntum 45 degree trades in scharls scwab 885
 
 CRYPTO_TICKERS = [
     "BTC-USD","ETH-USD","SOL-USD","HYPE32196-USD", "SUI20947-USD", "LINK-USD","DOGE-USD", "ONDO-USD","BNB-USD",

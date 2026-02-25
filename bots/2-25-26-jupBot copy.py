@@ -65,8 +65,6 @@ STATE_DIR = os.getenv("JUPBOT_STATE_DIR", "./outputs")
 TRADE_LOG_DIR = os.getenv("JUPBOT_TRADE_LOG_DIR", "./outputs")
 STATE_MIRROR_DIR = os.getenv("JUPBOT_STATE_MIRROR_DIR")  # optional
 TRADE_LOG_MIRROR_DIR = os.getenv("JUPBOT_TRADE_LOG_MIRROR_DIR")  # optional
-HEARTBEAT_LOG_DIR = os.getenv("JUPBOT_HEARTBEAT_LOG_DIR", "./outputs")
-HEARTBEAT_MIRROR_DIR = os.getenv("JUPBOT_HEARTBEAT_MIRROR_DIR")  # optional
 
 # Trading behavior
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
@@ -146,7 +144,6 @@ class BotEntry:
     asset_key: str
     interval: str
     asset: AssetInfo = field(default=None)
-    confirm_interval: Optional[str] = None  # e.g. "4h" for multi-timeframe filter
 
     @property
     def bot_id(self) -> str:
@@ -220,7 +217,6 @@ def load_bot_registry(
             asset_key=asset_key,
             interval=entry.get("interval", "1h"),
             asset=asset_reg[asset_key],
-            confirm_interval=entry.get("confirm_interval"),
         )
         bots.append(bot)
 
@@ -550,120 +546,6 @@ def log_trade(
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Higher-timeframe confirmation filter
-# ═══════════════════════════════════════════════════════════════════
-def get_htf_confirmation(yahoo_ticker: str, confirm_interval: str) -> dict:
-    """
-    Fetch the higher-timeframe data, run indicators, and return
-    the Supertrend signal and ADXR state for confirmation filtering.
-    """
-    df = fetch_df(yahoo_ticker, confirm_interval)
-    ind = apply_indicators(
-        df,
-        atr_period=ATR_PERIOD,
-        atr_multiplier=ATR_MULT,
-        rsi_period=RSI_PERIOD,
-        vol_lookback=VOL_LOOKBACK,
-        adxr_len=ADXR_LEN,
-        adxr_lenx=ADXR_LENX,
-        adxr_low_threshold=ADXR_LOW,
-        adxr_flat_eps=ADXR_EPS,
-    )
-    last = ind.iloc[-1]
-
-    htf_st = str(last.get("Supertrend_Signal", "SELL"))
-    htf_most = str(last.get("MOST_Signal", "SELL"))
-    htf_adxr = str(last.get("ADXR_State", "FLAT"))
-    htf_final = signal_super_most_adxr(htf_st, htf_most, htf_adxr)
-
-    return {
-        "supertrend": htf_st,
-        "most": htf_most,
-        "adxr_state": htf_adxr,
-        "final_signal": htf_final,
-        "allows_buy": htf_final in ("BUY", "HOLD"),
-    }
-
-
-# ═══════════════════════════════════════════════════════════════════
-# Heartbeat log — writes every tick, overwrites daily
-# ═══════════════════════════════════════════════════════════════════
-def _heartbeat_log_path(bot_id: str) -> str:
-    return os.path.join(HEARTBEAT_LOG_DIR, f"jupbot_heartbeat_{bot_id}.log")
-
-
-def write_heartbeat(
-    *,
-    bot_id: str,
-    bot_name: str,
-    bar_ts: str,
-    price: float,
-    st_sig: str,
-    most_sig: str,
-    adxr_state: str,
-    final_sig: str,
-    regime: str,
-    desired_regime: str,
-    action: str,
-    htf_info: dict | None = None,
-    confirm_interval: str | None = None,
-):
-    pst = ZoneInfo("America/Los_Angeles")
-    now_pst = datetime.now(pst)
-    today_str = now_pst.strftime("%Y-%m-%d")
-    ts = now_pst.strftime("%Y-%m-%d %H:%M:%S")
-
-    path = _heartbeat_log_path(bot_id)
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-
-    # Overwrite if file is from a previous day
-    should_overwrite = True
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                first_line = f.readline().strip()
-                # Header line starts with "date,"
-                second_line = f.readline().strip()
-                if second_line and second_line.startswith(today_str):
-                    should_overwrite = False
-        except Exception:
-            should_overwrite = True
-
-    mode = "w" if should_overwrite else "a"
-
-    htf_str = ""
-    if htf_info and confirm_interval:
-        htf_str = (
-            f"{confirm_interval}:ST={htf_info['supertrend']}|"
-            f"MOST={htf_info['most']}|ADXR={htf_info['adxr_state']}|"
-            f"FINAL={htf_info['final_signal']}|allows_buy={htf_info['allows_buy']}"
-        )
-
-    with open(path, mode, encoding="utf-8") as f:
-        if should_overwrite:
-            f.write(
-                "date,time,bot_name,bar_ts,price,ST_sig,MOST_sig,"
-                "ADXR_state,final_signal,regime,desired_regime,action,htf_filter\n"
-            )
-        f.write(
-            f"{today_str},{ts},{bot_name},{bar_ts},{price:.4f},"
-            f"{st_sig},{most_sig},{adxr_state},{final_sig},"
-            f"{regime},{desired_regime},{action},{htf_str}\n"
-        )
-
-    # Mirror heartbeat (if configured)
-    if HEARTBEAT_MIRROR_DIR:
-        try:
-            mirror = os.path.join(
-                HEARTBEAT_MIRROR_DIR, f"jupbot_heartbeat_{bot_id}.log",
-            )
-            os.makedirs(os.path.dirname(mirror), exist_ok=True)
-            shutil.copyfile(path, mirror)
-        except Exception:
-            pass
-
-
-# ═══════════════════════════════════════════════════════════════════
 # Per-bot tick — runs once per new bar
 # ═══════════════════════════════════════════════════════════════════
 def tick_bot(bot: BotEntry, kp: Keypair, st: BotState) -> BotState:
@@ -704,7 +586,11 @@ def tick_bot(bot: BotEntry, kp: Keypair, st: BotState) -> BotState:
         .strftime("%Y-%m-%d %H:%M:%S")
     )
 
-    # ── Compute signal (always, for logging) ──
+    # ── Skip if same bar already processed ──
+    if st.last_bar_ts == bar_ts:
+        return st
+
+    # ── Compute signal ──
     st_sig = str(last.get("Supertrend_Signal", "SELL"))
     most_sig = str(last.get("MOST_Signal", "SELL"))
     adxr_state = str(last.get("ADXR_State", "FLAT"))
@@ -713,97 +599,18 @@ def tick_bot(bot: BotEntry, kp: Keypair, st: BotState) -> BotState:
     desired_regime = desired_regime_from_final_signal(final_sig)
 
     price = float(last["Close"])
-
-    # ── Higher-timeframe confirmation (if configured) ──
-    htf_info = None
-    if bot.confirm_interval and desired_regime == "IN":
-        try:
-            htf_info = get_htf_confirmation(
-                asset.yahoo_ticker, bot.confirm_interval,
-            )
-            blog.info(
-                "HTF %s: ST=%s MOST=%s ADXR=%s => FINAL=%s | allows_buy=%s",
-                bot.confirm_interval,
-                htf_info["supertrend"], htf_info["most"],
-                htf_info["adxr_state"], htf_info["final_signal"],
-                htf_info["allows_buy"],
-            )
-
-            if not htf_info["allows_buy"]:
-                blog.info(
-                    "HTF %s says %s — BLOCKING BUY, staying OUT",
-                    bot.confirm_interval, htf_info["final_signal"],
-                )
-                desired_regime = "OUT"
-
-        except Exception as e:
-            blog.warning(
-                "HTF %s fetch failed: %s — proceeding with primary signal only",
-                bot.confirm_interval, e,
-            )
-
-    # ── Extract additional indicator values for richer logging ──
-    rsi_val = last.get("RSI", None)
-    adxr_val = last.get("ADXR", None)
-    supertrend_val = last.get("Supertrend", None)
-    most_val = last.get("MOST", None)
-    atr_val = last.get("ATR", None)
-
-    rsi_str = f"{float(rsi_val):.2f}" if rsi_val is not None and pd.notna(rsi_val) else "N/A"
-    adxr_str = f"{float(adxr_val):.2f}" if adxr_val is not None and pd.notna(adxr_val) else "N/A"
-    supertrend_str = f"{float(supertrend_val):.4f}" if supertrend_val is not None and pd.notna(supertrend_val) else "N/A"
-    most_str = f"{float(most_val):.4f}" if most_val is not None and pd.notna(most_val) else "N/A"
-    atr_str = f"{float(atr_val):.4f}" if atr_val is not None and pd.notna(atr_val) else "N/A"
-
-    # ── Always log comprehensive signal info for this alt ──
     blog.info(
-        "───── %s (%s) ─────", asset.ticker, bot.interval,
-    )
-    blog.info(
-        "Bar=%s | Close=%.4f | RSI=%s | ATR=%s | ADXR=%s",
-        bar_ts, price, rsi_str, atr_str, adxr_str,
-    )
-    blog.info(
-        "Supertrend=%s (sig=%s) | MOST=%s (sig=%s) | ADXR_State=%s",
-        supertrend_str, st_sig, most_str, most_sig, adxr_state,
-    )
-    blog.info(
-        "FINAL_SIGNAL=%s | regime: current=%s desired=%s | new_bar=%s",
+        "Bar=%s Close=%.4f | ST=%s MOST=%s ADXR=%s => FINAL=%s | "
+        "prev_regime=%s desired=%s",
+        bar_ts, price, st_sig, most_sig, adxr_state,
         final_sig, st.regime, desired_regime,
-        "YES" if st.last_bar_ts != bar_ts else "NO",
     )
-
-    # ── Write heartbeat log (every tick, overwrites daily) ──
-    action_str = "NONE"
-    if st.last_bar_ts != bar_ts and desired_regime != st.regime:
-        action_str = f"REBALANCE_{desired_regime}"
-
-    write_heartbeat(
-        bot_id=bot.bot_id,
-        bot_name=bot.name,
-        bar_ts=bar_ts,
-        price=price,
-        st_sig=st_sig,
-        most_sig=most_sig,
-        adxr_state=adxr_state,
-        final_sig=final_sig,
-        regime=st.regime,
-        desired_regime=desired_regime,
-        action=action_str,
-        htf_info=htf_info,
-        confirm_interval=bot.confirm_interval,
-    )
-
-    # ── Skip if same bar already processed ──
-    if st.last_bar_ts == bar_ts:
-        blog.info("Same bar already processed — skipping trade logic.")
-        return st
 
     # ── Trade only on regime flip ──
     if desired_regime != st.regime:
         target_pct = IN_TOKEN_PCT if desired_regime == "IN" else OUT_TOKEN_PCT
         blog.info(
-            "🔄 REGIME FLIP %s → %s. Rebalancing to %s%%=%.0f%%",
+            "REGIME FLIP %s → %s. Rebalancing to %s%%=%.0f%%",
             st.regime, desired_regime, asset.ticker, target_pct * 100,
         )
 
@@ -841,7 +648,7 @@ def tick_bot(bot: BotEntry, kp: Keypair, st: BotState) -> BotState:
         if plan.get("action") != "NONE":
             st.regime = desired_regime
     else:
-        blog.info("No regime change — holding %s (%s).", st.regime, asset.ticker)
+        blog.info("No regime change (%s). Skipping.", st.regime)
 
     st.last_bar_ts = bar_ts
     _save_state(bot.bot_id, st)
