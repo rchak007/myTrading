@@ -33,18 +33,44 @@ def fetch_market_cap(ticker: str) -> str:
         info = yf.Ticker(ticker).info
         val = info.get("marketCap") or info.get("market_cap")
         if val and isinstance(val, (int, float)) and val > 0:
-            v = float(val)
-            if v >= 1e12:
-                return f"${v/1e12:.2f}T"
-            if v >= 1e9:
-                return f"${v/1e9:.1f}B"
-            if v >= 1e6:
-                return f"${v/1e6:.1f}M"
-            return f"${v:,.0f}"
+            return round(float(val) / 1_000_000, 2)  # convert to millions        
+        # info = yf.Ticker(ticker).info
+        # val = info.get("marketCap") or info.get("market_cap")
+        # if val and isinstance(val, (int, float)) and val > 0:
+        #     v = float(val)
+        #     if v >= 1e12:
+        #         return f"${v/1e12:.2f}T"
+        #     if v >= 1e9:
+        #         return f"${v/1e9:.1f}B"
+        #     if v >= 1e6:
+        #         return f"${v/1e6:.1f}M"
+        #     return f"${v:,.0f}"
     except Exception:
         pass
     return "N/A"
 
+
+
+def fetch_current_price(ticker: str) -> float:
+    """
+    Fetch current/real-time price for a ticker via yfinance fast_info.
+    Falls back to regularMarketPrice from info. Returns np.nan on failure.
+    """
+    try:
+        fi = yf.Ticker(ticker).fast_info
+        price = getattr(fi, "last_price", None)
+        if price and price > 0:
+            return round(float(price), 2)
+    except Exception:
+        pass
+    try:
+        info = yf.Ticker(ticker).info
+        price = info.get("regularMarketPrice") or info.get("currentPrice")
+        if price and price > 0:
+            return round(float(price), 2)
+    except Exception:
+        pass
+    return np.nan
 
 def fetch_stock_1d_df(ticker: str, lookback_days: int = 450) -> pd.DataFrame | None:
     try:
@@ -162,11 +188,15 @@ def build_stocks_signals_table(
         # Fetch market cap — always, graceful N/A on failure (no crypto, stocks only)
         market_cap = fetch_market_cap(t)
 
+        # Fetch current price for display
+        current_price = fetch_current_price(t)
+
         row = {
             "Ticker": t,
             "Timeframe": "1D",
             "Bar Time": last.name,
             "Last Close": round(float(last["Close"]), 2),
+            "Current Price": current_price,
             "SIGNAL-Super-MOST-ADXR": super_most_adxr,
         }
         
@@ -180,7 +210,8 @@ def build_stocks_signals_table(
             row["Earnings_Alert"] = earnings_alert
 
         # Market_Cap always after signal block
-        row["Market_Cap"] = market_cap
+        # row["Market_Cap"] = market_cap
+        row["Market_Cap_M"] = market_cap
         
         # Continue with existing columns
         row.update({
@@ -205,9 +236,9 @@ def build_stocks_signals_table(
     # Define column order with new columns
     if include_scoring:
         columns_order = [
-            "Ticker", "Timeframe", "Bar Time", "Last Close",
+            "Ticker", "Timeframe", "Bar Time", "Last Close", "Current Price",
             "SIGNAL-Super-MOST-ADXR", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
-            "Earnings_Alert", "Market_Cap",
+            "Earnings_Alert", "Market_Cap_M",
             "Supertrend", "Supertrend Signal", "RSI",
             "MOST MA", "MOST Line", "MOST Signal",
             "ADXR State", "ADXR Signal", "Volume",
