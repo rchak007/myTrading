@@ -18,11 +18,11 @@
     },
 
     "WETH": {
-      "ticker": "ETH",
+      "ticker": "WETH",
       "blockchain": "solana",
       "wallet_address": "FxZzjuPYBBL5mr1LnGCNaqvGb5VLdy5AH88qwpEDCtE3",
       "token_contract": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
-      "yahoo_ticker": "ETH-USD",
+      "yahoo_ticker": "WETH-USD",
       "stablecoin_contract": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     },
 

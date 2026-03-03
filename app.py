@@ -108,7 +108,8 @@ STOCK_TICKERS = [
     "BABA", "BE", "BMNR", "BWXT", "CEG",  "CFG","CLSK", "COIN","COHR","COPX", "CORZ","CRDO","CRWV", "CRWD", "CTVA",
     "ETHA","GEV", "GLD", "GOOG",
     "HIMS", "HODL","HOOD","IBIT","IDR","INOD","IONQ","IREN","LEU","LITE","LRCX","LTBR",
-    "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU","NET","NPPTF","NVDA", "O", "OKLO", "ONDS", "ORCL",  "PLTR",
+    "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU",
+    "NBIS", "NET","NPPTF","NVDA", "O", "OKLO", "ONDS", "ORCL",  "PLTR",
     "QBTS","QUBT","RGTI","RDDT","SE", "SLV", "SOFI", "SPY", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC",
     "TER","TSLA","TSM","UMAC", "UPXI","VRT", "WDC"  
 ]
@@ -116,7 +117,7 @@ STOCK_TICKERS = [
 # SNA, O and CTVA - just momemntum 45 degree trades in scharls scwab 885
 
 CRYPTO_TICKERS = [
-    "BTC-USD","ETH-USD","SOL-USD","HYPE32196-USD", "SUI20947-USD", "LINK-USD","DOGE-USD", "ONDO-USD","BNB-USD",
+    "BTC-USD","ETH-USD", "WETH-USD","SOL-USD","HYPE32196-USD", "SUI20947-USD", "LINK-USD","DOGE-USD", "ONDO-USD","BNB-USD",
     "AAVE-USD" , "ADA-USD" , "AIXBT-USD", "AKT-USD", "ANON35092-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , "cetus-usd" ,"cookie31838-usd" ,"CRV-USD",
     "DOGE-USD", "DRIFT31278-USD", "ELIZAOS-USD",  "elon-usd" ,"ENA-USD","ENS-USD",
     "fluid-usd", "fluxb-usd","FAI34330-USD", "griffain-USD",
