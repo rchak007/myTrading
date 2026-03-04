@@ -53,41 +53,23 @@ def fetch_market_cap(ticker: str) -> str:
 
 def fetch_current_price(ticker: str) -> float:
     """
-    Fetch the live/intraday price for a ticker.
-    Strategy (fastest → most reliable):
-      1. 1-minute bar download (period=1d, interval=1m) — most recent tick
-      2. fast_info.last_price  — near-real-time, usually accurate during market hours
-      3. info.regularMarketPrice — heavier call, last resort
-    Returns np.nan on failure.
+    Fetch current/real-time price for a ticker via yfinance fast_info.
+    Falls back to regularMarketPrice from info. Returns np.nan on failure.
     """
-    # 1. Latest 1m bar — gives the true current price during market hours
-    try:
-        df = yf.download(ticker, period="1d", interval="1m", progress=False)
-        if df is not None and not df.empty:
-            price = float(df["Close"].iloc[-1])
-            if price > 0:
-                return round(price, 4)
-    except Exception:
-        pass
-
-    # 2. fast_info — lightweight, near-real-time
     try:
         fi = yf.Ticker(ticker).fast_info
         price = getattr(fi, "last_price", None)
         if price and price > 0:
-            return round(float(price), 4)
+            return round(float(price), 2)
     except Exception:
         pass
-
-    # 3. Full info — heaviest, last resort
     try:
         info = yf.Ticker(ticker).info
         price = info.get("regularMarketPrice") or info.get("currentPrice")
         if price and price > 0:
-            return round(float(price), 4)
+            return round(float(price), 2)
     except Exception:
         pass
-
     return np.nan
 
 def fetch_stock_1d_df(ticker: str, lookback_days: int = 450) -> pd.DataFrame | None:
@@ -254,10 +236,10 @@ def build_stocks_signals_table(
     # Define column order with new columns
     if include_scoring:
         columns_order = [
-            "Ticker", "Timeframe", "Bar Time", "Last Close", "Current Price",
+            "Ticker", "Timeframe", "Bar Time", "Last Close", "Current Price", "Supertrend",
             "SIGNAL-Super-MOST-ADXR", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
             "Earnings_Alert", "Market_Cap_M",
-            "Supertrend", "Supertrend Signal", "RSI",
+             "Supertrend Signal", "RSI",
             "MOST MA", "MOST Line", "MOST Signal",
             "ADXR State", "ADXR Signal", "Volume",
             "Supertrend+Vol Signal", "Combined Signal", "Full Combined"

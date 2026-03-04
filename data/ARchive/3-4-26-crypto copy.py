@@ -107,152 +107,6 @@ def fetch_crypto_4h_df(ticker: str, lookback_days: int = 70) -> pd.DataFrame | N
 
 
 
-def fetch_crypto_1d_df(ticker: str, lookback_days: int = 400) -> pd.DataFrame | None:
-    """
-    Fetch daily OHLCV for a crypto ticker (for 1D confirmation signal).
-    """
-    import threading
-
-    result = {"data": None, "error": None}
-
-    def download_worker():
-        try:
-            result["data"] = yf.download(ticker, period=f"{lookback_days}d", interval="1d", progress=False)
-        except Exception as e:
-            result["error"] = str(e)
-
-    try:
-        thread = threading.Thread(target=download_worker)
-        thread.daemon = True
-        thread.start()
-        thread.join(timeout=30)
-
-        if thread.is_alive():
-            print(f"⏱️  1D Ticker {ticker}: Timeout after 30 seconds - skipping")
-            return None
-
-        if result["error"]:
-            return None
-
-        raw = result["data"]
-        if raw is None or raw.empty:
-            return None
-
-        raw = _fix_yf_cols(raw)
-        df = raw[["High", "Low", "Close", "Volume"]].dropna()
-
-        try:
-            df.index = df.index.tz_localize(None)
-        except Exception:
-            pass
-
-        if len(df) < 100:
-            return None
-
-        return df
-
-    except Exception as e:
-        print(f"❌ 1D Ticker {ticker}: Error - {str(e)}")
-        return None
-
-
-def compute_1d_signal(ticker: str, atr_period: int, atr_multiplier: float,
-                      rsi_period: int, vol_lookback: int,
-                      adxr_len: int, adxr_lenx: int,
-                      adxr_low_threshold: float, adxr_flat_eps: float) -> str:
-    """
-    Fetch 1D data and return signal_super_most_adxr string.
-    Returns 'UNKNOWN' if data unavailable.
-    """
-    try:
-        df1d = fetch_crypto_1d_df(ticker)
-        if df1d is None:
-            return "UNKNOWN"
-        ind = apply_indicators(
-            df1d,
-            atr_period=atr_period,
-            atr_multiplier=atr_multiplier,
-            rsi_period=rsi_period,
-            vol_lookback=vol_lookback,
-            adxr_len=adxr_len,
-            adxr_lenx=adxr_lenx,
-            adxr_low_threshold=adxr_low_threshold,
-            adxr_flat_eps=adxr_flat_eps,
-        )
-        last = ind.iloc[-1]
-        st_sig    = str(last.get("Supertrend_Signal", "SELL"))
-        most_sig  = str(last.get("MOST_Signal", "SELL"))
-        adxr_state = str(last.get("ADXR_State", "FLAT"))
-        return signal_super_most_adxr(st_sig, most_sig, adxr_state)
-    except Exception as e:
-        print(f"⚠️  1D signal for {ticker} failed: {e}")
-        return "UNKNOWN"
-
-
-def fetch_crypto_current_price(ticker: str) -> float | None:
-    """
-    Fetch the live/intraday price for a crypto ticker.
-    Strategy:
-      1. 2-minute bar download (period=1d, interval=2m) — most recent tick
-         (crypto uses 2m because yfinance sometimes rejects 1m for crypto)
-      2. fast_info.last_price — near-real-time
-      3. info.regularMarketPrice — last resort
-    Returns None on failure (caller falls back to last candle close).
-    """
-    # 1. Latest intraday bar
-    try:
-        df = yf.download(ticker, period="1d", interval="2m", progress=False)
-        if df is not None and not df.empty:
-            price = float(df["Close"].iloc[-1])
-            if price > 0:
-                return round(price, 8)
-    except Exception:
-        pass
-
-    # 2. fast_info
-    try:
-        fi = yf.Ticker(ticker).fast_info
-        price = getattr(fi, "last_price", None)
-        if price and float(price) > 0:
-            return round(float(price), 8)
-    except Exception:
-        pass
-
-    # 3. Full info
-    try:
-        info = yf.Ticker(ticker).info
-        price = info.get("regularMarketPrice") or info.get("currentPrice")
-        if price and float(price) > 0:
-            return round(float(price), 8)
-    except Exception:
-        pass
-
-    return None
-
-
-def combine_4h_1d_signals(sig_4h: str, sig_1d: str) -> str:
-    """
-    Final signal combining 4H primary + 1D confirmation (mirrors bot.py HTF logic).
-    - EXIT:      if 4H says EXIT  (regardless of 1D)
-    - BUY:       4H=BUY  AND 1D in (BUY, HOLD)
-    - HOLD:      4H=HOLD AND 1D in (BUY, HOLD)
-    - STANDDOWN: 4H=STANDDOWN, or 1D blocks entry
-    - WAIT:      4H is BUY/HOLD but 1D does not confirm
-    """
-    if sig_4h == "EXIT":
-        return "EXIT"
-    if sig_4h == "STANDDOWN":
-        return "STANDDOWN"
-    if sig_1d == "UNKNOWN":
-        # No 1D data — fall back to 4H signal
-        return sig_4h
-    if sig_1d in ("BUY", "HOLD"):
-        # 1D confirms — use 4H signal as-is
-        return sig_4h
-    # 1D does NOT confirm (EXIT / STANDDOWN)
-    return "WAIT"
-
-
 def build_crypto_signals_table(
     tickers: list[str],
     *,
@@ -307,27 +161,14 @@ def build_crypto_signals_table(
             full_sig = signal_full_combined(comb_sig, most_sig)
             super_most_adxr = signal_super_most_adxr(st_sig, most_sig, adxr_state)
 
-            # Fetch 1D confirmation signal
-            sig_1d = compute_1d_signal(
-                t, atr_period, atr_multiplier, rsi_period, vol_lookback,
-                adxr_len, adxr_lenx, adxr_low_threshold, adxr_flat_eps,
-            )
-            final_signal = combine_4h_1d_signals(super_most_adxr, sig_1d)
-
-            # Current price — real-time via fast_info, fallback to last close
-            current_price = fetch_crypto_current_price(t) or round(float(last["Close"]), 8)
-
             rows.append(
                 {
                     "Ticker": t,
                     "Timeframe": "4H",
                     "Bar Time": last.name,
                     "Last Close": round(float(last["Close"]), 6),
-                    "Current Price": current_price,
-                    "Supertrend": round(float(last["Supertrend"]), 6) if pd.notna(last["Supertrend"]) else np.nan,
                     "SIGNAL-Super-MOST-ADXR": super_most_adxr,
-                    "Signal-1D": sig_1d,
-                    "Final Signal": final_signal,
+                    "Supertrend": round(float(last["Supertrend"]), 6) if pd.notna(last["Supertrend"]) else np.nan,
                     "Supertrend Signal": st_sig,
                     "RSI": round(float(last["RSI"]), 2) if pd.notna(last["RSI"]) else np.nan,
                     "MOST MA": round(float(last["MOST_MA"]), 2) if pd.notna(last["MOST_MA"]) else np.nan,
@@ -382,23 +223,14 @@ def build_crypto_signals_table(
             full_sig = signal_full_combined(comb_sig, most_sig)
             super_most_adxr = signal_super_most_adxr(st_sig, most_sig, adxr_state)
 
-            # Gecko pools: no Yahoo ticker for 1D fetch — mark as UNKNOWN
-            sig_1d_gecko = "UNKNOWN"
-            final_signal_gecko = combine_4h_1d_signals(super_most_adxr, sig_1d_gecko)
-            # Gecko pools: no reliable real-time feed — use last close
-            current_price_gecko = round(float(last["Close"]), 8)
-
             rows.append(
                 {
                     "Ticker": sym,              # <-- IMPORTANT: keep it as "LVL" etc
                     "Timeframe": "4H",
                     "Bar Time": last.name,
                     "Last Close": round(float(last["Close"]), 6),
-                    "Current Price": current_price_gecko,
-                    "Supertrend": round(float(last["Supertrend"]), 6) if pd.notna(last["Supertrend"]) else np.nan,
                     "SIGNAL-Super-MOST-ADXR": super_most_adxr,
-                    "Signal-1D": sig_1d_gecko,
-                    "Final Signal": final_signal_gecko,
+                    "Supertrend": round(float(last["Supertrend"]), 6) if pd.notna(last["Supertrend"]) else np.nan,
                     "Supertrend Signal": st_sig,
                     "RSI": round(float(last["RSI"]), 2) if pd.notna(last["RSI"]) else np.nan,
                     "MOST MA": round(float(last["MOST_MA"]), 2) if pd.notna(last["MOST_MA"]) else np.nan,
@@ -863,41 +695,37 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
 
 def _reorder_crypto_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Column order (left → right):
-      Ticker | Timeframe | Last Close | Current Price | Supertrend |
-      SIGNAL-Super-MOST-ADXR | Signal-1D | Final Signal |
-      Qty | Price | ALT USD Val | ALT% | USDC Value | Total Val |
-      … rest …
-      Bar Time  (always last)
+    1) Move 'Bar Time' to end
+    2) Insert Qty/Price/USD Value/USDC Value right after 'SIGNAL-Super-MOST-ADXR'
     """
     cols = list(df.columns)
 
-    # Columns we'll place explicitly
-    front = [
-        "Ticker", "Timeframe", "Last Close", "Current Price", "Supertrend",
-        "SIGNAL-Super-MOST-ADXR", "Signal-1D", "Final Signal",
-    ]
-    portfolio_cols = ["Qty", "Price", "ALT USD Val", "ALT%", "USDC Value", "Total Val"]
-    end_cols = ["Bar Time"]
+    insert_after = "SIGNAL-Super-MOST-ADXR"
+    new_cols = ["Qty", "Price", "USD Value", "USDC Value"]
 
-    # Build ordered list
-    ordered = []
-    for c in front + portfolio_cols:
-        if c in cols:
-            ordered.append(c)
+    # remove new cols to reinsert
+    cols_wo_new = [c for c in cols if c not in new_cols]
 
-    # Remaining columns (exclude already placed + end)
-    placed = set(ordered) | set(end_cols)
-    rest = [c for c in cols if c not in placed]
-    ordered += rest
+    # move bar time to end later
+    bar_time_present = "Bar Time" in cols_wo_new
+    if bar_time_present:
+        cols_wo_new.remove("Bar Time")
 
-    # Append end columns
-    for c in end_cols:
-        if c in cols:
-            ordered.append(c)
+    # insert after signal col
+    if insert_after in cols_wo_new:
+        idx = cols_wo_new.index(insert_after) + 1
+        cols_wo_new = cols_wo_new[:idx] + new_cols + cols_wo_new[idx:]
+    else:
+        # fallback: append them near start
+        cols_wo_new = cols_wo_new[:4] + new_cols + cols_wo_new[4:]
 
-    # Keep only columns that exist
-    return df.reindex(columns=[c for c in ordered if c in df.columns])
+    # put Bar Time at end
+    if bar_time_present:
+        cols_wo_new.append("Bar Time")
+
+    # keep only existing columns
+    cols_final = [c for c in cols_wo_new if c in df.columns]
+    return df.reindex(columns=cols_final)
 
 
 # ====================================================================================
@@ -975,23 +803,21 @@ def build_complete_crypto_table(
         0.0,
     ).round(2)
     
-    # Step 6: Add ACTION column — based on Final Signal (4H + 1D combined)
+    # Step 6: Add ACTION column
     SIGNAL_COL = "SIGNAL-Super-MOST-ADXR"
-    FINAL_COL  = "Final Signal"
-
+    
     def _action_row(r):
-        # Use Final Signal if available, fall back to 4H signal
-        sig = str(r.get(FINAL_COL, r.get(SIGNAL_COL, ""))).upper()
+        sig = str(r.get(SIGNAL_COL, "")).upper()
         alt_pct = float(pd.to_numeric(r.get("ALT%", 0.0), errors="coerce") or 0.0)
-
+        
         # BUY signal but ALT exposure low -> buy ALT
         if sig == "BUY" and alt_pct < 50.0:
             return "🔴 BUY ALT"
-
+        
         # EXIT signal but ALT exposure high -> sell ALT
         if sig == "EXIT" and alt_pct > 50.0:
             return "🔴 SELL ALT"
-
+        
         return ""  # no action
     
     df_crypto["ACTION"] = df_crypto.apply(_action_row, axis=1)
@@ -1006,8 +832,8 @@ def build_complete_crypto_table(
             idx = cols.index(after_col) + 1
             cols.insert(idx, col_to_move)
     
-    # Put ACTION right after Final Signal (which comes after Signal-1D)
-    _move_after("ACTION", "Final Signal")
+    # Put ACTION right after SIGNAL
+    _move_after("ACTION", SIGNAL_COL)
     # Move ALT% right after ALT USD Val
     _move_after("ALT%", "ALT USD Val")
     # Move Total Val right after USDC Value
