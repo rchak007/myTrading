@@ -521,7 +521,14 @@
       "yahoo_ticker":"wlfi33251-usd",
       "stablecoin_contract":"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
     },
-
+    "WTAO": {
+      "ticker": "WTAO",
+      "blockchain": "ethereum",
+      "wallet_address": "0xc9Be00cF41fbC1715b5D45d2650Ed74098763342",
+      "token_contract": "0x77e06c9eccf2e797fd462a92b6d7642ef85b0a44",
+      "yahoo_ticker": "WTAO-USD",
+      "stablecoin_contract": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    },
     "XBG": {
       "ticker":"XBG",
       "blockchain":"solana",
