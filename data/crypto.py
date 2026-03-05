@@ -874,8 +874,8 @@ def _reorder_crypto_columns(df: pd.DataFrame) -> pd.DataFrame:
 
     # Columns we'll place explicitly
     front = [
-        "Ticker", "Timeframe", "Last Close", "Current Price", "Supertrend",
-        "SIGNAL-Super-MOST-ADXR", "Signal-1D", "Final Signal",
+        "Ticker", "Timeframe", "Last Close", "Current Price", "Supertrend", "Final Signal",
+        "SIGNAL-Super-MOST-ADXR", "Signal-1D", 
     ]
     portfolio_cols = ["Qty", "Price", "ALT USD Val", "ALT%", "USDC Value", "Total Val"]
     end_cols = ["Bar Time"]

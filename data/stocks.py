@@ -64,7 +64,9 @@ def fetch_current_price(ticker: str) -> float:
     try:
         df = yf.download(ticker, period="1d", interval="1m", progress=False)
         if df is not None and not df.empty:
-            price = float(df["Close"].iloc[-1])
+            # price = float(df["Close"].iloc[-1])
+            val = df["Close"].iloc[-1]
+            price = float(val.iloc[0]) if hasattr(val, "iloc") else float(val)
             if price > 0:
                 return round(price, 4)
     except Exception:
@@ -255,9 +257,9 @@ def build_stocks_signals_table(
     if include_scoring:
         columns_order = [
             "Ticker", "Timeframe", "Bar Time", "Last Close", "Current Price",
-            "SIGNAL-Super-MOST-ADXR", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
+            "SIGNAL-Super-MOST-ADXR", "Supertrend", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
             "Earnings_Alert", "Market_Cap_M",
-            "Supertrend", "Supertrend Signal", "RSI",
+             "Supertrend Signal", "RSI",
             "MOST MA", "MOST Line", "MOST Signal",
             "ADXR State", "ADXR Signal", "Volume",
             "Supertrend+Vol Signal", "Combined Signal", "Full Combined"
