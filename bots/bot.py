@@ -1040,12 +1040,8 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
         blog.info("Same bar already processed — skipping trade logic.")
         return st
 
-    # ── Trade on regime flip ──
-    if desired_regime != st.regime:
-        target_pct = IN_TOKEN_PCT if desired_regime == "IN" else OUT_TOKEN_PCT
-        blog.info("🔄 REGIME FLIP %s → %s. Rebalancing to %s%%=%.0f%%",
-                  st.regime, desired_regime, asset.ticker, target_pct * 100)
-
+    # ── Helper: execute a rebalance to target_pct and update regime if successful ──
+    def _do_rebalance(target_pct: float, reason: str) -> None:
         port = get_portfolio(wallet, asset, price)
         blog.info(
             "Portfolio: total=$%.2f %s=%.4f (tradable=%.4f) stable=%.2f token_pct=%.1f%%",
@@ -1057,7 +1053,6 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
         plan = rebalance_plan(port, price, target_pct)
         blog.info("Plan: %s", plan)
 
-        # FIX: pass token_price into execute_plan so EVM swaps get amountOutMinimum
         exec_result = None
         swap_error  = None
         try:
@@ -1074,7 +1069,7 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
                 bot_id=bot.bot_id,
                 bot_name=bot.name,
                 blockchain=asset.blockchain,
-                context=f"execute_plan:{plan.get('action','?')}",
+                context=f"execute_plan:{plan.get('action','?')}:{reason}",
                 error=str(exc),
                 bar_ts=bar_ts,
                 price=price,
@@ -1095,9 +1090,6 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
                 blockchain=asset.blockchain,
             )
 
-        # Only update regime if a tx actually confirmed with a tx_sig.
-        # If swap errored or returned no tx_sig, regime stays unchanged.
-        # last_bar_ts is ALWAYS updated so we don't retry the same bar forever.
         if plan.get("action") != "NONE":
             if exec_result and exec_result.get("tx_sig"):
                 st.regime = desired_regime
@@ -1113,6 +1105,30 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
                     "⚠️  Plan was %s but no tx_sig returned — regime stays %s.",
                     plan["action"], st.regime,
                 )
+
+    # ── Trade on regime flip ──
+    if desired_regime != st.regime:
+        target_pct = IN_TOKEN_PCT if desired_regime == "IN" else OUT_TOKEN_PCT
+        blog.info("🔄 REGIME FLIP %s → %s. Rebalancing to %s%%=%.0f%%",
+                  st.regime, desired_regime, asset.ticker, target_pct * 100)
+        _do_rebalance(target_pct, reason="regime_flip")
+
+    # ── Drift check: regime=OUT but wallet still ALT-heavy (e.g. prior swap failed) ──
+    elif desired_regime == "OUT" and st.regime == "OUT":
+        try:
+            port_check = get_portfolio(wallet, asset, price)
+            if port_check["token_pct"] > 0.50:
+                blog.warning(
+                    "⚠️  DRIFT: regime=OUT but %s is %.1f%% of wallet — forcing rebalance to %.0f%%",
+                    asset.ticker, port_check["token_pct"] * 100, OUT_TOKEN_PCT * 100,
+                )
+                _do_rebalance(OUT_TOKEN_PCT, reason="drift_correction")
+            else:
+                blog.info("No regime change — holding %s (%s).", st.regime, asset.ticker)
+        except Exception as e:
+            blog.warning("Drift check failed: %s", e)
+            blog.info("No regime change — holding %s (%s).", st.regime, asset.ticker)
+
     else:
         blog.info("No regime change — holding %s (%s).", st.regime, asset.ticker)
 
