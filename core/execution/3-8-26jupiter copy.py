@@ -90,10 +90,5 @@ def sign_and_send_swap(
     vt_signed = VersionedTransaction(vt.message, [keypair])
 
     wire = base64.b64encode(bytes(vt_signed)).decode("utf-8")
-    sig = rpc_call(rpc_url, "sendTransaction", [wire, {
-        "encoding": "base64",
-        "skipPreflight": True,          # bypass simulation — Jupiter already validated the route
-        "preflightCommitment": "confirmed",
-        "maxRetries": 3,
-    }])
+    sig = rpc_call(rpc_url, "sendTransaction", [wire, {"encoding": "base64"}])
     return str(sig)
