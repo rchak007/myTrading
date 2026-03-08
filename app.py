@@ -106,15 +106,36 @@ PLACEHOLDER_FUTURE = True
 STOCK_TICKERS = [
     "AAPL","AAOI","ABTC", "ALAB","AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML", "AVGO",
     "BABA", "BE", "BMNR", "BWXT", "CEG",  "CFG","CLSK", "COIN","COHR","COPX", "CORZ","CRDO","CRWV", "CRWD", "CTVA",
-    "ETHA","GEV", "GLD", "GOOG",
+    "ETHA","GEV", "GLD", "GLXY", "GOOG",
     "HIMS", "HODL","HOOD","IBIT","IDR","INOD","IONQ","IREN","LEU","LITE","LRCX","LTBR",
     "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU",
     "NBIS", "NET","NPPTF","NVDA", "O", "OKLO", "ONDS", "ORCL",  "PLTR",
-    "QBTS","QUBT","RGTI","RDDT","SE", "SLV", "SOFI", "SPY", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC",
+    "QBTS","QUBT","RGTI","RDDT", "RKLB", "SE", "SLV", "SOFI", "SPY", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC",
     "TER","TSLA","TSM","UMAC", "UPXI","VRT", "WDC"  
 ]
 
-# SNA, O and CTVA - just momemntum 45 degree trades in scharls scwab 885
+# DESCRIPTION_STOCKS = ["
+# # SNA, O and CTVA - just momemntum 45 degree trades in scharls scwab 885
+# # 10 WAYS TO CAPTURE A $1.5T U.S. DEFENSE BUDGET IN 2027
+# # PLTR ONDS AVAV KTOS DPRO UMAC RCAT NOC RTX LMT
+#  "
+# ]
+
+STOCKS_NOTES = [
+    "SNA, O and CTVA - just momentum 45 degree trades in Charles Schwab 885",
+    "10 WAYS TO CAPTURE A $1.5T U.S. DEFENSE BUDGET IN 2027 = PLTR ONDS AVAV KTOS DPRO UMAC RCAT NOC RTX LMT",
+    "🤖 AI / Data Center / Infrastructure NVDA, AMD, MSFT, GOOG, META, ORCL, PLTR, APP, APLD, CORZ, IREN, CLSK, MSTR, MSTX, CRWV, NBIS, ALAB VRT LITE BE  ",
+    "🚗 AI Applications / Consumer Tech TSLA, AAPL, ARM, ASML, MU, LRCX, TSM, MRVL, AVGO, TER, COHR, SNDK, WDC, CRDO",
+    "⚛️ Quantum Computing QBTS, QUBT, RGTI, IONQ",
+    "☢️ Nuclear / Energy CEG, OKLO, SMR, LTBR, LEU, BWXT, GEV",
+    "🌐 Crypto / Bitcoin Proxy IBIT, ETHA, HODL, ARKB, COIN, HOOD, MSTR, MSTX, ABTC GLXY STRC BMNR",
+    "🔒 Cybersecurity CRWD, NET",
+    "🛸 Defense / Space / Rare earth MP , NPPTF ,  PLTR, ONDS, UMAC, RKLB",
+    "💊 Healthcare / Biotech HIMS",
+    "🏦 Fintech / Banking SOFI, CFG, RDDT, SE",
+    "🪙 Commodities / Macro Hedges GLD, SLV, COPX",
+
+]
 
 CRYPTO_TICKERS = [
     "BTC-USD","ETH-USD", "WETH-USD","SOL-USD","HYPE32196-USD", "SUI20947-USD", "LINK-USD","DOGE-USD", "ONDO-USD","BNB-USD",
@@ -455,7 +476,10 @@ def main():
         st.markdown("• **HOLD** → Supertrend=BUY but **not aligned**:")
         st.markdown("   - MOST=SELL  **OR**  ADXR=FLAT/FALLING")
         st.markdown("• **STANDDOWN** → ADXR=LOW_FLAT (avoid new trades)")
-
+        st.markdown("---")
+        st.markdown("**📝 Stocks Notes**")
+        for note in STOCKS_NOTES:
+            st.markdown(f"- {note}")
     with right:
         st.markdown("### 📊 Stock Market Context")
 
