@@ -1035,51 +1035,10 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
         confirm_interval=bot.confirm_interval,
     )
 
-    # ── Drift check (runs every tick, even on same bar) ──
-    # If regime=OUT but wallet is still ALT-heavy (e.g. prior swap failed silently),
-    # force a sell attempt regardless of bar freshness.
-    if desired_regime == "OUT" and st.regime == "OUT":
-        try:
-            port_check = get_portfolio(wallet, asset, price)
-            if port_check["token_pct"] > 0.50:
-                blog.warning(
-                    "⚠️  DRIFT: regime=OUT but %s is %.1f%% of wallet — forcing rebalance to %.0f%%",
-                    asset.ticker, port_check["token_pct"] * 100, OUT_TOKEN_PCT * 100,
-                )
-                plan = rebalance_plan(port_check, price, OUT_TOKEN_PCT)
-                blog.info("Drift plan: %s", plan)
-                exec_result = None
-                swap_error  = None
-                try:
-                    exec_result = execute_plan(wallet=wallet, plan=plan, asset=asset, token_price=price)
-                except Exception as exc:
-                    swap_error = exc
-                    blog.error("❌ Drift swap failed for %s [%s]: %s", asset.ticker, asset.blockchain, exc)
-                    write_error_log(
-                        bot_id=bot.bot_id, bot_name=bot.name, blockchain=asset.blockchain,
-                        context=f"drift_correction:{plan.get('action','?')}",
-                        error=str(exc), bar_ts=bar_ts, price=price,
-                    )
-                if exec_result:
-                    log_trade(
-                        bot_id=bot.bot_id, bot_name=bot.name,
-                        action=exec_result["action"],
-                        regime_from=st.regime, regime_to="OUT",
-                        price=price, amount=exec_result["amount"],
-                        amount_ccy=exec_result["amount_ccy"],
-                        tx_sig=exec_result["tx_sig"],
-                        dry_run=DRY_RUN, blockchain=asset.blockchain,
-                    )
-                    if exec_result.get("tx_sig"):
-                        blog.info("✅ Drift correction swap confirmed.")
-                        _save_state(bot.bot_id, st)
-                return st  # drift check handled this tick — skip normal bar logic
-        except Exception as e:
-            blog.warning("Drift check portfolio fetch failed: %s", e)
-
-    # ── Skip same bar ──
-    if st.last_bar_ts == bar_ts:
-        blog.info("Same bar already processed — skipping trade logic.")
+    # ── Skip same bar ONLY if regime already aligned (nothing to do) ──
+    # If desired != current regime, always retry swap regardless of bar freshness.
+    if st.last_bar_ts == bar_ts and desired_regime == st.regime:
+        blog.info("Same bar + regime aligned — skipping trade logic.")
         return st
 
     # ── Helper: execute a rebalance to target_pct and update regime if successful ──
