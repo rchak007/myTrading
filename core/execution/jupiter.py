@@ -31,10 +31,10 @@ ULTRA_EXECUTE_URL = "https://api.jup.ag/ultra/v1/execute"
 
 
 def _auth_headers() -> dict:
-    """Return Authorization header if JUPITER_API_KEY is set in env."""
+    """Return x-api-key header if JUPITER_API_KEY is set in env."""
     key = os.getenv("JUPITER_API_KEY", "").strip()
     if key:
-        return {"Authorization": f"Bearer {key}"}
+        return {"x-api-key": key}
     return {}
 
 
