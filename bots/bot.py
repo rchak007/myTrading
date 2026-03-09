@@ -1035,12 +1035,6 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
         confirm_interval=bot.confirm_interval,
     )
 
-    # ── Skip same bar ONLY if regime already aligned (nothing to do) ──
-    # If desired != current regime, always retry swap regardless of bar freshness.
-    if st.last_bar_ts == bar_ts and desired_regime == st.regime:
-        blog.info("Same bar + regime aligned — skipping trade logic.")
-        return st
-
     # ── Helper: execute a rebalance to target_pct and update regime if successful ──
     def _do_rebalance(target_pct: float, reason: str) -> None:
         port = get_portfolio(wallet, asset, price)
@@ -1106,6 +1100,31 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
                     "⚠️  Plan was %s but no tx_sig returned — regime stays %s.",
                     plan["action"], st.regime,
                 )
+
+    # ── Skip same bar if regime aligned AND wallet confirms it ──
+    if st.last_bar_ts == bar_ts and desired_regime == st.regime:
+        try:
+            port = get_portfolio(wallet, asset, price)
+            token_pct = port["token_pct"]
+            if st.regime == "OUT" and token_pct > 0.5:
+                blog.warning(
+                    "⚠️  Drift: regime=OUT but token_pct=%.1f%% — forcing corrective SELL.",
+                    token_pct * 100,
+                )
+                _do_rebalance(OUT_TOKEN_PCT, reason="drift_correction")
+            elif st.regime == "IN" and token_pct < 0.5:
+                blog.warning(
+                    "⚠️  Drift: regime=IN but token_pct=%.1f%% — forcing corrective BUY.",
+                    token_pct * 100,
+                )
+                _do_rebalance(IN_TOKEN_PCT, reason="drift_correction")
+            else:
+                blog.info("Same bar + regime aligned — skipping trade logic.")
+        except Exception as e:
+            blog.warning("Drift check failed: %s — skipping.", e)
+        st.last_bar_ts = bar_ts
+        _save_state(bot.bot_id, st)
+        return st
 
     # ── Trade on regime flip ──
     if desired_regime != st.regime:
