@@ -11,15 +11,6 @@
 #   asset.blockchain == "ethereum" → Uniswap V3 (Ethereum mainnet)
 #   asset.blockchain == "base"     → Uniswap V3 (Base)
 #   asset.blockchain == "optimism" → Uniswap V3 (Optimism)
-#
-# KEY FIX (2026-03-07):
-#   - EVM swaps now pass expected_out_per_in (derived from current price) so
-#     uniswap.py computes a real amountOutMinimum instead of 0.
-#   - token_out_decimals now explicitly passed for both BUY and SELL directions.
-#   - State is only updated to desired_regime when execute_plan confirms a tx_sig.
-#     Previously regime flipped even when the swap silently returned 0 tokens.
-#   - USDC decimals per chain now correctly resolved (Base USDC = 6).
-#   - TOKEN_DECIMALS expanded to cover all tokens in common registries.
 
 from __future__ import annotations
 
@@ -47,9 +38,8 @@ from core.execution.jupiter import (
     USDC_DECIMALS,
     get_sol_balance,
     get_spl_token_balance_ui,
-    get_quote,
-    get_swap_tx,
-    sign_and_send_swap,
+    ultra_get_order,
+    ultra_sign_and_execute,
     to_smallest,
 )
 
@@ -57,10 +47,8 @@ from core.execution.jupiter import (
 from core.execution.uniswap import (
     CHAIN_CONFIG,
     ERC20_DECIMALS,
-    USDC_ADDRESS,
     get_evm_native_balance,
     get_evm_token_balance,
-    get_decimals,
     uniswap_swap_auto_fee,
     to_smallest_evm,
 )
@@ -89,23 +77,23 @@ SOLANA_RPC_URL = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.co
 BOT_TZ = os.getenv("BOT_TIMEZONE", "UTC")
 
 # Paths
-BOT_REGISTRY_PATH    = os.getenv("BOT_REGISTRY_PATH",   "./bot_registry.json")
-ASSET_REGISTRY_PATH  = os.getenv("ASSET_REGISTRY_PATH", "./asset_registry.json")
-STATE_DIR            = os.getenv("BOT_STATE_DIR",        "./outputs")
-TRADE_LOG_DIR        = os.getenv("BOT_TRADE_LOG_DIR",    "./outputs")
-STATE_MIRROR_DIR     = os.getenv("BOT_STATE_MIRROR_DIR")        # optional
-TRADE_LOG_MIRROR_DIR = os.getenv("BOT_TRADE_LOG_MIRROR_DIR")    # optional
+BOT_REGISTRY_PATH   = os.getenv("BOT_REGISTRY_PATH",   "./bot_registry.json")
+ASSET_REGISTRY_PATH = os.getenv("ASSET_REGISTRY_PATH", "./asset_registry.json")
+STATE_DIR            = os.getenv("BOT_STATE_DIR",       "./outputs")
+TRADE_LOG_DIR        = os.getenv("BOT_TRADE_LOG_DIR",   "./outputs")
+STATE_MIRROR_DIR     = os.getenv("BOT_STATE_MIRROR_DIR")       # optional
+TRADE_LOG_MIRROR_DIR = os.getenv("BOT_TRADE_LOG_MIRROR_DIR")   # optional
 HEARTBEAT_LOG_DIR    = os.getenv("BOT_HEARTBEAT_LOG_DIR",  "./outputs")
-HEARTBEAT_MIRROR_DIR = os.getenv("BOT_HEARTBEAT_MIRROR_DIR")    # optional
+HEARTBEAT_MIRROR_DIR = os.getenv("BOT_HEARTBEAT_MIRROR_DIR")   # optional
 
 # Trading behavior
-DRY_RUN       = os.getenv("DRY_RUN", "false").lower() == "true"
-SLIPPAGE_BPS  = int(os.getenv("SLIPPAGE_BPS", "50"))
+DRY_RUN      = os.getenv("DRY_RUN", "false").lower() == "true"
+SLIPPAGE_BPS = int(os.getenv("SLIPPAGE_BPS", "50"))
 SLEEP_SECONDS = int(os.getenv("SLEEP_SECONDS", "60"))
 
 # Allocation targets
-IN_TOKEN_PCT  = float(os.getenv("IN_TOKEN_PCT",  "0.80"))  # BUY/HOLD  → 80% token
-OUT_TOKEN_PCT = float(os.getenv("OUT_TOKEN_PCT", "0.20"))  # EXIT      → 20% token
+IN_TOKEN_PCT  = float(os.getenv("IN_TOKEN_PCT",  "0.80"))  # BUY/HOLD
+OUT_TOKEN_PCT = float(os.getenv("OUT_TOKEN_PCT", "0.20"))  # EXIT/STANDDOWN
 
 # Safety / dust
 USD_TOLERANCE   = float(os.getenv("USD_TOLERANCE",   "5"))
@@ -114,14 +102,14 @@ SOL_FEE_RESERVE = float(os.getenv("SOL_FEE_RESERVE", "0.01"))
 ETH_FEE_RESERVE = float(os.getenv("ETH_FEE_RESERVE", "0.005"))  # ~$10-15 buffer for gas
 
 # Indicator params (shared across all bots)
-ATR_PERIOD   = int(os.getenv("ATR_PERIOD",   "10"))
-ATR_MULT     = float(os.getenv("ATR_MULT",   "3.0"))
-RSI_PERIOD   = int(os.getenv("RSI_PERIOD",   "14"))
+ATR_PERIOD  = int(os.getenv("ATR_PERIOD",  "10"))
+ATR_MULT    = float(os.getenv("ATR_MULT",  "3.0"))
+RSI_PERIOD  = int(os.getenv("RSI_PERIOD",  "14"))
 VOL_LOOKBACK = int(os.getenv("VOL_LOOKBACK", "20"))
-ADXR_LEN     = int(os.getenv("ADXR_LEN",    "14"))
-ADXR_LENX    = int(os.getenv("ADXR_LENX",   "14"))
-ADXR_LOW     = float(os.getenv("ADXR_LOW",  "20.0"))
-ADXR_EPS     = float(os.getenv("ADXR_EPS",  "1e-6"))
+ADXR_LEN    = int(os.getenv("ADXR_LEN",   "14"))
+ADXR_LENX   = int(os.getenv("ADXR_LENX",  "14"))
+ADXR_LOW    = float(os.getenv("ADXR_LOW",  "20.0"))
+ADXR_EPS    = float(os.getenv("ADXR_EPS",  "1e-6"))
 
 # Lookback per interval
 LOOKBACK_MAP = {
@@ -142,7 +130,7 @@ YF_INTERVAL_MAP = {
 }
 
 # EVM chains supported (Uniswap V3)
-EVM_CHAINS    = {"ethereum", "base", "optimism"}
+EVM_CHAINS = {"ethereum", "base", "optimism"}
 SOLANA_CHAINS = {"solana"}
 
 
@@ -152,13 +140,13 @@ SOLANA_CHAINS = {"solana"}
 @dataclass
 class AssetInfo:
     """Resolved from asset_registry.json."""
-    ticker:              str
-    blockchain:          str
-    wallet_address:      str    # public address (EVM) — informational
-    token_contract:      str    # "" = native SOL; EVM = ERC-20 address
-    yahoo_ticker:        str
+    ticker:             str
+    blockchain:         str
+    wallet_address:     str         # public address (EVM) — informational
+    token_contract:     str         # "" = native SOL; EVM = ERC-20 address
+    yahoo_ticker:       str
     stablecoin_contract: str
-    decimals:            int = 9
+    decimals:           int = 9
 
     @property
     def is_native_sol(self) -> bool:
@@ -208,59 +196,26 @@ class BotState:
 # Registry loaders
 # ═══════════════════════════════════════════════════════════════════
 TOKEN_DECIMALS = {
-    # ── Solana tokens ──
-    "SOL":    9,
-    "USDC":   6,
-    "PYTH":   6,
-    "JUP":    6,
-    "BONK":   5,
-    "RAY":    6,
-    "JTO":    9,
-    "WIF":    6,
-    "HNT":    8,
-    "MOBILE": 6,
-    "ORCA":   6,
-    "KMNO":   6,
-    "JTO":    9,
-    "DRIFT":  6,
-    "W":      6,
-    "ZEUS":   6,
-    "NOS":    6,
-    "NAVX":   6,
-    "ORE":    11,
-    "FLUXB":  9,
-    "SUAI":   6,
-    "LFNTY":  6,
-    "AUKI":   6,
-    "CETUS":  8,
-    "BLUE":   6,
-    "ELON":   9,
-    # ── EVM tokens (Ethereum / Base / Optimism) ──
-    "ETH":      18,
-    "WETH":     18,
-    "LINK":     18,
-    "UNI":      18,
-    "AAVE":     18,
-    "CRV":      18,
-    "ENS":      18,
-    "PNK":      18,
-    "VIRTUAL":  18,
-    "RENDER":   18,
-    "WLD":      18,
-    "OP":       18,
-    "ARB":      18,
-    "GMX":      18,
-    "GNO":      18,
-    "LDO":      18,
-    "RPL":      18,
-    "PENDLE":   18,
-    "ENA":      18,
-    "FLUID":    18,
-    "ZK":       18,
-    "ONDO":     18,
-    "AERODROME":18,
-    "AOT":      18,
-    "HYPE":     8,   # Hyperliquid
+    # Solana
+    "SOL":  9,
+    "USDC": 6,
+    "PYTH": 6,
+    "JUP":  6,
+    "BONK": 5,
+    "RAY":  6,
+    "JTO":  9,
+    "WIF":  6,
+    "HNT":  8,
+    # EVM (Ethereum / Base / Optimism)
+    "ETH":     18,
+    "WETH":    18,
+    "LINK":    18,
+    "UNI":     18,
+    "AAVE":    18,
+    "CRV":     18,
+    "ENS":     18,
+    "PNK":     18,
+    "VIRTUAL": 18,
 }
 
 
@@ -270,10 +225,7 @@ def load_asset_registry(path: str) -> dict[str, AssetInfo]:
 
     registry = {}
     for key, val in raw.items():
-        decimals = TOKEN_DECIMALS.get(
-            key.upper(),
-            18 if val.get("blockchain") in EVM_CHAINS else 9
-        )
+        decimals = TOKEN_DECIMALS.get(key.upper(), 18 if val.get("blockchain") in EVM_CHAINS else 9)
         registry[key.upper()] = AssetInfo(
             ticker=val["ticker"],
             blockchain=val["blockchain"],
@@ -285,8 +237,7 @@ def load_asset_registry(path: str) -> dict[str, AssetInfo]:
                 # Defaults: USDC on each chain
                 "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"   # Solana USDC
                 if val.get("blockchain") == "solana"
-                else USDC_ADDRESS.get(val.get("blockchain", ""), 
-                     "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48")  # ETH USDC default
+                else "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"  # Ethereum/Base/Optimism USDC
             ),
             decimals=decimals,
         )
@@ -322,7 +273,7 @@ def load_bot_registry(
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Fernet key + keypair loading (Solana + EVM)
+# Fernet key + keypair loading (Solana + EVM, same encryption)
 # ═══════════════════════════════════════════════════════════════════
 _fernet_cache: Fernet | None = None
 
@@ -331,6 +282,7 @@ def _get_fernet() -> Fernet:
     global _fernet_cache
     if _fernet_cache is None:
         key_path = os.getenv("BOT_FERNET_KEY_PATH", "/etc/myTrading/bot.key")
+        # Fallback to legacy path
         if not os.path.exists(key_path):
             key_path = os.getenv("JUPBOT_FERNET_KEY_PATH", "/etc/myTrading/jupbot.key")
         with open(key_path, "rb") as f:
@@ -375,7 +327,7 @@ def load_wallet(wallet_env: str, blockchain: str):
 
 
 # ═══════════════════════════════════════════════════════════════════
-# State management
+# State management (per bot — unchanged from jupBot)
 # ═══════════════════════════════════════════════════════════════════
 def _state_path(bot_id: str) -> str:
     return os.path.join(STATE_DIR, f"bot_state_{bot_id}.json")
@@ -415,10 +367,10 @@ def _save_state(bot_id: str, st: BotState) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Market data
+# Market data (unchanged)
 # ═══════════════════════════════════════════════════════════════════
 def fetch_df(yahoo_ticker: str, interval: str) -> pd.DataFrame:
-    lookback    = LOOKBACK_MAP.get(interval, 30)
+    lookback = LOOKBACK_MAP.get(interval, 30)
     yf_interval = YF_INTERVAL_MAP.get(interval, "60m")
 
     df = yf.download(
@@ -464,12 +416,12 @@ def get_portfolio_solana(
 ) -> dict:
     """Get portfolio snapshot for a Solana wallet."""
     if asset.is_native_sol:
-        token_bal      = get_sol_balance(SOLANA_RPC_URL, pubkey)
+        token_bal = get_sol_balance(SOLANA_RPC_URL, pubkey)
         tradable_token = max(0.0, token_bal - SOL_FEE_RESERVE)
     else:
-        token_bal      = get_spl_token_balance_ui(SOLANA_RPC_URL, pubkey, asset.token_contract)
+        token_bal = get_spl_token_balance_ui(SOLANA_RPC_URL, pubkey, asset.token_contract)
         tradable_token = token_bal
-        sol_bal        = get_sol_balance(SOLANA_RPC_URL, pubkey)
+        sol_bal = get_sol_balance(SOLANA_RPC_URL, pubkey)
         if sol_bal < SOL_FEE_RESERVE:
             log.warning("Low SOL for fees: %.4f SOL (need %.4f)", sol_bal, SOL_FEE_RESERVE)
 
@@ -491,6 +443,7 @@ def get_portfolio_evm(
             blockchain, wallet_address, asset.token_contract, asset.decimals
         )
     else:
+        # Native ETH (unlikely to trade but supported)
         token_bal = get_evm_native_balance(blockchain, wallet_address)
 
     # Gas reserve check
@@ -502,7 +455,7 @@ def get_portfolio_evm(
         )
     tradable_token = token_bal
 
-    # Stablecoin balance (USDC on EVM — always 6 decimals)
+    # Stablecoin balance (USDC on EVM)
     stable_bal = get_evm_token_balance(
         blockchain, wallet_address, asset.stablecoin_contract,
         decimals=ERC20_DECIMALS.get("USDC", 6)
@@ -512,7 +465,7 @@ def get_portfolio_evm(
 
 
 def get_portfolio(
-    wallet,
+    wallet,           # Keypair (Solana) or str pubkey (EVM)
     asset: AssetInfo,
     token_price: float,
 ) -> dict:
@@ -521,6 +474,7 @@ def get_portfolio(
         pubkey = str(wallet.pubkey())
         return get_portfolio_solana(pubkey, asset, token_price)
     elif asset.is_evm:
+        # For EVM we need the public address — stored in asset_registry.json
         return get_portfolio_evm(asset.wallet_address, asset, token_price)
     else:
         raise ValueError(f"Unknown blockchain: {asset.blockchain}")
@@ -548,7 +502,7 @@ def _build_portfolio_dict(
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Rebalance planning
+# Rebalance planning — unchanged, generic for any token pair
 # ═══════════════════════════════════════════════════════════════════
 def rebalance_plan(
     port: dict,
@@ -572,7 +526,7 @@ def rebalance_plan(
         return {"action": "BUY_TOKEN", "stable_amount": spend, "usd_diff": diff}
 
     need_sell_usd = min(port["token_val"] - desired_token_val, port["token_val"])
-    sell_token    = min(port["tradable_token"], need_sell_usd / token_price)
+    sell_token = min(port["tradable_token"], need_sell_usd / token_price)
     if sell_token * token_price < MIN_SWAP_USD:
         return {"action": "NONE", "usd_diff": diff}
     return {"action": "SELL_TOKEN", "token_amount": sell_token, "usd_diff": diff}
@@ -583,10 +537,9 @@ def rebalance_plan(
 # ═══════════════════════════════════════════════════════════════════
 def execute_plan(
     *,
-    wallet,
+    wallet,           # Keypair (Solana) or hex str (EVM)
     plan: dict,
     asset: AssetInfo,
-    token_price: float,     # FIX: needed for amountOutMinimum calculation
 ) -> dict | None:
 
     if plan["action"] == "NONE":
@@ -600,15 +553,13 @@ def execute_plan(
     if asset.is_solana:
         return _execute_plan_solana(wallet=wallet, plan=plan, asset=asset)
     elif asset.is_evm:
-        return _execute_plan_evm(
-            private_key=wallet, plan=plan, asset=asset, token_price=token_price
-        )
+        return _execute_plan_evm(private_key=wallet, plan=plan, asset=asset)
     else:
         raise ValueError(f"Unknown blockchain: {asset.blockchain}")
 
 
 def _execute_plan_solana(*, wallet: Keypair, plan: dict, asset: AssetInfo) -> dict | None:
-    """Execute a swap on Solana via Jupiter."""
+    """Execute a swap on Solana via Jupiter Ultra API."""
     pubkey      = str(wallet.pubkey())
     token_mint  = asset.token_mint
     stable_mint = asset.stable_mint
@@ -617,52 +568,32 @@ def _execute_plan_solana(*, wallet: Keypair, plan: dict, asset: AssetInfo) -> di
     if plan["action"] == "BUY_TOKEN":
         stable_amt = float(plan["stable_amount"])
         amt_small  = to_smallest(stable_amt, USDC_DECIMALS)
-        quote      = get_quote(stable_mint, token_mint, amt_small, SLIPPAGE_BPS)
-        swap       = get_swap_tx(quote, pubkey)
-        tx         = swap.get("swapTransaction")
-        if not tx:
-            raise RuntimeError(f"Jupiter swap missing swapTransaction: {swap}")
-        sig = sign_and_send_swap(rpc_url=SOLANA_RPC_URL, swap_tx_b64=tx, keypair=wallet)
+        order      = ultra_get_order(stable_mint, token_mint, amt_small, pubkey)
+        sig        = ultra_sign_and_execute(order, wallet)
         log.info("✅ SOL BUY %s: spent USDC=%.2f sig=%s", ticker, stable_amt, sig)
         return {"action": f"BUY_{ticker}", "amount": stable_amt, "amount_ccy": "USDC", "tx_sig": sig}
 
     if plan["action"] == "SELL_TOKEN":
         token_amt = float(plan["token_amount"])
         amt_small = to_smallest(token_amt, asset.decimals)
-        quote     = get_quote(token_mint, stable_mint, amt_small, SLIPPAGE_BPS)
-        swap      = get_swap_tx(quote, pubkey)
-        tx        = swap.get("swapTransaction")
-        if not tx:
-            raise RuntimeError(f"Jupiter swap missing swapTransaction: {swap}")
-        sig = sign_and_send_swap(rpc_url=SOLANA_RPC_URL, swap_tx_b64=tx, keypair=wallet)
+        order     = ultra_get_order(token_mint, stable_mint, amt_small, pubkey)
+        sig       = ultra_sign_and_execute(order, wallet)
         log.info("✅ SOL SELL %s: sold %.6f sig=%s", ticker, token_amt, sig)
         return {"action": f"SELL_{ticker}", "amount": token_amt, "amount_ccy": ticker, "tx_sig": sig}
 
     raise RuntimeError(f"Unknown plan action: {plan}")
 
 
-def _execute_plan_evm(
-    *,
-    private_key: str,
-    plan: dict,
-    asset: AssetInfo,
-    token_price: float,     # FIX: used to compute amountOutMinimum
-) -> dict | None:
+def _execute_plan_evm(*, private_key: str, plan: dict, asset: AssetInfo) -> dict | None:
     """Execute a swap on an EVM chain via Uniswap V3."""
     blockchain      = asset.blockchain
     token_contract  = asset.token_contract
     stable_contract = asset.stablecoin_contract
     ticker          = asset.ticker
     usdc_decimals   = ERC20_DECIMALS.get("USDC", 6)
-    token_decimals  = asset.decimals
 
     if plan["action"] == "BUY_TOKEN":
         stable_amt = float(plan["stable_amount"])
-
-        # FIX: expected output = stable_amt / token_price tokens
-        # e.g. spending $301 USDC to buy VIRTUAL at $0.68 → expect 301/0.68 ≈ 443 VIRTUAL
-        expected_out_per_in = (1.0 / token_price) if token_price > 0 else 0.0
-
         tx_hash = uniswap_swap_auto_fee(
             blockchain=blockchain,
             private_key=private_key,
@@ -670,51 +601,30 @@ def _execute_plan_evm(
             token_out=token_contract,
             amount_in_human=stable_amt,
             token_in_decimals=usdc_decimals,
-            token_out_decimals=token_decimals,      # FIX: explicit
-            expected_out_per_in=expected_out_per_in, # FIX: real floor
             slippage_bps=SLIPPAGE_BPS,
         )
-        log.info("✅ EVM BUY %s [%s]: spent USDC=%.2f tx=%s",
-                 ticker, blockchain, stable_amt, tx_hash)
-        return {
-            "action": f"BUY_{ticker}",
-            "amount": stable_amt,
-            "amount_ccy": "USDC",
-            "tx_sig": tx_hash,
-        }
+        log.info("✅ EVM BUY %s [%s]: spent USDC=%.2f tx=%s", ticker, blockchain, stable_amt, tx_hash)
+        return {"action": f"BUY_{ticker}", "amount": stable_amt, "amount_ccy": "USDC", "tx_sig": tx_hash}
 
     if plan["action"] == "SELL_TOKEN":
         token_amt = float(plan["token_amount"])
-
-        # FIX: expected output = token_amt * token_price USDC
-        # e.g. selling 1866 VIRTUAL at $0.685 → expect 1866 * 0.685 ≈ $1,278 USDC
-        expected_out_per_in = token_price  # each token → token_price USD
-
         tx_hash = uniswap_swap_auto_fee(
             blockchain=blockchain,
             private_key=private_key,
             token_in=token_contract,
             token_out=stable_contract,
             amount_in_human=token_amt,
-            token_in_decimals=token_decimals,        # FIX: explicit
-            token_out_decimals=usdc_decimals,        # FIX: USDC out
-            expected_out_per_in=expected_out_per_in, # FIX: real floor
+            token_in_decimals=asset.decimals,
             slippage_bps=SLIPPAGE_BPS,
         )
-        log.info("✅ EVM SELL %s [%s]: sold %.6f tx=%s",
-                 ticker, blockchain, token_amt, tx_hash)
-        return {
-            "action": f"SELL_{ticker}",
-            "amount": token_amt,
-            "amount_ccy": ticker,
-            "tx_sig": tx_hash,
-        }
+        log.info("✅ EVM SELL %s [%s]: sold %.6f tx=%s", ticker, blockchain, token_amt, tx_hash)
+        return {"action": f"SELL_{ticker}", "amount": token_amt, "amount_ccy": ticker, "tx_sig": tx_hash}
 
     raise RuntimeError(f"Unknown plan action: {plan}")
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Trade logging
+# Trade logging (per bot — unchanged structure)
 # ═══════════════════════════════════════════════════════════════════
 def _trade_log_path(bot_id: str) -> str:
     return os.path.join(TRADE_LOG_DIR, f"bot_trades_{bot_id}.csv")
@@ -766,7 +676,7 @@ def log_trade(
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Higher-timeframe confirmation filter
+# Higher-timeframe confirmation filter (unchanged)
 # ═══════════════════════════════════════════════════════════════════
 def get_htf_confirmation(yahoo_ticker: str, confirm_interval: str) -> dict:
     df  = fetch_df(yahoo_ticker, confirm_interval)
@@ -783,72 +693,21 @@ def get_htf_confirmation(yahoo_ticker: str, confirm_interval: str) -> dict:
     )
     last      = ind.iloc[-1]
     htf_st    = str(last.get("Supertrend_Signal", "SELL"))
-    htf_most  = str(last.get("MOST_Signal",       "SELL"))
-    htf_adxr  = str(last.get("ADXR_State",        "FLAT"))
+    htf_most  = str(last.get("MOST_Signal", "SELL"))
+    htf_adxr  = str(last.get("ADXR_State", "FLAT"))
     htf_final = signal_super_most_adxr(htf_st, htf_most, htf_adxr)
 
     return {
-        "supertrend":   htf_st,
-        "most":         htf_most,
-        "adxr_state":   htf_adxr,
+        "supertrend":  htf_st,
+        "most":        htf_most,
+        "adxr_state":  htf_adxr,
         "final_signal": htf_final,
-        "allows_buy":   htf_final in ("BUY", "HOLD"),
+        "allows_buy":  htf_final in ("BUY", "HOLD"),
     }
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Error log — written to file and mirrored to jobMyTrading repo
-# ═══════════════════════════════════════════════════════════════════
-ERROR_LOG_DIR    = os.getenv("BOT_ERROR_LOG_DIR",    HEARTBEAT_LOG_DIR)
-ERROR_MIRROR_DIR = os.getenv("BOT_ERROR_MIRROR_DIR", HEARTBEAT_MIRROR_DIR)
-
-
-def _error_log_path(bot_id: str) -> str:
-    return os.path.join(ERROR_LOG_DIR, f"bot_errors_{bot_id}.log")
-
-
-def write_error_log(
-    *,
-    bot_id: str,
-    bot_name: str,
-    blockchain: str,
-    context: str,       # short description of what was being attempted
-    error: str,         # str(exception)
-    bar_ts: str = "",
-    price: float = 0.0,
-):
-    """
-    Append one error line to bot_errors_<bot_id>.log and mirror to jobMyTrading.
-    Format matches heartbeat log so it can be read alongside it.
-    """
-    pst = ZoneInfo("America/Los_Angeles")
-    now = datetime.now(pst)
-    today_str = now.strftime("%Y-%m-%d")
-    ts        = now.strftime("%Y-%m-%d %H:%M:%S")
-
-    path = _error_log_path(bot_id)
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-
-    file_exists = os.path.exists(path)
-    with open(path, "a", encoding="utf-8") as f:
-        if not file_exists:
-            f.write("date,timestamp,bot_name,blockchain,bar_ts,price,context,error\n")
-        # Sanitise error string — remove newlines/commas so CSV stays valid
-        safe_error = error.replace("\n", " | ").replace(",", ";")
-        f.write(f"{today_str},{ts},{bot_name},{blockchain},{bar_ts},{price:.4f},"
-                f"{context},{safe_error}\n")
-
-    if ERROR_MIRROR_DIR:
-        try:
-            mirror = os.path.join(ERROR_MIRROR_DIR, f"bot_errors_{bot_id}.log")
-            os.makedirs(os.path.dirname(mirror), exist_ok=True)
-            shutil.copyfile(path, mirror)
-        except Exception:
-            pass
-
-
-# ═══════════════════════════════════════════════════════════════════
-# Heartbeat log
+# Heartbeat log (per bot — unchanged, adds blockchain field)
 # ═══════════════════════════════════════════════════════════════════
 def _heartbeat_log_path(bot_id: str) -> str:
     return os.path.join(HEARTBEAT_LOG_DIR, f"bot_heartbeat_{bot_id}.log")
@@ -963,9 +822,9 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
     )
 
     # ── Signals ──
-    st_sig     = str(last.get("Supertrend_Signal", "SELL"))
-    most_sig   = str(last.get("MOST_Signal",       "SELL"))
-    adxr_state = str(last.get("ADXR_State",        "FLAT"))
+    st_sig    = str(last.get("Supertrend_Signal", "SELL"))
+    most_sig  = str(last.get("MOST_Signal", "SELL"))
+    adxr_state = str(last.get("ADXR_State", "FLAT"))
 
     final_sig      = signal_super_most_adxr(st_sig, most_sig, adxr_state)
     desired_regime = desired_regime_from_final_signal(final_sig)
@@ -1035,40 +894,29 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
         confirm_interval=bot.confirm_interval,
     )
 
-    # ── Helper: execute a rebalance to target_pct and update regime if successful ──
-    def _do_rebalance(target_pct: float, reason: str) -> None:
+    # ── Skip same bar ──
+    if st.last_bar_ts == bar_ts:
+        blog.info("Same bar already processed — skipping trade logic.")
+        return st
+
+    # ── Trade on regime flip ──
+    if desired_regime != st.regime:
+        target_pct = IN_TOKEN_PCT if desired_regime == "IN" else OUT_TOKEN_PCT
+        blog.info("🔄 REGIME FLIP %s → %s. Rebalancing to %s%%=%.0f%%",
+                  st.regime, desired_regime, asset.ticker, target_pct * 100)
+
         port = get_portfolio(wallet, asset, price)
         blog.info(
-            "Portfolio: total=$%.2f %s=%.4f (tradable=%.4f) stable=%.2f token_pct=%.1f%%",
+            "Portfolio: total=$%.2f %s=%.4f (tradable %.4f) stable=%.2f %s%%=%.1f%%",
             port["total"], asset.ticker, port["token_bal"],
             port["tradable_token"], port["stable_bal"],
-            port["token_pct"] * 100.0,
+            asset.ticker, port["token_pct"] * 100.0,
         )
 
-        plan = rebalance_plan(port, price, target_pct)
+        plan       = rebalance_plan(port, price, target_pct)
         blog.info("Plan: %s", plan)
 
-        exec_result = None
-        swap_error  = None
-        try:
-            exec_result = execute_plan(
-                wallet=wallet,
-                plan=plan,
-                asset=asset,
-                token_price=price,
-            )
-        except Exception as exc:
-            swap_error = exc
-            blog.error("❌ Swap failed for %s [%s]: %s", asset.ticker, asset.blockchain, exc)
-            write_error_log(
-                bot_id=bot.bot_id,
-                bot_name=bot.name,
-                blockchain=asset.blockchain,
-                context=f"execute_plan:{plan.get('action','?')}:{reason}",
-                error=str(exc),
-                bar_ts=bar_ts,
-                price=price,
-            )
+        exec_result = execute_plan(wallet=wallet, plan=plan, asset=asset)
 
         if exec_result:
             log_trade(
@@ -1086,53 +934,7 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
             )
 
         if plan.get("action") != "NONE":
-            if exec_result and exec_result.get("tx_sig"):
-                st.regime = desired_regime
-                blog.info("✅ Regime updated to %s", desired_regime)
-            elif swap_error:
-                blog.warning(
-                    "⚠️  Swap ERRORED (%s) — regime stays %s. "
-                    "Will NOT retry this bar (last_bar_ts updated).",
-                    swap_error, st.regime,
-                )
-            else:
-                blog.warning(
-                    "⚠️  Plan was %s but no tx_sig returned — regime stays %s.",
-                    plan["action"], st.regime,
-                )
-
-    # ── Skip same bar if regime aligned AND wallet confirms it ──
-    if st.last_bar_ts == bar_ts and desired_regime == st.regime:
-        try:
-            port = get_portfolio(wallet, asset, price)
-            token_pct = port["token_pct"]
-            if st.regime == "OUT" and token_pct > 0.5:
-                blog.warning(
-                    "⚠️  Drift: regime=OUT but token_pct=%.1f%% — forcing corrective SELL.",
-                    token_pct * 100,
-                )
-                _do_rebalance(OUT_TOKEN_PCT, reason="drift_correction")
-            elif st.regime == "IN" and token_pct < 0.5:
-                blog.warning(
-                    "⚠️  Drift: regime=IN but token_pct=%.1f%% — forcing corrective BUY.",
-                    token_pct * 100,
-                )
-                _do_rebalance(IN_TOKEN_PCT, reason="drift_correction")
-            else:
-                blog.info("Same bar + regime aligned — skipping trade logic.")
-        except Exception as e:
-            blog.warning("Drift check failed: %s — skipping.", e)
-        st.last_bar_ts = bar_ts
-        _save_state(bot.bot_id, st)
-        return st
-
-    # ── Trade on regime flip ──
-    if desired_regime != st.regime:
-        target_pct = IN_TOKEN_PCT if desired_regime == "IN" else OUT_TOKEN_PCT
-        blog.info("🔄 REGIME FLIP %s → %s. Rebalancing to %s%%=%.0f%%",
-                  st.regime, desired_regime, asset.ticker, target_pct * 100)
-        _do_rebalance(target_pct, reason="regime_flip")
-
+            st.regime = desired_regime
     else:
         blog.info("No regime change — holding %s (%s).", st.regime, asset.ticker)
 
@@ -1159,13 +961,14 @@ def main():
     log.info("Loaded %d bot(s) from %s", len(bots), BOT_REGISTRY_PATH)
 
     # Log chain breakdown
-    chains: dict[str, int] = {}
+    chains = {}
     for b in bots:
         chains[b.asset.blockchain] = chains.get(b.asset.blockchain, 0) + 1
     for chain, count in chains.items():
         log.info("  Chain: %-12s → %d bot(s)", chain, count)
 
     # ── Load wallets once at startup ──
+    # Key: (wallet_env, blockchain) — same wallet_env can be Solana on one bot, EVM on another
     wallets: dict[tuple[str, str], object] = {}
     for bot in bots:
         key = (bot.wallet_env, bot.asset.blockchain)
@@ -1197,17 +1000,7 @@ def main():
                 st     = states[bot.bot_id]
                 states[bot.bot_id] = tick_bot(bot, wallet, st)
             except Exception as e:
-                log.exception("[%s] Unhandled error in tick_bot: %s", bot.name, e)
-                try:
-                    write_error_log(
-                        bot_id=bot.bot_id,
-                        bot_name=bot.name,
-                        blockchain=bot.asset.blockchain,
-                        context="tick_bot:unhandled_exception",
-                        error=str(e),
-                    )
-                except Exception:
-                    pass  # never let logging crash the loop
+                log.exception("[%s] Error: %s", bot.name, e)
             time.sleep(10)
 
         time.sleep(SLEEP_SECONDS)

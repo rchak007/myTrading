@@ -1,24 +1,37 @@
 # core/execution/jupiter.py
+#
+# Uses Jupiter Ultra Swap API — the same engine as jup.ag mobile/web.
+# Ultra handles: slippage, priority fees, transaction landing, retries, MEV protection.
+# No manual slippage tuning, no polling, no skipPreflight hacks needed.
+#
+# Flow:
+#   1. GET  /ultra/v1/order  → get quote + unsigned base64 tx + requestId
+#   2. Sign the transaction locally with our Keypair
+#   3. POST /ultra/v1/execute → Jupiter lands it, returns status + txid
+#
 from __future__ import annotations
 
 import base64
-import time
 import requests
-from typing import Optional
+import logging
 
 from solders.keypair import Keypair
 from solders.transaction import VersionedTransaction
 
+log = logging.getLogger("bot.jupiter")
 
-WSOL_MINT = "So11111111111111111111111111111111111111112"
-USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-
+WSOL_MINT     = "So11111111111111111111111111111111111111112"
+USDC_MINT     = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 WSOL_DECIMALS = 9
 USDC_DECIMALS = 6
 
-JUP_QUOTE_URL = "https://public.jupiterapi.com/quote"
-JUP_SWAP_URL  = "https://public.jupiterapi.com/swap"
+ULTRA_ORDER_URL   = "https://api.jup.ag/ultra/v1/order"
+ULTRA_EXECUTE_URL = "https://api.jup.ag/ultra/v1/execute"
 
+
+# ─────────────────────────────────────────────
+# RPC helpers (balance checks — unchanged)
+# ─────────────────────────────────────────────
 
 def rpc_call(rpc_url: str, method: str, params: list) -> dict:
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
@@ -32,8 +45,7 @@ def rpc_call(rpc_url: str, method: str, params: list) -> dict:
 
 def get_sol_balance(rpc_url: str, pubkey: str) -> float:
     res = rpc_call(rpc_url, "getBalance", [pubkey, {"commitment": "confirmed"}])
-    lamports = int(res["value"])
-    return lamports / 1e9
+    return int(res["value"]) / 1e9
 
 
 def get_spl_token_balance_ui(rpc_url: str, pubkey: str, mint: str) -> float:
@@ -55,74 +67,110 @@ def to_smallest(amount: float, decimals: int) -> int:
     return int(amount * (10 ** decimals))
 
 
-def get_quote(input_mint: str, output_mint: str, amount_smallest: int, slippage_bps: int) -> dict:
+# ─────────────────────────────────────────────
+# Ultra Swap API
+# ─────────────────────────────────────────────
+
+def ultra_get_order(
+    input_mint: str,
+    output_mint: str,
+    amount_smallest: int,
+    taker_pubkey: str,
+) -> dict:
+    """
+    GET /ultra/v1/order
+    Returns the order dict containing:
+      - transaction : base64 unsigned tx → sign this
+      - requestId   : pass to /execute
+      - inAmount, outAmount, slippageBps, swapType, etc.
+    """
     params = {
-        "inputMint": input_mint,
+        "inputMint":  input_mint,
         "outputMint": output_mint,
-        "amount": str(amount_smallest),
-        "slippageBps": str(slippage_bps),
-        "restrictIntermediateTokens": "true",  # route only through high-liquidity intermediates
+        "amount":     str(amount_smallest),
+        "taker":      taker_pubkey,
     }
-    r = requests.get(JUP_QUOTE_URL, params=params, timeout=20)
+    r = requests.get(ULTRA_ORDER_URL, params=params, timeout=20)
     r.raise_for_status()
-    return r.json()
+    data = r.json()
+
+    if "error" in data:
+        raise RuntimeError(f"Jupiter Ultra /order error: {data['error']}")
+    if "transaction" not in data:
+        raise RuntimeError(f"Jupiter Ultra /order missing transaction: {data}")
+
+    log.info(
+        "Ultra order: %s→%s | in=%s out=%s slippage=%sbps type=%s",
+        input_mint[:6], output_mint[:6],
+        data.get("inAmount"), data.get("outAmount"),
+        data.get("slippageBps"), data.get("swapType"),
+    )
+    return data
 
 
-def get_swap_tx(quote_response: dict, user_pubkey: str) -> dict:
-    payload = {
-        "quoteResponse": quote_response,
-        "userPublicKey": user_pubkey,
-        "wrapAndUnwrapSol": True,
-        "dynamicComputeUnitLimit": True,
-        "dynamicSlippage": True,   # Jupiter estimates real slippage, overrides slippageBps
-        "prioritizationFeeLamports": {
-            "priorityLevelWithMaxLamports": {
-                "priorityLevel": "veryHigh",
-                "maxLamports": 1000000,  # ~$0.15 max priority fee
-            }
-        },
-    }
-    r = requests.post(JUP_SWAP_URL, json=payload, timeout=20)
-    r.raise_for_status()
-    return r.json()
-
-
-def sign_and_send_swap(
-    *,
-    rpc_url: str,
-    swap_tx_b64: str,
+def ultra_sign_and_execute(
+    order_response: dict,
     keypair: Keypair,
 ) -> str:
-    raw = base64.b64decode(swap_tx_b64)
-    vt = VersionedTransaction.from_bytes(raw)
+    """
+    Signs the transaction from ultra_get_order() and POSTs to /execute.
+    Jupiter lands it via Jupiter Beam (their own infrastructure).
+
+    Returns the transaction signature string on success.
+    Raises RuntimeError on any failure — caller flips regime only on success.
+    """
+    # 1. Decode + sign
+    raw       = base64.b64decode(order_response["transaction"])
+    vt        = VersionedTransaction.from_bytes(raw)
     vt_signed = VersionedTransaction(vt.message, [keypair])
+    signed_b64 = base64.b64encode(bytes(vt_signed)).decode("utf-8")
 
-    wire = base64.b64encode(bytes(vt_signed)).decode("utf-8")
-    sig = str(rpc_call(rpc_url, "sendTransaction", [wire, {
-        "encoding": "base64",
-        "skipPreflight": True,
-        "preflightCommitment": "confirmed",
-        "maxRetries": 3,
-    }]))
+    # 2. Submit to Jupiter
+    payload = {
+        "signedTransaction": signed_b64,
+        "requestId":         order_response["requestId"],
+    }
+    r = requests.post(ULTRA_EXECUTE_URL, json=payload, timeout=60)
+    r.raise_for_status()
+    result = r.json()
 
-    # Wait for on-chain confirmation and verify it didn't fail
-    for _ in range(30):  # up to ~30s
-        time.sleep(1)
-        try:
-            result = rpc_call(rpc_url, "getSignatureStatuses",
-                              [[sig], {"searchTransactionHistory": True}])
-            status = (result.get("value") or [None])[0]
-            if status is None:
-                continue
-            if status.get("err"):
-                raise RuntimeError(
-                    f"Transaction {sig[:20]}... failed on-chain: {status['err']}"
-                )
-            if status.get("confirmationStatus") in ("confirmed", "finalized"):
-                return sig  # ✅ confirmed
-        except RuntimeError:
-            raise
-        except Exception:
-            pass  # RPC hiccup — keep polling
+    log.info("Ultra execute response: %s", result)
 
-    raise RuntimeError(f"Transaction {sig[:20]}... not confirmed after 30s")
+    # 3. Parse result
+    status = result.get("status", "")
+    tx_sig  = (
+        result.get("signature")
+        or result.get("txid")
+        or result.get("txSig")
+        or ""
+    )
+
+    if status == "Success":
+        log.info("✅ Ultra swap SUCCESS | sig=%s", tx_sig)
+        return str(tx_sig)
+
+    # Non-success → raise so bot.py never flips regime
+    error_code = result.get("error") or result.get("errorCode") or ""
+    error_msg  = result.get("message") or result.get("errorMessage") or ""
+    input_amt  = result.get("inputAmountResult",  "?")
+    output_amt = result.get("outputAmountResult", "?")
+
+    raise RuntimeError(
+        f"Ultra swap FAILED | status={status} error={error_code} "
+        f"msg={error_msg} inAmt={input_amt} outAmt={output_amt} sig={tx_sig}"
+    )
+
+
+# ─────────────────────────────────────────────
+# Legacy stubs — raise immediately so nothing
+# silently falls back to the old broken path
+# ─────────────────────────────────────────────
+
+def get_quote(*a, **kw):
+    raise NotImplementedError("Replaced by ultra_get_order()")
+
+def get_swap_tx(*a, **kw):
+    raise NotImplementedError("Replaced by ultra_get_order()")
+
+def sign_and_send_swap(*a, **kw):
+    raise NotImplementedError("Replaced by ultra_sign_and_execute()")
