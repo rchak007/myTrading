@@ -894,30 +894,59 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
         confirm_interval=bot.confirm_interval,
     )
 
-    # ── Skip same bar ──
-    if st.last_bar_ts == bar_ts:
-        blog.info("Same bar already processed — skipping trade logic.")
-        return st
-
-    # ── Trade on regime flip ──
-    if desired_regime != st.regime:
-        target_pct = IN_TOKEN_PCT if desired_regime == "IN" else OUT_TOKEN_PCT
-        blog.info("🔄 REGIME FLIP %s → %s. Rebalancing to %s%%=%.0f%%",
-                  st.regime, desired_regime, asset.ticker, target_pct * 100)
-
+    # ── Always fetch + log balances so we can detect drift ──
+    port = None
+    try:
         port = get_portfolio(wallet, asset, price)
         blog.info(
-            "Portfolio: total=$%.2f %s=%.4f (tradable %.4f) stable=%.2f %s%%=%.1f%%",
-            port["total"], asset.ticker, port["token_bal"],
-            port["tradable_token"], port["stable_bal"],
-            asset.ticker, port["token_pct"] * 100.0,
+            "💼 Balance: total=$%.2f | %s=%.4f ($%.2f, %.1f%%) | stable=%.2f",
+            port["total"], asset.ticker,
+            port["token_bal"], port["token_val"], port["token_pct"] * 100.0,
+            port["stable_bal"],
         )
+    except Exception as e:
+        blog.warning("⚠️  Balance fetch failed: %s — will skip drift check", e)
 
-        plan       = rebalance_plan(port, price, target_pct)
+    # ── Drift detection: regime=OUT but still holding token (or vice versa) ──
+    drift_action = None
+    if port is not None:
+        token_pct = port["token_pct"]
+        if st.regime == "OUT" and token_pct > 0.50:
+            blog.warning(
+                "🚨 DRIFT DETECTED: regime=OUT but token_pct=%.1f%% > 50%% — forcing SELL",
+                token_pct * 100.0,
+            )
+            drift_action = "SELL"
+        elif st.regime == "IN" and token_pct < 0.30:
+            blog.warning(
+                "🚨 DRIFT DETECTED: regime=IN but token_pct=%.1f%% < 30%% — forcing BUY",
+                token_pct * 100.0,
+            )
+            drift_action = "BUY"
+        else:
+            blog.info(
+                "✅ Balance aligned: regime=%s token_pct=%.1f%% — no drift",
+                st.regime, token_pct * 100.0,
+            )
+
+    # ── Skip same bar UNLESS drift detected ──
+    if st.last_bar_ts == bar_ts:
+        if drift_action is None:
+            blog.info("Same bar + no drift — skipping trade logic.")
+            return st
+        else:
+            blog.info("Same bar but DRIFT detected — proceeding with corrective rebalance.")
+
+    # ── Helper: execute rebalance and log trade ──
+    def _do_rebalance(target_pct: float, reason: str):
+        nonlocal port
+        if port is None:
+            blog.warning("No portfolio data — cannot rebalance (%s)", reason)
+            return
+        blog.info("🔄 %s → target %.0f%% %s", reason, target_pct * 100, asset.ticker)
+        plan = rebalance_plan(port, price, target_pct)
         blog.info("Plan: %s", plan)
-
         exec_result = execute_plan(wallet=wallet, plan=plan, asset=asset)
-
         if exec_result:
             log_trade(
                 bot_id=bot.bot_id,
@@ -932,9 +961,26 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
                 dry_run=DRY_RUN,
                 blockchain=asset.blockchain,
             )
-
         if plan.get("action") != "NONE":
             st.regime = desired_regime
+
+    # ── Corrective rebalance for drift (same-bar override) ──
+    if drift_action == "SELL":
+        _do_rebalance(OUT_TOKEN_PCT, "DRIFT CORRECTION SELL")
+        st.last_bar_ts = bar_ts
+        _save_state(bot.bot_id, st)
+        return st
+
+    if drift_action == "BUY":
+        _do_rebalance(IN_TOKEN_PCT, "DRIFT CORRECTION BUY")
+        st.last_bar_ts = bar_ts
+        _save_state(bot.bot_id, st)
+        return st
+
+    # ── Normal regime flip (new bar) ──
+    if desired_regime != st.regime:
+        target_pct = IN_TOKEN_PCT if desired_regime == "IN" else OUT_TOKEN_PCT
+        _do_rebalance(target_pct, f"REGIME FLIP {st.regime}→{desired_regime}")
     else:
         blog.info("No regime change — holding %s (%s).", st.regime, asset.ticker)
 
