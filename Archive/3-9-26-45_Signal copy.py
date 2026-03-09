@@ -149,7 +149,6 @@ Examples:
 
     # --- Previews ---
     preview_cols = ["Ticker", "Score_Weighted", "Score_30", "Score_60", "Score_90", "Score_120",
-                    "%RET30", "%RET60", "%RET90", "%RET120",
                     "SIGNAL-Super-MOST-ADXR", "Earnings_Alert",
                     "Market_Cap", "Price", "RS_63d_vs_SPY_%", "Buy_Hint"]
 

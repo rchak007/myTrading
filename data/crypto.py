@@ -855,7 +855,7 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out["Qty"] = pd.Series(qty_list).round(4)
     out["Price"] = pd.Series(price_list).round(4)
-    out["USD Value"] = pd.Series(usd_list).round(4)
+    out["ALT USD Val"] = pd.Series(usd_list).round(4)
     out["USDC Value"] = pd.Series(usdc_list).round(4)
 
     return _reorder_crypto_columns(out)
@@ -878,6 +878,7 @@ def _reorder_crypto_columns(df: pd.DataFrame) -> pd.DataFrame:
         "SIGNAL-Super-MOST-ADXR", "Signal-1D", 
     ]
     portfolio_cols = ["Qty", "Price", "ALT USD Val", "ALT%", "USDC Value", "Total Val"]
+    # portfolio_cols = ["Qty", "Price", "ALT USD Val", "USD Value", "ALT%", "USDC Value", "Total Val"]
     end_cols = ["Bar Time"]
 
     # Build ordered list
@@ -953,8 +954,8 @@ def build_complete_crypto_table(
     df_crypto = enrich_crypto_portfolio_fields(df_crypto)
     
     # Step 3: Rename "USD Value" -> "ALT USD Val"
-    if "USD Value" in df_crypto.columns:
-        df_crypto = df_crypto.rename(columns={"USD Value": "ALT USD Val"})
+    # if "USD Value" in df_crypto.columns:
+    #     df_crypto = df_crypto.rename(columns={"USD Value": "ALT USD Val"})
     
     # Step 4: Ensure numeric columns
     for c in ["ALT USD Val", "USDC Value"]:

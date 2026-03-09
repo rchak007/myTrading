@@ -314,17 +314,6 @@ def calculate_all_scores(
     )
     scores["Score_Weighted"] = int(round(score_weighted))
 
-    # % returns over each window (how much the stock actually moved)
-    c = df["Close"]
-    ret30  = returns_over_period(c, 30)
-    ret60  = returns_over_period(c, 60)
-    ret90  = returns_over_period(c, 90)
-    ret120 = returns_over_period(c, 120)
-    scores["%RET30"]  = round(float(ret30),  2) if pd.notna(ret30)  else np.nan
-    scores["%RET60"]  = round(float(ret60),  2) if pd.notna(ret60)  else np.nan
-    scores["%RET90"]  = round(float(ret90),  2) if pd.notna(ret90)  else np.nan
-    scores["%RET120"] = round(float(ret120), 2) if pd.notna(ret120) else np.nan
-
     # Merge: all score columns + detail fields from 60d
     return {**scores, **detail}
 
@@ -337,10 +326,6 @@ def _empty_score_dict() -> dict:
         "Score_60":       0,
         "Score_90":       0,
         "Score_120":      0,
-        "%RET30":         np.nan,
-        "%RET60":         np.nan,
-        "%RET90":         np.nan,
-        "%RET120":        np.nan,
         "slope_main":     np.nan,
         "r2_main":        np.nan,
         "slope60":        np.nan,
