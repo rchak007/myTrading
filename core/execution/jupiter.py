@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import base64
+import os
 import requests
 import logging
 
@@ -27,6 +28,14 @@ USDC_DECIMALS = 6
 
 ULTRA_ORDER_URL   = "https://api.jup.ag/ultra/v1/order"
 ULTRA_EXECUTE_URL = "https://api.jup.ag/ultra/v1/execute"
+
+
+def _auth_headers() -> dict:
+    """Return Authorization header if JUPITER_API_KEY is set in env."""
+    key = os.getenv("JUPITER_API_KEY", "").strip()
+    if key:
+        return {"Authorization": f"Bearer {key}"}
+    return {}
 
 
 # ─────────────────────────────────────────────
@@ -90,7 +99,7 @@ def ultra_get_order(
         "amount":     str(amount_smallest),
         "taker":      taker_pubkey,
     }
-    r = requests.get(ULTRA_ORDER_URL, params=params, timeout=20)
+    r = requests.get(ULTRA_ORDER_URL, params=params, headers=_auth_headers(), timeout=20)
     r.raise_for_status()
     data = r.json()
 
@@ -130,7 +139,7 @@ def ultra_sign_and_execute(
         "signedTransaction": signed_b64,
         "requestId":         order_response["requestId"],
     }
-    r = requests.post(ULTRA_EXECUTE_URL, json=payload, timeout=60)
+    r = requests.post(ULTRA_EXECUTE_URL, json=payload, headers=_auth_headers(), timeout=60)
     r.raise_for_status()
     result = r.json()
 
