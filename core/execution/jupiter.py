@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import time
 import requests
 from typing import Optional
 
@@ -60,6 +61,7 @@ def get_quote(input_mint: str, output_mint: str, amount_smallest: int, slippage_
         "outputMint": output_mint,
         "amount": str(amount_smallest),
         "slippageBps": str(slippage_bps),
+        "restrictIntermediateTokens": "true",  # route only through high-liquidity intermediates
     }
     r = requests.get(JUP_QUOTE_URL, params=params, timeout=20)
     r.raise_for_status()
@@ -72,7 +74,13 @@ def get_swap_tx(quote_response: dict, user_pubkey: str) -> dict:
         "userPublicKey": user_pubkey,
         "wrapAndUnwrapSol": True,
         "dynamicComputeUnitLimit": True,
-        "prioritizationFeeLamports": "auto",
+        "dynamicSlippage": True,   # Jupiter estimates real slippage, overrides slippageBps
+        "prioritizationFeeLamports": {
+            "priorityLevelWithMaxLamports": {
+                "priorityLevel": "veryHigh",
+                "maxLamports": 1000000,  # ~$0.15 max priority fee
+            }
+        },
     }
     r = requests.post(JUP_SWAP_URL, json=payload, timeout=20)
     r.raise_for_status()
@@ -90,10 +98,31 @@ def sign_and_send_swap(
     vt_signed = VersionedTransaction(vt.message, [keypair])
 
     wire = base64.b64encode(bytes(vt_signed)).decode("utf-8")
-    sig = rpc_call(rpc_url, "sendTransaction", [wire, {
+    sig = str(rpc_call(rpc_url, "sendTransaction", [wire, {
         "encoding": "base64",
-        "skipPreflight": True,          # bypass simulation — Jupiter already validated the route
+        "skipPreflight": True,
         "preflightCommitment": "confirmed",
         "maxRetries": 3,
-    }])
-    return str(sig)
+    }]))
+
+    # Wait for on-chain confirmation and verify it didn't fail
+    for _ in range(30):  # up to ~30s
+        time.sleep(1)
+        try:
+            result = rpc_call(rpc_url, "getSignatureStatuses",
+                              [[sig], {"searchTransactionHistory": True}])
+            status = (result.get("value") or [None])[0]
+            if status is None:
+                continue
+            if status.get("err"):
+                raise RuntimeError(
+                    f"Transaction {sig[:20]}... failed on-chain: {status['err']}"
+                )
+            if status.get("confirmationStatus") in ("confirmed", "finalized"):
+                return sig  # ✅ confirmed
+        except RuntimeError:
+            raise
+        except Exception:
+            pass  # RPC hiccup — keep polling
+
+    raise RuntimeError(f"Transaction {sig[:20]}... not confirmed after 30s")
