@@ -453,20 +453,32 @@ def uniswap_swap(
     # Parse Transfer events from receipt logs to confirm token_out arrived
     # This catches the "success but 0 output" edge case.
     try:
-        erc20 = w3.eth.contract(address=token_out_cs, abi=ERC20_ABI)
-        # Look for Transfer(from=router_or_pool, to=our_wallet) in logs
+        # Transfer(address indexed from, address indexed to, uint256 value)
+        # topics[0]=sig  topics[1]=from  topics[2]=to  (each 32 bytes = 64 hex chars)
         transfer_topic = w3.keccak(text="Transfer(address,address,uint256)").hex()
-        wallet_padded  = "0x" + _checksum(account.address).lower()[2:].zfill(64)
+        # Strip 0x and zero-pad wallet to 64 hex chars for topic comparison
+        wallet_padded = _checksum(account.address).lower()[2:].zfill(64)
+
+        def _topic_hex(t) -> str:
+            """Normalise topic to plain lowercase hex string without 0x prefix."""
+            s = t.hex() if hasattr(t, "hex") else str(t)
+            return s.lower().lstrip("0x").zfill(64)
 
         amount_out_raw = 0
         for log_entry in receipt.logs:
+            topics = log_entry.get("topics", [])
+            if len(topics) < 3:
+                continue
             if (
                 log_entry.get("address", "").lower() == token_out_cs.lower()
-                and len(log_entry.get("topics", [])) == 3
-                and log_entry["topics"][0].hex() == transfer_topic
-                and log_entry["topics"][2].hex().lower() == wallet_padded.lower()
+                and _topic_hex(topics[0]) == transfer_topic.lstrip("0x").lower()
+                and _topic_hex(topics[2]) == wallet_padded
             ):
-                amount_out_raw = int(log_entry["data"].hex(), 16)
+                raw_data = log_entry.get("data", b"")
+                if hasattr(raw_data, "hex"):
+                    raw_data = raw_data.hex()
+                raw_data = str(raw_data).lstrip("0x") or "0"
+                amount_out_raw = int(raw_data, 16)
                 break
 
         if amount_out_raw == 0:
