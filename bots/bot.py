@@ -1073,82 +1073,155 @@ def manual_trade(action: str, ticker: str, usd_amount: float) -> None:
     Execute a single manual trade from the command line.
 
     Examples:
-        python3 bot.py SELL WETH 100   -> sell $100 worth of WETH -> USDC
-        python3 bot.py BUY  WETH 100   -> buy  $100 worth of WETH with USDC
+        python3 -m bots.bot SELL WETH 100   -> sell $100 worth of WETH -> USDC
+        python3 -m bots.bot BUY  WETH 100   -> buy  $100 worth of WETH with USDC
     """
     import sys
+    import traceback
+
+    mlog = logging.getLogger("bot.manual")
     action = action.upper()
     ticker = ticker.upper()
 
+    # ── Validate inputs ──
     if action not in ("BUY", "SELL"):
-        print(f"Unknown action '{action}'. Must be BUY or SELL.")
+        mlog.error("Unknown action '%s'. Must be BUY or SELL.", action)
         sys.exit(1)
     if usd_amount <= 0:
-        print(f"USD amount must be > 0 (got {usd_amount})")
+        mlog.error("USD amount must be > 0 (got %s)", usd_amount)
         sys.exit(1)
 
-    print("=" * 60)
-    print(f"MANUAL TRADE: {action} {ticker}  USD={usd_amount:.2f}  dry_run={DRY_RUN}")
-    print("=" * 60)
+    mlog.info("=" * 60)
+    mlog.info("MANUAL TRADE: %s %s  USD=%.2f  dry_run=%s", action, ticker, usd_amount, DRY_RUN)
+    mlog.info("=" * 60)
 
-    # Load registries
-    asset_reg = load_asset_registry(ASSET_REGISTRY_PATH)
+    # ── Load asset registry ──
+    try:
+        asset_reg = load_asset_registry(ASSET_REGISTRY_PATH)
+        mlog.info("Loaded %d assets from %s", len(asset_reg), ASSET_REGISTRY_PATH)
+    except Exception as e:
+        mlog.error("Failed to load asset_registry: %s", e)
+        mlog.debug(traceback.format_exc())
+        sys.exit(1)
+
     if ticker not in asset_reg:
-        print(f"'{ ticker}' not found in asset_registry. Available: {sorted(asset_reg)}")
+        mlog.error("'%s' not found in asset_registry.", ticker)
+        mlog.error("Available tickers: %s", sorted(asset_reg))
         sys.exit(1)
     asset = asset_reg[ticker]
 
-    # Find wallet_env from bot_registry
-    with open(BOT_REGISTRY_PATH, "r", encoding="utf-8") as f:
-        bot_entries = json.load(f)
+    # ── Find wallet_env from bot_registry ──
+    try:
+        with open(BOT_REGISTRY_PATH, "r", encoding="utf-8") as f:
+            bot_entries = json.load(f)
+    except Exception as e:
+        mlog.error("Failed to load bot_registry at %s: %s", BOT_REGISTRY_PATH, e)
+        sys.exit(1)
+
     wallet_env = None
     for entry in bot_entries:
         if entry.get("asset", "").upper() == ticker:
             wallet_env = entry["wallet_env"]
             break
     if wallet_env is None:
-        print(f"No bot_registry entry for '{ticker}'. Cannot find wallet_env.")
+        mlog.error("No bot_registry entry found for '%s'.", ticker)
+        mlog.error("Cannot determine wallet_env — add an entry to bot_registry.json")
         sys.exit(1)
 
-    print(f"  Asset     : {asset.ticker} ({asset.blockchain})")
-    print(f"  Wallet env: {wallet_env}")
-    print(f"  Contract  : {asset.token_contract or 'native'}")
-    print(f"  Stable    : {asset.stablecoin_contract}")
-    print(f"  Decimals  : {asset.decimals}")
+    mlog.info("Asset     : %s (%s)", asset.ticker, asset.blockchain)
+    mlog.info("Wallet env: %s", wallet_env)
+    mlog.info("Contract  : %s", asset.token_contract or "native")
+    mlog.info("Stable    : %s", asset.stablecoin_contract)
+    mlog.info("Decimals  : %d", asset.decimals)
 
-    # Fetch current price
-    print(f"\nFetching price for {asset.yahoo_ticker}...")
-    df = fetch_df(asset.yahoo_ticker, "4h")
-    price = float(df.iloc[-1]["Close"])
-    print(f"  Price     : ${price:.6f}")
+    # ── Fetch current price ──
+    mlog.info("Fetching price for %s ...", asset.yahoo_ticker)
+    try:
+        df = fetch_df(asset.yahoo_ticker, "4h")
+        price = float(df.iloc[-1]["Close"])
+        mlog.info("Price     : $%.6f  (last 4H close)", price)
+    except Exception as e:
+        mlog.error("Failed to fetch price for %s: %s", asset.yahoo_ticker, e)
+        mlog.debug(traceback.format_exc())
+        sys.exit(1)
 
-    # Build plan
+    # ── Fetch live balances ──
+    mlog.info("Fetching wallet balances...")
+    try:
+        wallet_tmp = load_wallet(wallet_env, asset.blockchain)
+        port = get_portfolio(wallet_tmp, asset, price)
+        mlog.info(
+            "Balance   : total=$%.2f | %s=%.6f ($%.2f, %.1f%%) | stable=%.2f",
+            port["total"], asset.ticker,
+            port["token_bal"], port["token_val"], port["token_pct"] * 100,
+            port["stable_bal"],
+        )
+    except Exception as e:
+        mlog.warning("Could not fetch balances (non-fatal): %s", e)
+        mlog.debug(traceback.format_exc())
+        port = None
+
+    # ── Build plan ──
     if action == "SELL":
         token_qty = usd_amount / price
         plan = {"action": "SELL_TOKEN", "token_amount": token_qty, "usd_diff": -usd_amount}
+        mlog.info("Plan      : SELL %.6f %s (~$%.2f)", token_qty, ticker, usd_amount)
+        # Sanity check
+        if port and token_qty > port["token_bal"]:
+            mlog.warning(
+                "Requested sell %.6f %s but wallet only has %.6f — will sell all available",
+                token_qty, ticker, port["token_bal"],
+            )
+            plan["token_amount"] = port["tradable_token"]
     else:
         plan = {"action": "BUY_TOKEN", "stable_amount": usd_amount, "usd_diff": usd_amount}
+        mlog.info("Plan      : BUY $%.2f of %s", usd_amount, ticker)
+        # Sanity check
+        if port and usd_amount > port["stable_bal"]:
+            mlog.warning(
+                "Requested spend $%.2f USDC but wallet only has $%.2f — will spend available",
+                usd_amount, port["stable_bal"],
+            )
+            plan["stable_amount"] = port["stable_bal"]
 
-    print(f"\n  Plan: {plan}")
+    mlog.info("Full plan : %s", plan)
 
     if DRY_RUN:
-        print("\nDRY_RUN=true -- skipping actual execution.")
+        mlog.warning("DRY_RUN=true — plan built but NOT executed. Set DRY_RUN=false to trade.")
         return
 
-    # Load wallet and execute
-    wallet = load_wallet(wallet_env, asset.blockchain)
-    if asset.is_solana:
-        print(f"  Pubkey    : {str(wallet.pubkey())}")
-    else:
-        print(f"  EVM addr  : {asset.wallet_address}")
+    # ── Load wallet ──
+    try:
+        wallet = load_wallet(wallet_env, asset.blockchain)
+        if asset.is_solana:
+            mlog.info("Wallet    : %s (Solana)", str(wallet.pubkey()))
+        else:
+            mlog.info("Wallet    : %s (%s)", asset.wallet_address, asset.blockchain)
+    except Exception as e:
+        mlog.error("Failed to load wallet from env var '%s': %s", wallet_env, e)
+        mlog.error("Make sure the encrypted key is set in .env and Fernet key is at %s",
+                   os.getenv("BOT_FERNET_KEY_PATH", "/etc/myTrading/bot.key"))
+        mlog.debug(traceback.format_exc())
+        sys.exit(1)
 
-    print("\nExecuting...")
-    result = execute_plan(wallet=wallet, plan=plan, asset=asset)
+    # ── Execute ──
+    mlog.info("Executing trade...")
+    try:
+        result = execute_plan(wallet=wallet, plan=plan, asset=asset)
+    except Exception as e:
+        mlog.error("Trade execution FAILED: %s", e)
+        mlog.error("Full traceback:")
+        mlog.error(traceback.format_exc())
+        sys.exit(1)
 
     if result:
-        print(f"\nSUCCESS: {result}")
+        mlog.info("=" * 60)
+        mlog.info("SUCCESS: action=%s  amount=%s %s  tx=%s",
+                  result.get("action"), result.get("amount"),
+                  result.get("amount_ccy"), result.get("tx_sig"))
+        mlog.info("=" * 60)
     else:
-        print("\nNo result returned (plan may have been NONE).")
+        mlog.warning("execute_plan returned None (plan action was NONE — within tolerance?)")
 
 
 if __name__ == "__main__":
