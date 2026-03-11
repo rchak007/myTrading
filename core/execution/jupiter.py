@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import base64
-import os
 import requests
 import logging
 
@@ -28,14 +27,6 @@ USDC_DECIMALS = 6
 
 ULTRA_ORDER_URL   = "https://api.jup.ag/ultra/v1/order"
 ULTRA_EXECUTE_URL = "https://api.jup.ag/ultra/v1/execute"
-
-
-def _auth_headers() -> dict:
-    """Return x-api-key header if JUPITER_API_KEY is set in env."""
-    key = os.getenv("JUPITER_API_KEY", "").strip()
-    if key:
-        return {"x-api-key": key}
-    return {}
 
 
 # ─────────────────────────────────────────────
@@ -99,7 +90,7 @@ def ultra_get_order(
         "amount":     str(amount_smallest),
         "taker":      taker_pubkey,
     }
-    r = requests.get(ULTRA_ORDER_URL, params=params, headers=_auth_headers(), timeout=20)
+    r = requests.get(ULTRA_ORDER_URL, params=params, timeout=20)
     r.raise_for_status()
     data = r.json()
 
@@ -129,9 +120,54 @@ def ultra_sign_and_execute(
     Raises RuntimeError on any failure — caller flips regime only on success.
     """
     # 1. Decode + sign
-    raw       = base64.b64decode(order_response["transaction"])
-    vt        = VersionedTransaction.from_bytes(raw)
-    vt_signed = VersionedTransaction(vt.message, [keypair])
+    # Ultra may return RFQ trades (swapType=rfq / router=jupiterz) where the
+    # market maker has already signed slot-0.  We must sign our slot only and
+    # preserve the MM signature — use keypair.sign_message on the serialised
+    # message and patch it in rather than reconstructing the whole tx.
+    raw = base64.b64decode(order_response["transaction"])
+    vt  = VersionedTransaction.from_bytes(raw)
+
+    from solders.message import to_bytes_versioned
+    msg_bytes = to_bytes_versioned(vt.message)
+
+    from solders.signature import Signature
+    our_sig = keypair.sign_message(msg_bytes)
+
+    # Find which signer slot belongs to our keypair
+    account_keys = vt.message.account_keys
+    our_pubkey   = keypair.pubkey()
+    num_signers  = vt.message.header.num_required_signatures
+
+    sigs = list(vt.signatures)          # existing sigs (may include MM sig)
+    # Pad list to num_signers if shorter
+    while len(sigs) < num_signers:
+        sigs.append(Signature.default())
+
+    placed = False
+    for i in range(num_signers):
+        if account_keys[i] == our_pubkey:
+            sigs[i] = our_sig
+            placed = True
+            break
+
+    if not placed:
+        # Fallback: put our sig in first empty slot
+        for i in range(num_signers):
+            if sigs[i] == Signature.default():
+                sigs[i] = our_sig
+                placed = True
+                break
+    if not placed:
+        raise RuntimeError("Could not find our pubkey in transaction signer slots")
+
+    log.info(
+        "Signing: num_required_signers=%d  our_slot=%s  router=%s",
+        num_signers,
+        next((i for i, k in enumerate(account_keys[:num_signers]) if k == our_pubkey), "?"),
+        order_response.get("swapType") or order_response.get("router", "?"),
+    )
+
+    vt_signed  = VersionedTransaction.populate(vt.message, sigs)
     signed_b64 = base64.b64encode(bytes(vt_signed)).decode("utf-8")
 
     # 2. Submit to Jupiter
@@ -139,7 +175,7 @@ def ultra_sign_and_execute(
         "signedTransaction": signed_b64,
         "requestId":         order_response["requestId"],
     }
-    r = requests.post(ULTRA_EXECUTE_URL, json=payload, headers=_auth_headers(), timeout=60)
+    r = requests.post(ULTRA_EXECUTE_URL, json=payload, timeout=60)
     r.raise_for_status()
     result = r.json()
 
