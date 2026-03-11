@@ -423,7 +423,10 @@ def uniswap_swap(
         )
         gas_limit = int(gas_estimate * 1.2)
     except Exception as e:
-        log.warning("Gas estimation failed (%s) — using fallback 300k", e)
+        # Gas estimation often fails on Base/Optimism with "Invalid params" even
+        # for valid pools — do NOT skip, just use a safe fallback and attempt anyway.
+        log.warning("[%s] Gas estimation failed for fee=%d (%s) — using fallback 300k, attempting anyway",
+                    blockchain, fee_tier, e)
         gas_limit = 300_000
 
     tx = router.functions.exactInputSingle(params).build_transaction({
