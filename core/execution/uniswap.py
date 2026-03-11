@@ -10,6 +10,12 @@ KEY FIX (2026-03-07):
   - uniswap_swap() now verifies amountOut > 0 from receipt logs, raises if swap gave nothing
   - token_out_decimals added as explicit parameter
   - get_token_decimals_onchain() helper added for unknown tokens
+
+KEY FIX (2026-03-11):
+  - SwapRouter02 address was wrong for Base — was using Ethereum address for all chains
+  - QuoterV2 address was wrong for Base (typo at end of address)
+  - UNISWAP_V3_ROUTER is now a per-chain dict (each chain has its own router address)
+  - Verified addresses from https://docs.uniswap.org/contracts/v3/reference/deployments/base-deployments
 """
 
 from __future__ import annotations
@@ -29,8 +35,13 @@ log = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════
 # Chain configuration
 # ═══════════════════════════════════════════════════════════════════
-# Uniswap V3 SwapRouter02 — same address on Ethereum, Base, Optimism
-UNISWAP_V3_ROUTER = "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"  # SwapRouter02
+# Uniswap V3 SwapRouter02 — addresses differ per chain!
+# Source: https://docs.uniswap.org/contracts/v3/reference/deployments/
+UNISWAP_V3_ROUTER = {
+    "ethereum": "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",  # SwapRouter02 Ethereum
+    "base":     "0x2626664c2603336E57B271c5C0b26F421741e481",  # SwapRouter02 Base
+    "optimism": "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45",  # SwapRouter02 Optimism
+}
 
 # WETH addresses per chain
 WETH_ADDRESS = {
@@ -64,7 +75,7 @@ CHAIN_CONFIG = {
     chain: {
         "rpc_url":  CHAIN_RPC[chain],
         "chain_id": CHAIN_IDS[chain],
-        "router":   UNISWAP_V3_ROUTER,
+        "router":   UNISWAP_V3_ROUTER[chain],
         "weth":     WETH_ADDRESS[chain],
     }
     for chain in ("ethereum", "base", "optimism")
@@ -185,10 +196,11 @@ UNISWAP_V3_ROUTER_ABI = [
 # ═══════════════════════════════════════════════════════════════════
 # Uniswap V3 QuoterV2 — for pre-swap quoting (no gas consumed)
 # ═══════════════════════════════════════════════════════════════════
-# QuoterV2 contract addresses (same on all EVM chains we support)
+# QuoterV2 contract addresses per chain
+# Source: https://docs.uniswap.org/contracts/v3/reference/deployments/
 QUOTER_V2_ADDRESS = {
     "ethereum": "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
-    "base":     "0x3d4e44Eb1374240CE5F1B136041107cBDD29d7A7",
+    "base":     "0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a",  # FIX: was B7A7, correct is B76a
     "optimism": "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
 }
 
@@ -356,10 +368,6 @@ def uniswap_swap(
     amount_in_human: float,
     token_in_decimals: int,
     token_out_decimals: int,
-    # FIX: pass expected price so we can compute a real amountOutMinimum
-    # For SELL token→USDC: expected_price_usd = token price in USD
-    # For BUY  USDC→token: expected_price_usd = 1 / token_price (i.e. USD per token inverted)
-    # Set to 0.0 to disable the floor (NOT recommended for production)
     expected_out_per_in: float = 0.0,
     slippage_bps: int = 50,
     fee_tier: int = DEFAULT_FEE,
@@ -376,13 +384,13 @@ def uniswap_swap(
     token_out            : contract address of token to buy
     amount_in_human      : amount to sell in human units (e.g. 1866.0 VIRTUAL)
     token_in_decimals    : decimals of token_in
-    token_out_decimals   : decimals of token_out  ← NEW required param
+    token_out_decimals   : decimals of token_out
     expected_out_per_in  : expected output tokens per input token, used to
                            compute amountOutMinimum with slippage floor.
-                           e.g. selling VIRTUAL at $0.68 → USDC:
-                             expected_out_per_in = 0.68  (each VIRTUAL → 0.68 USDC)
+                           e.g. selling VIRTUAL at $0.68 -> USDC:
+                             expected_out_per_in = 0.68  (each VIRTUAL -> 0.68 USDC)
                            e.g. buying VIRTUAL at $0.68 with USDC:
-                             expected_out_per_in = 1/0.68 ≈ 1.47  (each USDC → 1.47 VIRTUAL)
+                             expected_out_per_in = 1/0.68 ~ 1.47  (each USDC -> 1.47 VIRTUAL)
                            Pass 0.0 to skip the floor (unsafe).
     slippage_bps         : slippage tolerance in basis points (50 = 0.5%, 200 = 2%)
     fee_tier             : Uniswap V3 fee tier (500 / 3000 / 10000)
@@ -408,9 +416,7 @@ def uniswap_swap(
     # Convert input to raw integer
     amount_raw = int(amount_in_human * (10 ** token_in_decimals))
 
-    # ── Compute amountOutMinimum ──
-    # This is the critical fix: never send 0 here for real swaps.
-    # If expected_out_per_in is provided, compute a floor with slippage.
+    # -- Compute amountOutMinimum --
     if expected_out_per_in > 0:
         expected_out_human    = amount_in_human * expected_out_per_in
         slippage_factor       = 1.0 - (slippage_bps / 10_000.0)
@@ -422,25 +428,23 @@ def uniswap_swap(
             min_out_human, amount_out_minimum,
         )
     else:
-        # ⚠️  No price given — floor is 0. Swap can silently give nothing.
-        # Only acceptable in dry-run / testing scenarios.
         amount_out_minimum = 0
         log.warning(
-            "[%s] ⚠️  amountOutMinimum=0 (no expected_out_per_in provided). "
+            "[%s] amountOutMinimum=0 (no expected_out_per_in provided). "
             "Swap may silently return 0 tokens!", blockchain
         )
 
     log.info(
-        "[%s] Swap %.6f (%d raw) %s → %s | fee=%d slippage=%dbps amountOutMin=%d",
+        "[%s] Swap %.6f (%d raw) %s -> %s | fee=%d slippage=%dbps amountOutMin=%d",
         blockchain, amount_in_human, amount_raw,
         token_in_cs[:10], token_out_cs[:10], fee_tier, slippage_bps, amount_out_minimum,
     )
 
-    # ── Step 1: Approve router to spend token_in ──
+    # -- Step 1: Approve router to spend token_in --
     ensure_approval(w3, account, token_in_cs, router_cs, amount_raw, chain_id)
 
-    # ── Step 2: Build swap transaction ──
-    router  = w3.eth.contract(address=router_cs, abi=UNISWAP_V3_ROUTER_ABI)
+    # -- Step 2: Build swap transaction --
+    router   = w3.eth.contract(address=router_cs, abi=UNISWAP_V3_ROUTER_ABI)
     deadline = int(time.time()) + deadline_seconds
     nonce    = w3.eth.get_transaction_count(_checksum(account.address))
     gas_price = w3.eth.gas_price
@@ -461,8 +465,6 @@ def uniswap_swap(
         )
         gas_limit = int(gas_estimate * 1.2)
     except Exception as e:
-        # Gas estimation often fails on Base/Optimism with "Invalid params" even
-        # for valid pools — do NOT skip, just use a safe fallback and attempt anyway.
         log.warning("[%s] Gas estimation failed for fee=%d (%s) — using fallback 300k, attempting anyway",
                     blockchain, fee_tier, e)
         gas_limit = 300_000
@@ -475,13 +477,13 @@ def uniswap_swap(
         "gas":      gas_limit,
     })
 
-    # ── Step 3: Sign and send ──
+    # -- Step 3: Sign and send --
     signed   = account.sign_transaction(tx)
     tx_hash  = w3.eth.send_raw_transaction(signed.raw_transaction)
 
     log.info("[%s] Swap tx sent: %s", blockchain, tx_hash.hex())
 
-    # ── Step 4: Wait for receipt ──
+    # -- Step 4: Wait for receipt --
     receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=180)
 
     if receipt.status != 1:
@@ -490,9 +492,7 @@ def uniswap_swap(
             f"(fee_tier={fee_tier})"
         )
 
-    # ── Step 5: Verify non-zero output via balance diff ──
-    # Most reliable method: compare token_out balance before vs after the swap block.
-    # Log-parsing is fragile (proxy contracts, wrapped transfers, etc.)
+    # -- Step 5: Verify non-zero output via balance diff --
     try:
         erc20_out = w3.eth.contract(address=token_out_cs, abi=ERC20_ABI)
         bal_after  = erc20_out.functions.balanceOf(_checksum(account.address)).call(
@@ -517,7 +517,7 @@ def uniswap_swap(
 
         amount_out_human = amount_out_raw / (10 ** token_out_decimals)
         log.info(
-            "[%s] ✅ Swap confirmed: %s | block=%d gas_used=%d | received=%.6f token_out",
+            "[%s] Swap confirmed: %s | block=%d gas_used=%d | received=%.6f token_out",
             blockchain, tx_hash.hex(), receipt.blockNumber,
             receipt.gasUsed, amount_out_human,
         )
@@ -525,9 +525,8 @@ def uniswap_swap(
     except RuntimeError:
         raise
     except Exception as e:
-        # Balance check failed — don't block, trust receipt.status=1
         log.warning("[%s] Could not verify output balance: %s — trusting receipt.status=1", blockchain, e)
-        log.info("[%s] ✅ Swap confirmed: %s | block=%d gas_used=%d",
+        log.info("[%s] Swap confirmed: %s | block=%d gas_used=%d",
                  blockchain, tx_hash.hex(), receipt.blockNumber, receipt.gasUsed)
 
     return tx_hash.hex()
@@ -549,7 +548,6 @@ def quote_best_fee_tier(
 
     Returns: (best_fee_tier: int, best_amount_out_raw: int)
     If best_amount_out_raw == 0, no liquid pool was found.
-    Only applies to EVM chains (ethereum, base, optimism).
     """
     if fee_tiers is None:
         fee_tiers = UNISWAP_FEE_TIERS
@@ -573,8 +571,8 @@ def quote_best_fee_tier(
                 "fee":               fee,
                 "sqrtPriceLimitX96": 0,
             }).call()
-            amount_out = result[0]  # amountOut is first return value
-            log.info("[%s] QuoterV2 fee=%d → amountOut=%d", blockchain, fee, amount_out)
+            amount_out = result[0]
+            log.info("[%s] QuoterV2 fee=%d -> amountOut=%d", blockchain, fee, amount_out)
             if amount_out > best_out:
                 best_out = amount_out
                 best_fee = fee
@@ -583,7 +581,7 @@ def quote_best_fee_tier(
 
     if best_out == 0:
         log.warning(
-            "[%s] QuoterV2: no liquid pool found for %s→%s across %s",
+            "[%s] QuoterV2: no liquid pool found for %s->%s across %s",
             blockchain, token_in[:10], token_out[:10], fee_tiers,
         )
     else:
@@ -614,26 +612,21 @@ def uniswap_swap_auto_fee(
     Flow:
       1. QuoterV2.quoteExactInputSingle (static, no gas) for each fee tier
       2. Pick fee tier with highest amountOut
-      3. Derive amountOutMinimum = quote * (1 - slippage) — no more amountOutMinimum=0
+      3. Derive amountOutMinimum = quote * (1 - slippage)
       4. Execute single uniswap_swap() call on the winning fee tier
       5. If QuoterV2 returns 0 everywhere, fall back to sequential fee-tier attempt
-
-    For SELL (token → USDC): expected_out_per_in = token_price_usd  (used only in fallback)
-    For BUY  (USDC → token): expected_out_per_in = 1.0 / token_price_usd
     """
     amount_in_raw = int(amount_in_human * (10 ** token_in_decimals))
 
-    # ── Step 1: Quote to find best fee tier ──
     best_fee, best_out_raw = quote_best_fee_tier(
         blockchain, token_in, token_out, amount_in_raw
     )
 
     if best_out_raw > 0:
-        # Derive rate from quote so amountOutMinimum is real (not 0)
         quoted_out_human = best_out_raw / (10 ** token_out_decimals)
         quoted_rate      = quoted_out_human / amount_in_human
         log.info(
-            "[%s] Quoted rate=%.6f fee=%d → executing swap",
+            "[%s] Quoted rate=%.6f fee=%d -> executing swap",
             blockchain, quoted_rate, best_fee,
         )
         return uniswap_swap(
@@ -650,7 +643,7 @@ def uniswap_swap_auto_fee(
             deadline_seconds=deadline_seconds,
         )
 
-    # ── Fallback: QuoterV2 found nothing — try all tiers sequentially ──
+    # Fallback: QuoterV2 found nothing — try all tiers sequentially
     log.warning(
         "[%s] QuoterV2 returned 0 for all tiers — falling back to sequential attempt",
         blockchain,
@@ -677,7 +670,7 @@ def uniswap_swap_auto_fee(
 
     raise RuntimeError(
         f"[{blockchain}] All fee tiers failed for "
-        f"{token_in[:10]} → {token_out[:10]}: {last_error}"
+        f"{token_in[:10]} -> {token_out[:10]}: {last_error}"
     )
 
 
