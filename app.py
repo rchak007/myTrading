@@ -105,7 +105,8 @@ PLACEHOLDER_FUTURE = True
 # ]
 STOCK_TICKERS = [
     "AAPL","AAOI","ABTC", "ALAB","AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML", "AVGO",
-    "BABA", "BE", "BMNR", "BWXT", "CEG",  "CFG","CLSK", "COIN","COHR","COPX", "CORZ","CRDO","CRWV", "CRWD", "CTVA",
+    "BABA", "BE", "BMNR", "BWXT", 
+    "CEG",  "CFG","CLSK", "COIN","COHR","COPX", "CORZ", "CRCL", "CRDO","CRWV", "CRWD", "CTVA",
     "ETHA","GEV", "GLD", "GLXY", "GOOG",
     "HIMS", "HODL","HOOD","IBIT","IDR","INOD","IONQ","IREN","LEU","LITE","LRCX","LTBR",
     "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU",

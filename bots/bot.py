@@ -196,16 +196,26 @@ class BotState:
 # Registry loaders
 # ═══════════════════════════════════════════════════════════════════
 TOKEN_DECIMALS = {
-    # Solana
-    "SOL":  9,
-    "USDC": 6,
-    "PYTH": 6,
-    "JUP":  6,
-    "BONK": 5,
-    "RAY":  6,
-    "JTO":  9,
-    "WIF":  6,
-    "HNT":  8,
+    # Solana — verified on-chain
+    "SOL":       9,
+    "USDC":      6,
+    "PYTH":      6,
+    "JUP":       6,
+    "JUP29210":  6,
+    "BONK":      5,
+    "RAY":       6,
+    "JTO":       9,
+    "JITO":      9,
+    "WIF":       6,
+    "HNT":       8,
+    "MOBILE":    6,
+    "GRIFFAIN":  6,
+    "ELIZAOS":   6,
+    "ZEREBRO":   6,
+    "ANON35092": 6,
+    "LFNTY":     6,
+    "NOS":       6,
+    "KMNO":      6,
     # EVM (Ethereum / Base / Optimism)
     "ETH":     18,
     "WETH":    18,
@@ -601,6 +611,7 @@ def _execute_plan_evm(*, private_key: str, plan: dict, asset: AssetInfo) -> dict
             token_out=token_contract,
             amount_in_human=stable_amt,
             token_in_decimals=usdc_decimals,
+            token_out_decimals=asset.decimals,
             slippage_bps=SLIPPAGE_BPS,
         )
         log.info("✅ EVM BUY %s [%s]: spent USDC=%.2f tx=%s", ticker, blockchain, stable_amt, tx_hash)
@@ -615,6 +626,7 @@ def _execute_plan_evm(*, private_key: str, plan: dict, asset: AssetInfo) -> dict
             token_out=stable_contract,
             amount_in_human=token_amt,
             token_in_decimals=asset.decimals,
+            token_out_decimals=usdc_decimals,
             slippage_bps=SLIPPAGE_BPS,
         )
         log.info("✅ EVM SELL %s [%s]: sold %.6f tx=%s", ticker, blockchain, token_amt, tx_hash)
@@ -1052,5 +1064,122 @@ def main():
         time.sleep(SLEEP_SECONDS)
 
 
+
+# ═══════════════════════════════════════════════════════════════════
+# Manual trade CLI
+# ═══════════════════════════════════════════════════════════════════
+def manual_trade(action: str, ticker: str, usd_amount: float) -> None:
+    """
+    Execute a single manual trade from the command line.
+
+    Examples:
+        python3 bot.py SELL WETH 100   -> sell $100 worth of WETH -> USDC
+        python3 bot.py BUY  WETH 100   -> buy  $100 worth of WETH with USDC
+    """
+    import sys
+    action = action.upper()
+    ticker = ticker.upper()
+
+    if action not in ("BUY", "SELL"):
+        print(f"Unknown action '{action}'. Must be BUY or SELL.")
+        sys.exit(1)
+    if usd_amount <= 0:
+        print(f"USD amount must be > 0 (got {usd_amount})")
+        sys.exit(1)
+
+    print("=" * 60)
+    print(f"MANUAL TRADE: {action} {ticker}  USD={usd_amount:.2f}  dry_run={DRY_RUN}")
+    print("=" * 60)
+
+    # Load registries
+    asset_reg = load_asset_registry(ASSET_REGISTRY_PATH)
+    if ticker not in asset_reg:
+        print(f"'{ ticker}' not found in asset_registry. Available: {sorted(asset_reg)}")
+        sys.exit(1)
+    asset = asset_reg[ticker]
+
+    # Find wallet_env from bot_registry
+    with open(BOT_REGISTRY_PATH, "r", encoding="utf-8") as f:
+        bot_entries = json.load(f)
+    wallet_env = None
+    for entry in bot_entries:
+        if entry.get("asset", "").upper() == ticker:
+            wallet_env = entry["wallet_env"]
+            break
+    if wallet_env is None:
+        print(f"No bot_registry entry for '{ticker}'. Cannot find wallet_env.")
+        sys.exit(1)
+
+    print(f"  Asset     : {asset.ticker} ({asset.blockchain})")
+    print(f"  Wallet env: {wallet_env}")
+    print(f"  Contract  : {asset.token_contract or 'native'}")
+    print(f"  Stable    : {asset.stablecoin_contract}")
+    print(f"  Decimals  : {asset.decimals}")
+
+    # Fetch current price
+    print(f"\nFetching price for {asset.yahoo_ticker}...")
+    df = fetch_df(asset.yahoo_ticker, "4h")
+    price = float(df.iloc[-1]["Close"])
+    print(f"  Price     : ${price:.6f}")
+
+    # Build plan
+    if action == "SELL":
+        token_qty = usd_amount / price
+        plan = {"action": "SELL_TOKEN", "token_amount": token_qty, "usd_diff": -usd_amount}
+    else:
+        plan = {"action": "BUY_TOKEN", "stable_amount": usd_amount, "usd_diff": usd_amount}
+
+    print(f"\n  Plan: {plan}")
+
+    if DRY_RUN:
+        print("\nDRY_RUN=true -- skipping actual execution.")
+        return
+
+    # Load wallet and execute
+    wallet = load_wallet(wallet_env, asset.blockchain)
+    if asset.is_solana:
+        print(f"  Pubkey    : {str(wallet.pubkey())}")
+    else:
+        print(f"  EVM addr  : {asset.wallet_address}")
+
+    print("\nExecuting...")
+    result = execute_plan(wallet=wallet, plan=plan, asset=asset)
+
+    if result:
+        print(f"\nSUCCESS: {result}")
+    else:
+        print("\nNo result returned (plan may have been NONE).")
+
+
 if __name__ == "__main__":
-    main()
+    import sys
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="bot.py",
+        description="Multi-chain trading bot (Solana + EVM)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python3 bot.py                       run normal loop (all bots)
+  python3 bot.py SELL WETH 100         manually sell $100 of WETH -> USDC
+  python3 bot.py BUY  WETH 100         manually buy  $100 of WETH with USDC
+  python3 bot.py SELL JUP29210 50      manually sell $50 of JUP -> USDC
+  DRY_RUN=true python3 bot.py SELL WETH 100   dry run (no real tx)
+        """,
+    )
+    parser.add_argument("action",     nargs="?", choices=["BUY","SELL","buy","sell"], help="BUY or SELL")
+    parser.add_argument("ticker",     nargs="?", help="Token ticker e.g. WETH, GRIFFAIN, JUP29210")
+    parser.add_argument("usd_amount", nargs="?", type=float, help="USD amount to trade")
+
+    args = parser.parse_args()
+
+    if args.action and args.ticker and args.usd_amount:
+        manual_trade(args.action, args.ticker, args.usd_amount)
+    elif args.action or args.ticker or args.usd_amount:
+        print("Manual trade requires all three args: ACTION TICKER USD_AMOUNT")
+        print("Example: python3 bot.py SELL WETH 100")
+        parser.print_help()
+        sys.exit(1)
+    else:
+        main()
