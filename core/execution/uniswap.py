@@ -449,43 +449,29 @@ def uniswap_swap(
             f"(fee_tier={fee_tier})"
         )
 
-    # ── Step 5: Verify non-zero output via token_out balance change ──
-    # Parse Transfer events from receipt logs to confirm token_out arrived
-    # This catches the "success but 0 output" edge case.
+    # ── Step 5: Verify non-zero output via balance diff ──
+    # Most reliable method: compare token_out balance before vs after the swap block.
+    # Log-parsing is fragile (proxy contracts, wrapped transfers, etc.)
     try:
-        # Transfer(address indexed from, address indexed to, uint256 value)
-        # topics[0]=sig  topics[1]=from  topics[2]=to  (each 32 bytes = 64 hex chars)
-        transfer_topic = w3.keccak(text="Transfer(address,address,uint256)").hex()
-        # Strip 0x and zero-pad wallet to 64 hex chars for topic comparison
-        wallet_padded = _checksum(account.address).lower()[2:].zfill(64)
+        erc20_out = w3.eth.contract(address=token_out_cs, abi=ERC20_ABI)
+        bal_after  = erc20_out.functions.balanceOf(_checksum(account.address)).call(
+            block_identifier=receipt.blockNumber
+        )
+        bal_before = erc20_out.functions.balanceOf(_checksum(account.address)).call(
+            block_identifier=receipt.blockNumber - 1
+        )
+        amount_out_raw = bal_after - bal_before
 
-        def _topic_hex(t) -> str:
-            """Normalise topic to plain lowercase hex string without 0x prefix."""
-            s = t.hex() if hasattr(t, "hex") else str(t)
-            return s.lower().lstrip("0x").zfill(64)
+        log.info(
+            "[%s] Balance check: before=%d after=%d diff=%d (block %d)",
+            blockchain, bal_before, bal_after, amount_out_raw, receipt.blockNumber,
+        )
 
-        amount_out_raw = 0
-        for log_entry in receipt.logs:
-            topics = log_entry.get("topics", [])
-            if len(topics) < 3:
-                continue
-            if (
-                log_entry.get("address", "").lower() == token_out_cs.lower()
-                and _topic_hex(topics[0]) == transfer_topic.lstrip("0x").lower()
-                and _topic_hex(topics[2]) == wallet_padded
-            ):
-                raw_data = log_entry.get("data", b"")
-                if hasattr(raw_data, "hex"):
-                    raw_data = raw_data.hex()
-                raw_data = str(raw_data).lstrip("0x") or "0"
-                amount_out_raw = int(raw_data, 16)
-                break
-
-        if amount_out_raw == 0:
+        if amount_out_raw <= 0:
             raise RuntimeError(
                 f"[{blockchain}] Swap tx {tx_hash.hex()} succeeded on-chain "
-                f"but token_out ({token_out_cs[:10]}) transfer to wallet is ZERO. "
-                f"Tokens were NOT received. Check pool liquidity."
+                f"but token_out ({token_out_cs[:10]}) balance did not increase "
+                f"(before={bal_before} after={bal_after}). Check pool liquidity."
             )
 
         amount_out_human = amount_out_raw / (10 ** token_out_decimals)
@@ -498,8 +484,8 @@ def uniswap_swap(
     except RuntimeError:
         raise
     except Exception as e:
-        # Log parse failed — don't block, trust receipt.status
-        log.warning("[%s] Could not parse output logs: %s — trusting receipt.status=1", blockchain, e)
+        # Balance check failed — don't block, trust receipt.status=1
+        log.warning("[%s] Could not verify output balance: %s — trusting receipt.status=1", blockchain, e)
         log.info("[%s] ✅ Swap confirmed: %s | block=%d gas_used=%d",
                  blockchain, tx_hash.hex(), receipt.blockNumber, receipt.gasUsed)
 

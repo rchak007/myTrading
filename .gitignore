@@ -58,8 +58,7 @@ transactions_cache/
 # Token / auth artifacts
 # =========================
 **/tokens.json
-!token_decimals.json        # ← add this line
-!**/token_decimals.json     # ← and this (covers subdirs too)
+
 **/tokens.json.bak
 **/*token*.json
 **/*auth*.json
