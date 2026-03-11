@@ -195,62 +195,123 @@ class BotState:
 # ═══════════════════════════════════════════════════════════════════
 # Registry loaders
 # ═══════════════════════════════════════════════════════════════════
-TOKEN_DECIMALS = {
-    # Solana — verified on-chain
-    "SOL":       9,
-    "USDC":      6,
-    "PYTH":      6,
-    "JUP":       6,
-    "JUP29210":  6,
-    "BONK":      5,
-    "RAY":       6,
-    "JTO":       9,
-    "JITO":      9,
-    "WIF":       6,
-    "HNT":       8,
-    "MOBILE":    6,
-    "GRIFFAIN":  6,
-    "ELIZAOS":   6,
-    "ZEREBRO":   6,
-    "ANON35092": 6,
-    "LFNTY":     6,
-    "NOS":       6,
-    "KMNO":      6,
-    # EVM (Ethereum / Base / Optimism)
-    "ETH":     18,
-    "WETH":    18,
-    "LINK":    18,
-    "UNI":     18,
-    "AAVE":    18,
-    "CRV":     18,
-    "ENS":     18,
-    "PNK":     18,
-    "VIRTUAL": 18,
-}
+# Path to token decimals cache file (in repo root alongside asset_registry.json)
+TOKEN_DECIMALS_PATH = os.getenv("TOKEN_DECIMALS_PATH", "./token_decimals.json")
+
+
+def _load_token_decimals() -> dict[str, int]:
+    """Load token decimals from JSON file. Returns empty dict if file missing."""
+    try:
+        with open(TOKEN_DECIMALS_PATH, "r", encoding="utf-8") as f:
+            return {k.upper(): int(v) for k, v in json.load(f).items()}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        log.warning("Could not load token_decimals.json: %s", e)
+        return {}
+
+
+def _save_token_decimals(decimals: dict[str, int]) -> None:
+    """Save token decimals dict to JSON file."""
+    try:
+        with open(TOKEN_DECIMALS_PATH, "w", encoding="utf-8") as f:
+            json.dump({k: v for k, v in sorted(decimals.items())}, f, indent=2)
+    except Exception as e:
+        log.warning("Could not save token_decimals.json: %s", e)
+
+
+def _lookup_decimals_on_chain(
+    key: str,
+    token_contract: str,
+    wallet_address: str,
+) -> int | None:
+    """
+    Look up token decimals from Solana RPC.
+    Returns None if lookup fails.
+    """
+    try:
+        from core.execution.jupiter import rpc_call
+        rpc_url = os.getenv("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com")
+        res = rpc_call(
+            rpc_url,
+            "getTokenAccountsByOwner",
+            [wallet_address, {"mint": token_contract}, {"encoding": "jsonParsed", "commitment": "confirmed"}],
+        )
+        for acc in res.get("value", []):
+            info = acc["account"]["data"]["parsed"]["info"]
+            dec = int(info["tokenAmount"]["decimals"])
+            log.info("🔍 On-chain decimals for %s: %d", key, dec)
+            return dec
+    except Exception as e:
+        log.warning("Could not look up decimals for %s on-chain: %s", key, e)
+    return None
+
+
+# Load decimals cache at module level
+TOKEN_DECIMALS: dict[str, int] = _load_token_decimals()
 
 
 def load_asset_registry(path: str) -> dict[str, AssetInfo]:
     with open(path, "r", encoding="utf-8") as f:
         raw = json.load(f)
 
+    decimals_updated = False
     registry = {}
+
     for key, val in raw.items():
-        decimals = TOKEN_DECIMALS.get(key.upper(), 18 if val.get("blockchain") in EVM_CHAINS else 9)
-        registry[key.upper()] = AssetInfo(
+        key_upper    = key.upper()
+        blockchain   = val.get("blockchain", "")
+        token_contract  = val.get("token_contract", "")
+        wallet_address  = val.get("wallet_address", "")
+
+        # Decimals priority:
+        # 1) Explicit "decimals" field in asset_registry.json  ← always wins
+        # 2) token_decimals.json cache (loaded into TOKEN_DECIMALS at startup)
+        # 3) On-chain RPC lookup for Solana tokens (auto-saved to JSON for next time)
+        # 4) Chain default: EVM=18, Solana=9
+        if "decimals" in val:
+            decimals = int(val["decimals"])
+
+        elif key_upper in TOKEN_DECIMALS:
+            decimals = TOKEN_DECIMALS[key_upper]
+
+        elif blockchain == "solana" and token_contract and wallet_address:
+            looked_up = _lookup_decimals_on_chain(key_upper, token_contract, wallet_address)
+            if looked_up is not None:
+                decimals = looked_up
+                TOKEN_DECIMALS[key_upper] = decimals
+                decimals_updated = True
+            else:
+                decimals = 9
+                log.warning("⚠️  Could not determine decimals for %s — defaulting to 9. "
+                            "Add manually to token_decimals.json if wrong.", key_upper)
+
+        elif blockchain in EVM_CHAINS:
+            decimals = 18   # EVM tokens are virtually always 18
+
+        else:
+            decimals = 9    # Solana fallback
+
+        registry[key_upper] = AssetInfo(
             ticker=val["ticker"],
-            blockchain=val["blockchain"],
-            wallet_address=val.get("wallet_address", ""),
-            token_contract=val.get("token_contract", ""),
+            blockchain=blockchain,
+            wallet_address=wallet_address,
+            token_contract=token_contract,
             yahoo_ticker=val["yahoo_ticker"],
             stablecoin_contract=val.get(
                 "stablecoin_contract",
-                # Defaults: USDC on each chain
                 "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"   # Solana USDC
-                if val.get("blockchain") == "solana"
+                if blockchain == "solana"
                 else "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"  # Ethereum/Base/Optimism USDC
             ),
             decimals=decimals,
         )
+
+    # Persist any newly discovered decimals back to token_decimals.json
+    if decimals_updated:
+        _save_token_decimals(TOKEN_DECIMALS)
+        log.info("💾 token_decimals.json updated with newly discovered entries")
+
     return registry
 
 
