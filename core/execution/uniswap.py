@@ -183,6 +183,44 @@ UNISWAP_V3_ROUTER_ABI = [
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Uniswap V3 QuoterV2 — for pre-swap quoting (no gas consumed)
+# ═══════════════════════════════════════════════════════════════════
+# QuoterV2 contract addresses (same on all EVM chains we support)
+QUOTER_V2_ADDRESS = {
+    "ethereum": "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
+    "base":     "0x3d4e44Eb1374240CE5F1B136041107cBDD29d7A7",
+    "optimism": "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
+}
+
+QUOTER_V2_ABI = [
+    {
+        "name": "quoteExactInputSingle",
+        "type": "function",
+        "inputs": [
+            {
+                "name": "params",
+                "type": "tuple",
+                "components": [
+                    {"name": "tokenIn",             "type": "address"},
+                    {"name": "tokenOut",            "type": "address"},
+                    {"name": "amountIn",            "type": "uint256"},
+                    {"name": "fee",                 "type": "uint24"},
+                    {"name": "sqrtPriceLimitX96",   "type": "uint160"},
+                ],
+            }
+        ],
+        "outputs": [
+            {"name": "amountOut",               "type": "uint256"},
+            {"name": "sqrtPriceX96After",       "type": "uint160"},
+            {"name": "initializedTicksCrossed", "type": "uint32"},
+            {"name": "gasEstimate",             "type": "uint256"},
+        ],
+        "stateMutability": "nonpayable",
+    },
+]
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Web3 helpers
 # ═══════════════════════════════════════════════════════════════════
 def _get_w3(blockchain: str) -> Web3:
@@ -496,7 +534,66 @@ def uniswap_swap(
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Convenience: try multiple fee tiers automatically
+# QuoterV2: find best fee tier before swapping (EVM only)
+# ═══════════════════════════════════════════════════════════════════
+def quote_best_fee_tier(
+    blockchain: str,
+    token_in: str,
+    token_out: str,
+    amount_in_raw: int,
+    fee_tiers: list | None = None,
+) -> tuple:
+    """
+    Use QuoterV2.quoteExactInputSingle (static call, zero gas) to find
+    the fee tier with the best output for a given swap.
+
+    Returns: (best_fee_tier: int, best_amount_out_raw: int)
+    If best_amount_out_raw == 0, no liquid pool was found.
+    Only applies to EVM chains (ethereum, base, optimism).
+    """
+    if fee_tiers is None:
+        fee_tiers = UNISWAP_FEE_TIERS
+
+    quoter_addr = QUOTER_V2_ADDRESS.get(blockchain)
+    if not quoter_addr:
+        log.warning("[%s] No QuoterV2 address — skipping pre-quote", blockchain)
+        return (fee_tiers[0], 0)
+
+    w3      = _get_w3(blockchain)
+    quoter  = w3.eth.contract(address=_checksum(quoter_addr), abi=QUOTER_V2_ABI)
+    best_fee = fee_tiers[0]
+    best_out = 0
+
+    for fee in fee_tiers:
+        try:
+            result     = quoter.functions.quoteExactInputSingle({
+                "tokenIn":           _checksum(token_in),
+                "tokenOut":          _checksum(token_out),
+                "amountIn":          amount_in_raw,
+                "fee":               fee,
+                "sqrtPriceLimitX96": 0,
+            }).call()
+            amount_out = result[0]  # amountOut is first return value
+            log.info("[%s] QuoterV2 fee=%d → amountOut=%d", blockchain, fee, amount_out)
+            if amount_out > best_out:
+                best_out = amount_out
+                best_fee = fee
+        except Exception as e:
+            log.debug("[%s] QuoterV2 fee=%d quote failed: %s", blockchain, fee, e)
+
+    if best_out == 0:
+        log.warning(
+            "[%s] QuoterV2: no liquid pool found for %s→%s across %s",
+            blockchain, token_in[:10], token_out[:10], fee_tiers,
+        )
+    else:
+        log.info("[%s] QuoterV2 best: fee=%d amountOut=%d", blockchain, best_fee, best_out)
+
+    return (best_fee, best_out)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Convenience: quote then swap best fee tier
 # ═══════════════════════════════════════════════════════════════════
 def uniswap_swap_auto_fee(
     *,
@@ -512,13 +609,52 @@ def uniswap_swap_auto_fee(
     deadline_seconds: int = 300,
 ) -> str:
     """
-    Try Uniswap V3 swap across fee tiers (500 → 3000 → 10000).
-    Returns tx_hash on first success, raises on all failures.
+    Quote all fee tiers via QuoterV2, pick the best, then execute that single swap.
 
-    expected_out_per_in: see uniswap_swap() docstring.
-    For SELL (token → USDC): pass token_price_usd
-    For BUY  (USDC → token): pass 1.0 / token_price_usd
+    Flow:
+      1. QuoterV2.quoteExactInputSingle (static, no gas) for each fee tier
+      2. Pick fee tier with highest amountOut
+      3. Derive amountOutMinimum = quote * (1 - slippage) — no more amountOutMinimum=0
+      4. Execute single uniswap_swap() call on the winning fee tier
+      5. If QuoterV2 returns 0 everywhere, fall back to sequential fee-tier attempt
+
+    For SELL (token → USDC): expected_out_per_in = token_price_usd  (used only in fallback)
+    For BUY  (USDC → token): expected_out_per_in = 1.0 / token_price_usd
     """
+    amount_in_raw = int(amount_in_human * (10 ** token_in_decimals))
+
+    # ── Step 1: Quote to find best fee tier ──
+    best_fee, best_out_raw = quote_best_fee_tier(
+        blockchain, token_in, token_out, amount_in_raw
+    )
+
+    if best_out_raw > 0:
+        # Derive rate from quote so amountOutMinimum is real (not 0)
+        quoted_out_human = best_out_raw / (10 ** token_out_decimals)
+        quoted_rate      = quoted_out_human / amount_in_human
+        log.info(
+            "[%s] Quoted rate=%.6f fee=%d → executing swap",
+            blockchain, quoted_rate, best_fee,
+        )
+        return uniswap_swap(
+            blockchain=blockchain,
+            private_key=private_key,
+            token_in=token_in,
+            token_out=token_out,
+            amount_in_human=amount_in_human,
+            token_in_decimals=token_in_decimals,
+            token_out_decimals=token_out_decimals,
+            expected_out_per_in=quoted_rate,
+            slippage_bps=slippage_bps,
+            fee_tier=best_fee,
+            deadline_seconds=deadline_seconds,
+        )
+
+    # ── Fallback: QuoterV2 found nothing — try all tiers sequentially ──
+    log.warning(
+        "[%s] QuoterV2 returned 0 for all tiers — falling back to sequential attempt",
+        blockchain,
+    )
     last_error = None
     for fee in UNISWAP_FEE_TIERS:
         try:
