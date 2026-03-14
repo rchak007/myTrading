@@ -2,17 +2,15 @@
 # bots/bot.py
 #
 # Multi-chain trading bot: Solana (Jupiter) + Ethereum/Base/Optimism (Uniswap V3)
-#                          + Hyperliquid L1 spot (HYPE/USDC and others)
 # Reads bot_registry.json for wallet/asset pairs and asset_registry.json
 # for token details (contract addresses, blockchain, yahoo tickers, etc.).
 # Runs all bots sequentially in a single process loop.
 #
 # Blockchain routing:
-#   asset.blockchain == "solana"       → Jupiter DEX
-#   asset.blockchain == "ethereum"     → Uniswap V3 (Ethereum mainnet)
-#   asset.blockchain == "base"         → Uniswap V3 (Base)
-#   asset.blockchain == "optimism"     → Uniswap V3 (Optimism)
-#   asset.blockchain == "hyperliquid"  → Hyperliquid L1 spot order book
+#   asset.blockchain == "solana"   → Jupiter DEX
+#   asset.blockchain == "ethereum" → Uniswap V3 (Ethereum mainnet)
+#   asset.blockchain == "base"     → Uniswap V3 (Base)
+#   asset.blockchain == "optimism" → Uniswap V3 (Optimism)
 
 from __future__ import annotations
 
@@ -54,10 +52,6 @@ from core.execution.uniswap import (
     uniswap_swap_auto_fee,
     to_smallest_evm,
 )
-
-# Hyperliquid L1 spot — lazy-imported at call sites to avoid hard dependency
-# when no HL bots are configured. Functions imported from:
-#   core/execution/hyperliquid_hl.py
 
 from core.indicators import apply_indicators
 from core.signals import signal_super_most_adxr
@@ -106,7 +100,6 @@ USD_TOLERANCE   = float(os.getenv("USD_TOLERANCE",   "5"))
 MIN_SWAP_USD    = float(os.getenv("MIN_SWAP_USD",     "10"))
 SOL_FEE_RESERVE = float(os.getenv("SOL_FEE_RESERVE", "0.01"))
 ETH_FEE_RESERVE = float(os.getenv("ETH_FEE_RESERVE", "0.005"))  # ~$10-15 buffer for gas
-HL_SLIPPAGE     = float(os.getenv("HL_SLIPPAGE",     "0.03"))   # 3% IOC slippage for HL spot
 
 # Indicator params (shared across all bots)
 ATR_PERIOD  = int(os.getenv("ATR_PERIOD",  "10"))
@@ -139,7 +132,6 @@ YF_INTERVAL_MAP = {
 # EVM chains supported (Uniswap V3)
 EVM_CHAINS = {"ethereum", "base", "optimism"}
 SOLANA_CHAINS = {"solana"}
-HYPERLIQUID_CHAINS = {"hyperliquid"}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -150,12 +142,11 @@ class AssetInfo:
     """Resolved from asset_registry.json."""
     ticker:             str
     blockchain:         str
-    wallet_address:     str         # public address (EVM/HL main wallet) — informational
-    token_contract:     str         # "" = native SOL or HL spot; EVM = ERC-20 address
+    wallet_address:     str         # public address (EVM) — informational
+    token_contract:     str         # "" = native SOL; EVM = ERC-20 address
     yahoo_ticker:       str
     stablecoin_contract: str
     decimals:           int = 9
-    hl_api_key_env:     str = ""    # .env var name holding the encrypted HL API key
 
     @property
     def is_native_sol(self) -> bool:
@@ -168,10 +159,6 @@ class AssetInfo:
     @property
     def is_solana(self) -> bool:
         return self.blockchain in SOLANA_CHAINS
-
-    @property
-    def is_hyperliquid(self) -> bool:
-        return self.blockchain in HYPERLIQUID_CHAINS
 
     # ── Solana helpers ──
     @property
@@ -318,7 +305,6 @@ def load_asset_registry(path: str) -> dict[str, AssetInfo]:
                 else "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"  # Ethereum/Base/Optimism USDC
             ),
             decimals=decimals,
-            hl_api_key_env=val.get("hl_api_key_env", ""),
         )
 
     # Persist any newly discovered decimals back to token_decimals.json
@@ -402,17 +388,11 @@ def load_wallet(wallet_env: str, blockchain: str):
     Returns:
         Keypair           for Solana
         str (hex privkey) for EVM chains
-        None              for Hyperliquid (HL API key is loaded per-asset, not per-wallet-env)
     """
     if blockchain in SOLANA_CHAINS:
         return load_keypair_solana(wallet_env)
     elif blockchain in EVM_CHAINS:
         return load_private_key_evm(wallet_env)
-    elif blockchain in HYPERLIQUID_CHAINS:
-        # HL bots don't use a shared wallet_env — the API key is stored in
-        # asset_registry.json under hl_api_key_env and loaded per-asset.
-        # Return None; execute_plan_hyperliquid handles key loading itself.
-        return None
     else:
         raise ValueError(f"Unknown blockchain '{blockchain}' for wallet loading")
 
@@ -556,42 +536,19 @@ def get_portfolio_evm(
 
 
 def get_portfolio(
-    wallet,           # Keypair (Solana) or str pubkey (EVM) or None (HL)
+    wallet,           # Keypair (Solana) or str pubkey (EVM)
     asset: AssetInfo,
     token_price: float,
 ) -> dict:
-    """Dispatch to Solana, EVM, or Hyperliquid portfolio function."""
+    """Dispatch to Solana or EVM portfolio function."""
     if asset.is_solana:
         pubkey = str(wallet.pubkey())
         return get_portfolio_solana(pubkey, asset, token_price)
     elif asset.is_evm:
         # For EVM we need the public address — stored in asset_registry.json
         return get_portfolio_evm(asset.wallet_address, asset, token_price)
-    elif asset.is_hyperliquid:
-        return get_portfolio_hyperliquid(asset, token_price)
     else:
         raise ValueError(f"Unknown blockchain: {asset.blockchain}")
-
-
-def get_portfolio_hyperliquid(
-    asset: AssetInfo,
-    token_price: float,
-) -> dict:
-    """
-    Get portfolio snapshot from Hyperliquid spot wallet.
-    Reads HYPE (or whatever coin) + USDC balances via the HL info API.
-    """
-    from core.execution.hyperliquid_hl import get_hl_clients, get_hl_spot_balances
-
-    api_key = _decrypt_hl_api_key(asset)
-    info, _ = get_hl_clients(api_key, asset.wallet_address)
-    bals     = get_hl_spot_balances(info, asset.wallet_address)
-
-    token_bal  = bals.get(asset.ticker, 0.0)
-    stable_bal = bals.get("USDC", 0.0)
-
-    log.debug("HL spot balances for %s: %s", asset.wallet_address, bals)
-    return _build_portfolio_dict(token_bal, token_bal, stable_bal, token_price)
 
 
 def _build_portfolio_dict(
@@ -647,14 +604,13 @@ def rebalance_plan(
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Execution — routes to Jupiter (Solana), Uniswap V3 (EVM), or HL spot
+# Execution — routes to Jupiter (Solana) or Uniswap V3 (EVM)
 # ═══════════════════════════════════════════════════════════════════
 def execute_plan(
     *,
-    wallet,           # Keypair (Solana) or hex str (EVM) or None (HL)
+    wallet,           # Keypair (Solana) or hex str (EVM)
     plan: dict,
     asset: AssetInfo,
-    price: float = 0.0,  # required for HL (converts USDC→qty); optional for others
 ) -> dict | None:
 
     if plan["action"] == "NONE":
@@ -669,29 +625,8 @@ def execute_plan(
         return _execute_plan_solana(wallet=wallet, plan=plan, asset=asset)
     elif asset.is_evm:
         return _execute_plan_evm(private_key=wallet, plan=plan, asset=asset)
-    elif asset.is_hyperliquid:
-        return _execute_plan_hyperliquid(plan=plan, asset=asset, price=price)
     else:
         raise ValueError(f"Unknown blockchain: {asset.blockchain}")
-
-
-def _decrypt_hl_api_key(asset: AssetInfo) -> str:
-    """
-    Decrypt the Hyperliquid API wallet private key for this asset.
-    The encrypted value lives in the .env var named by asset.hl_api_key_env.
-    Uses the same Fernet key as all other bots (/etc/myTrading/bot.key).
-    """
-    env_var = asset.hl_api_key_env
-    if not env_var:
-        raise RuntimeError(
-            f"Asset '{asset.ticker}' has no hl_api_key_env set in asset_registry.json"
-        )
-    enc = (os.getenv(env_var) or "").strip()
-    if not enc:
-        raise RuntimeError(
-            f"Missing or empty .env var '{env_var}' for HL API key (asset={asset.ticker})"
-        )
-    return _get_fernet().decrypt(enc.encode("utf-8")).decode("utf-8").strip()
 
 
 def _execute_plan_solana(*, wallet: Keypair, plan: dict, asset: AssetInfo) -> dict | None:
@@ -757,40 +692,6 @@ def _execute_plan_evm(*, private_key: str, plan: dict, asset: AssetInfo) -> dict
         )
         log.info("✅ EVM SELL %s [%s]: sold %.6f tx=%s", ticker, blockchain, token_amt, tx_hash)
         return {"action": f"SELL_{ticker}", "amount": token_amt, "amount_ccy": ticker, "tx_sig": tx_hash}
-
-    raise RuntimeError(f"Unknown plan action: {plan}")
-
-
-def _execute_plan_hyperliquid(
-    *,
-    plan: dict,
-    asset: AssetInfo,
-    price: float,
-) -> dict | None:
-    """
-    Execute a spot trade on Hyperliquid via IOC limit order (market equivalent).
-    price must be the current mid/close price — used to convert USDC amount → token qty.
-    """
-    from core.execution.hyperliquid_hl import get_hl_clients, hl_market_buy, hl_market_sell
-
-    if price <= 0:
-        raise RuntimeError(f"HL execute_plan requires a valid price > 0, got {price}")
-
-    api_key  = _decrypt_hl_api_key(asset)
-    _, exchange = get_hl_clients(api_key, asset.wallet_address)
-    ticker   = asset.ticker
-
-    if plan["action"] == "BUY_TOKEN":
-        usdc_amt = float(plan["stable_amount"])
-        result   = hl_market_buy(exchange, ticker, usdc_amt, price, slippage=HL_SLIPPAGE)
-        log.info("✅ HL BUY %s: spent USDC=%.2f result=%s", ticker, usdc_amt, result)
-        return {"action": f"BUY_{ticker}", "amount": usdc_amt, "amount_ccy": "USDC", "tx_sig": result}
-
-    if plan["action"] == "SELL_TOKEN":
-        token_amt = float(plan["token_amount"])
-        result    = hl_market_sell(exchange, ticker, token_amt, price, slippage=HL_SLIPPAGE)
-        log.info("✅ HL SELL %s: sold %.4f result=%s", ticker, token_amt, result)
-        return {"action": f"SELL_{ticker}", "amount": token_amt, "amount_ccy": ticker, "tx_sig": result}
 
     raise RuntimeError(f"Unknown plan action: {plan}")
 
@@ -1118,7 +1019,7 @@ def tick_bot(bot: BotEntry, wallet, st: BotState) -> BotState:
         blog.info("🔄 %s → target %.0f%% %s", reason, target_pct * 100, asset.ticker)
         plan = rebalance_plan(port, price, target_pct)
         blog.info("Plan: %s", plan)
-        exec_result = execute_plan(wallet=wallet, plan=plan, asset=asset, price=price)
+        exec_result = execute_plan(wallet=wallet, plan=plan, asset=asset)
         if exec_result:
             log_trade(
                 bot_id=bot.bot_id,
@@ -1187,7 +1088,6 @@ def main():
 
     # ── Load wallets once at startup ──
     # Key: (wallet_env, blockchain) — same wallet_env can be Solana on one bot, EVM on another
-    # Note: Hyperliquid bots return None here — their API key is loaded per-asset at trade time.
     wallets: dict[tuple[str, str], object] = {}
     for bot in bots:
         key = (bot.wallet_env, bot.asset.blockchain)
@@ -1197,9 +1097,6 @@ def main():
             if bot.asset.is_solana:
                 log.info("  [%s | solana] wallet=%s pubkey=%s",
                          bot.name, bot.wallet_env, str(w.pubkey()))
-            elif bot.asset.is_hyperliquid:
-                log.info("  [%s | hyperliquid] wallet=%s (API key loaded per-asset from .env var '%s')",
-                         bot.name, bot.asset.wallet_address, bot.asset.hl_api_key_env)
             else:
                 log.info("  [%s | %s] wallet=%s (EVM key loaded)",
                          bot.name, bot.asset.blockchain, bot.wallet_env)
@@ -1359,9 +1256,6 @@ def manual_trade(action: str, ticker: str, usd_amount: float) -> None:
         wallet = load_wallet(wallet_env, asset.blockchain)
         if asset.is_solana:
             mlog.info("Wallet    : %s (Solana)", str(wallet.pubkey()))
-        elif asset.is_hyperliquid:
-            mlog.info("Wallet    : %s (Hyperliquid — API key from env '%s')",
-                      asset.wallet_address, asset.hl_api_key_env)
         else:
             mlog.info("Wallet    : %s (%s)", asset.wallet_address, asset.blockchain)
     except Exception as e:
@@ -1374,7 +1268,7 @@ def manual_trade(action: str, ticker: str, usd_amount: float) -> None:
     # ── Execute ──
     mlog.info("Executing trade...")
     try:
-        result = execute_plan(wallet=wallet, plan=plan, asset=asset, price=price)
+        result = execute_plan(wallet=wallet, plan=plan, asset=asset)
     except Exception as e:
         mlog.error("Trade execution FAILED: %s", e)
         mlog.error("Full traceback:")
