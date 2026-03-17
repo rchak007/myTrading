@@ -50,33 +50,34 @@ def fetch_market_cap(ticker: str) -> str:
     return "N/A"
 
 
+
 def fetch_current_price(ticker: str) -> float:
     """
     Fetch the live/intraday price for a ticker.
     Strategy (fastest → most reliable):
-      1. fast_info.last_price  — near-real-time, no MultiIndex issues
-      2. 1-minute bar download — fallback, with safe MultiIndex flattening
-      3. info.regularMarketPrice — heaviest, last resort
+      1. 1-minute bar download (period=1d, interval=1m) — most recent tick
+      2. fast_info.last_price  — near-real-time, usually accurate during market hours
+      3. info.regularMarketPrice — heavier call, last resort
     Returns np.nan on failure.
     """
-    # 1. fast_info — lightweight, near-real-time, safest (no MultiIndex risk)
+    # 1. Latest 1m bar — gives the true current price during market hours
     try:
-        fi = yf.Ticker(ticker).fast_info
-        price = getattr(fi, "last_price", None)
-        if price and float(price) > 0:
-            return round(float(price), 4)
+        df = yf.download(ticker, period="1d", interval="1m", progress=False)
+        if df is not None and not df.empty:
+            # price = float(df["Close"].iloc[-1])
+            val = df["Close"].iloc[-1]
+            price = float(val.iloc[0]) if hasattr(val, "iloc") else float(val)
+            if price > 0:
+                return round(price, 4)
     except Exception:
         pass
 
-    # 2. Latest 1m bar — flatten MultiIndex before reading to avoid cross-ticker contamination
+    # 2. fast_info — lightweight, near-real-time
     try:
-        raw = yf.download(ticker, period="1d", interval="1m", progress=False)
-        if raw is not None and not raw.empty:
-            if isinstance(raw.columns, pd.MultiIndex):
-                raw.columns = raw.columns.get_level_values(0)
-            price = float(raw["Close"].iloc[-1])
-            if price > 0:
-                return round(price, 4)
+        fi = yf.Ticker(ticker).fast_info
+        price = getattr(fi, "last_price", None)
+        if price and price > 0:
+            return round(float(price), 4)
     except Exception:
         pass
 
@@ -84,7 +85,7 @@ def fetch_current_price(ticker: str) -> float:
     try:
         info = yf.Ticker(ticker).info
         price = info.get("regularMarketPrice") or info.get("currentPrice")
-        if price and float(price) > 0:
+        if price and price > 0:
             return round(float(price), 4)
     except Exception:
         pass

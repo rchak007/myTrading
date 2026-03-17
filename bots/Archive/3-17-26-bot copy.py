@@ -796,14 +796,10 @@ def _execute_plan_hyperliquid(
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Trade logging (per bot + master aggregate)
+# Trade logging (per bot — unchanged structure)
 # ═══════════════════════════════════════════════════════════════════
 def _trade_log_path(bot_id: str) -> str:
     return os.path.join(TRADE_LOG_DIR, f"bot_trades_{bot_id}.csv")
-
-
-def _master_trade_log_path() -> str:
-    return os.path.join(TRADE_LOG_DIR, "bot_trades_MASTER_4h.csv")
 
 
 def log_trade(
@@ -820,20 +816,21 @@ def log_trade(
     dry_run: bool,
     blockchain: str = "solana",
 ):
-    pst = ZoneInfo("America/Los_Angeles")
-    ts  = datetime.now(pst).strftime("%Y-%m-%d %H:%M:%S")
-
-    # ── Per-bot CSV ──
     path = _trade_log_path(bot_id)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
     file_exists = os.path.exists(path)
+
     with open(path, "a", encoding="utf-8") as f:
         if not file_exists:
             f.write(
                 "timestamp,bot_name,blockchain,action,regime_from,regime_to,"
                 "price,amount,amount_ccy,tx_sig,dry_run\n"
             )
+
+        pst = ZoneInfo("America/Los_Angeles")
+        ts  = datetime.now(pst).strftime("%Y-%m-%d %H:%M:%S")
+
         f.write(
             f"{ts},{bot_name},{blockchain},{action},"
             f"{regime_from},{regime_to},"
@@ -841,23 +838,6 @@ def log_trade(
             f"{tx_sig or ''},{dry_run}\n"
         )
 
-    # ── Master aggregate CSV ──
-    master_path = _master_trade_log_path()
-    master_exists = os.path.exists(master_path)
-    with open(master_path, "a", encoding="utf-8") as mf:
-        if not master_exists:
-            mf.write(
-                "timestamp,bot_id,bot_name,blockchain,action,regime_from,regime_to,"
-                "price,amount,amount_ccy,tx_sig,dry_run\n"
-            )
-        mf.write(
-            f"{ts},{bot_id},{bot_name},{blockchain},{action},"
-            f"{regime_from},{regime_to},"
-            f"{price:.4f},{amount:.6f},{amount_ccy},"
-            f"{tx_sig or ''},{dry_run}\n"
-        )
-
-    # ── Mirror both ──
     if TRADE_LOG_MIRROR_DIR:
         try:
             mirror = os.path.join(TRADE_LOG_MIRROR_DIR, f"bot_trades_{bot_id}.csv")
@@ -865,11 +845,6 @@ def log_trade(
             shutil.copyfile(path, mirror)
         except Exception as e:
             log.warning("[%s] Trade log mirror failed: %s", bot_id, e)
-        try:
-            mirror_master = os.path.join(TRADE_LOG_MIRROR_DIR, "bot_trades_MASTER_4h.csv")
-            shutil.copyfile(master_path, mirror_master)
-        except Exception as e:
-            log.warning("Master trade log mirror failed: %s", e)
 
 
 # ═══════════════════════════════════════════════════════════════════
