@@ -155,7 +155,8 @@ def hl_market_buy(
     Returns the raw SDK response as a string (logged as tx_sig).
     """
     qty       = round(usdc_amount / current_price, 4)
-    limit_px  = round(current_price * (1 + slippage), 6)
+    # limit_px  = round(current_price * (1 + slippage), 6)
+    limit_px = float(f"{current_price * (1 + slippage):.5g}")
 
     log.info("HL BUY %s: qty=%.4f limit_px=%.4f (usdc_equiv=%.2f slippage=%.1f%%)",
              coin, qty, limit_px, usdc_amount, slippage * 100)
@@ -185,7 +186,8 @@ def hl_market_sell(
     Returns the raw SDK response as a string (logged as tx_sig).
     """
     qty      = round(token_amount, 4)
-    limit_px = round(current_price * (1 - slippage), 6)
+    # limit_px = round(current_price * (1 - slippage), 6)
+    limit_px = float(f"{current_price * (1 - slippage):.5g}")
 
     log.info("HL SELL %s: qty=%.4f limit_px=%.4f slippage=%.1f%%",
              coin, qty, limit_px, slippage * 100)
