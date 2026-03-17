@@ -50,33 +50,34 @@ def fetch_market_cap(ticker: str) -> str:
     return "N/A"
 
 
+
 def fetch_current_price(ticker: str) -> float:
     """
     Fetch the live/intraday price for a ticker.
     Strategy (fastest → most reliable):
-      1. fast_info.last_price  — near-real-time, no MultiIndex issues
-      2. 1-minute bar download — fallback, with safe MultiIndex flattening
-      3. info.regularMarketPrice — heaviest, last resort
+      1. 1-minute bar download (period=1d, interval=1m) — most recent tick
+      2. fast_info.last_price  — near-real-time, usually accurate during market hours
+      3. info.regularMarketPrice — heavier call, last resort
     Returns np.nan on failure.
     """
-    # 1. fast_info — lightweight, near-real-time, safest (no MultiIndex risk)
+    # 1. Latest 1m bar — gives the true current price during market hours
     try:
-        fi = yf.Ticker(ticker).fast_info
-        price = getattr(fi, "last_price", None)
-        if price and float(price) > 0:
-            return round(float(price), 4)
+        df = yf.download(ticker, period="1d", interval="1m", progress=False)
+        if df is not None and not df.empty:
+            # price = float(df["Close"].iloc[-1])
+            val = df["Close"].iloc[-1]
+            price = float(val.iloc[0]) if hasattr(val, "iloc") else float(val)
+            if price > 0:
+                return round(price, 4)
     except Exception:
         pass
 
-    # 2. Latest 1m bar — flatten MultiIndex before reading to avoid cross-ticker contamination
+    # 2. fast_info — lightweight, near-real-time
     try:
-        raw = yf.download(ticker, period="1d", interval="1m", progress=False)
-        if raw is not None and not raw.empty:
-            if isinstance(raw.columns, pd.MultiIndex):
-                raw.columns = raw.columns.get_level_values(0)
-            price = float(raw["Close"].iloc[-1])
-            if price > 0:
-                return round(price, 4)
+        fi = yf.Ticker(ticker).fast_info
+        price = getattr(fi, "last_price", None)
+        if price and price > 0:
+            return round(float(price), 4)
     except Exception:
         pass
 
@@ -84,7 +85,7 @@ def fetch_current_price(ticker: str) -> float:
     try:
         info = yf.Ticker(ticker).info
         price = info.get("regularMarketPrice") or info.get("currentPrice")
-        if price and float(price) > 0:
+        if price and price > 0:
             return round(float(price), 4)
     except Exception:
         pass
@@ -200,6 +201,10 @@ def build_stocks_signals_table(
                 score_90  = score_data["Score_90"]
                 score_120 = score_data["Score_120"]
                 score_weighted = score_data["Score_Weighted"]
+                ret30  = score_data.get("%RET30",  np.nan)
+                ret60  = score_data.get("%RET60",  np.nan)
+                ret90  = score_data.get("%RET90",  np.nan)
+                ret120 = score_data.get("%RET120", np.nan)
                 earnings_alert = get_earnings_alert(t)
             except Exception as e:
                 print(f"Warning: Could not calculate score for {t}: {e}")
@@ -226,6 +231,10 @@ def build_stocks_signals_table(
             row["Score_90"]  = int(score_90)  if pd.notna(score_90)  else 0
             row["Score_120"] = int(score_120) if pd.notna(score_120) else 0
             row["Score_Weighted"] = int(score_weighted) if pd.notna(score_weighted) else 0
+            row["%RET30"]  = ret30
+            row["%RET60"]  = ret60
+            row["%RET90"]  = ret90
+            row["%RET120"] = ret120
             row["Earnings_Alert"] = earnings_alert
 
         # Market_Cap always after signal block
@@ -257,6 +266,7 @@ def build_stocks_signals_table(
         columns_order = [
             "Ticker", "Timeframe", "Bar Time", "Last Close", "Current Price",
             "SIGNAL-Super-MOST-ADXR", "Supertrend", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
+            "%RET30", "%RET60", "%RET90", "%RET120",
             "Earnings_Alert", "Market_Cap_M",
              "Supertrend Signal", "RSI",
             "MOST MA", "MOST Line", "MOST Signal",
