@@ -780,6 +780,14 @@ def _execute_plan_hyperliquid(
     # _, exchange = get_hl_clients(api_key, asset.wallet_address)
     info, exchange = get_hl_clients(api_key, asset.wallet_address)  # need info too now
 
+    # Override with live HL mid price — more accurate than 4H yfinance close
+    from core.execution.hyperliquid_hl import get_hl_mid_price
+    live_price = get_hl_mid_price(info, asset.ticker)
+    if live_price > 0:
+        log.info("HL using live mid price=%.4f (was yfinance=%.4f)", live_price, price)
+        price = live_price
+
+
     ticker   = asset.ticker
 
     if plan["action"] == "BUY_TOKEN":
