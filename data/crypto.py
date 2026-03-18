@@ -779,6 +779,7 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                         # state is a dict: {"HYPE": Decimal("123"), ...}
                         qty_dec = state.get("HYPE", Decimal("0"))
                         price_dec = mids.get("HYPE", Decimal("0"))
+                        usdc_dec = state.get("USDC", Decimal("0"))   
 
                 elif chain == "optimism":
                     rpc_urls = OPTIMISM_RPC_URLS
