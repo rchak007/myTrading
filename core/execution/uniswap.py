@@ -482,7 +482,8 @@ def uniswap_swap(
     }
 
     # Encode the inner swap call, then wrap in multicall for deadline protection
-    swap_calldata = router.encodeABI(fn_name="exactInputSingle", args=[params])
+    # swap_calldata = router.encodeABI(fn_name="exactInputSingle", args=[params])
+    swap_calldata = router.encode_abi(fn_name="exactInputSingle", args=[params])
 
     try:
         gas_estimate = router.functions.multicall(deadline, [swap_calldata]).estimate_gas(
