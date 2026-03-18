@@ -777,18 +777,22 @@ def _execute_plan_hyperliquid(
         raise RuntimeError(f"HL execute_plan requires a valid price > 0, got {price}")
 
     api_key  = _decrypt_hl_api_key(asset)
-    _, exchange = get_hl_clients(api_key, asset.wallet_address)
+    # _, exchange = get_hl_clients(api_key, asset.wallet_address)
+    info, exchange = get_hl_clients(api_key, asset.wallet_address)  # need info too now
+
     ticker   = asset.ticker
 
     if plan["action"] == "BUY_TOKEN":
         usdc_amt = float(plan["stable_amount"])
-        result   = hl_market_buy(exchange, ticker, usdc_amt, price, slippage=HL_SLIPPAGE)
+        # result   = hl_market_buy(exchange, ticker, usdc_amt, price, slippage=HL_SLIPPAGE)
+        result = hl_market_buy(exchange, info, ticker, usdc_amt, price, slippage=HL_SLIPPAGE)
         log.info("✅ HL BUY %s: spent USDC=%.2f result=%s", ticker, usdc_amt, result)
         return {"action": f"BUY_{ticker}", "amount": usdc_amt, "amount_ccy": "USDC", "tx_sig": result}
 
     if plan["action"] == "SELL_TOKEN":
         token_amt = float(plan["token_amount"])
-        result    = hl_market_sell(exchange, ticker, token_amt, price, slippage=HL_SLIPPAGE)
+        # result    = hl_market_sell(exchange, ticker, token_amt, price, slippage=HL_SLIPPAGE)
+        result = hl_market_sell(exchange, info, ticker, token_amt, price, slippage=HL_SLIPPAGE)
         log.info("✅ HL SELL %s: sold %.4f result=%s", ticker, token_amt, result)
         return {"action": f"SELL_{ticker}", "amount": token_amt, "amount_ccy": ticker, "tx_sig": result}
 

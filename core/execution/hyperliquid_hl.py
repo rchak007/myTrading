@@ -134,12 +134,36 @@ def get_hl_mid_price(info, coin: str = "HYPE") -> float:
         return 0.0
 
 
+
+def get_hl_spot_market_name(info, coin: str) -> str:
+    """
+    Find the spot market name (e.g. '@107') for a given coin paired with USDC (token 0).
+    """
+    spot = info.spot_meta()
+    # Find coin token index
+    coin_index = None
+    for token in spot["tokens"]:
+        if token["name"] == coin:
+            coin_index = token["index"]
+            break
+    if coin_index is None:
+        raise RuntimeError(f"Could not find token index for {coin} in spot meta")
+    # Find universe entry: [coin_index, 0] means coin/USDC
+    for asset in spot["universe"]:
+        tokens = asset.get("tokens", [])
+        if tokens == [coin_index, 0]:
+            log.info("Spot market for %s: %s", coin, asset["name"])
+            return asset["name"]
+    raise RuntimeError(f"Could not find USDC spot market for {coin}")
+
+
 # ─────────────────────────────────────────────────────────────────────
 # Order execution
 # ─────────────────────────────────────────────────────────────────────
 
 def hl_market_buy(
     exchange,
+    info,
     coin: str,
     usdc_amount: float,
     current_price: float,
@@ -162,8 +186,11 @@ def hl_market_buy(
     log.info("HL BUY %s: qty=%.4f limit_px=%.4f (usdc_equiv=%.2f slippage=%.1f%%)",
              coin, qty, limit_px, usdc_amount, slippage * 100)
 
+
+    spot_name = get_hl_spot_market_name(info, coin)
     result = exchange.order(
-        coin,
+        spot_name,   # e.g. "@107" for HYPE/USDC
+        # coin,
         is_buy=True,
         sz=qty,
         limit_px=limit_px,
@@ -175,6 +202,7 @@ def hl_market_buy(
 
 def hl_market_sell(
     exchange,
+    info,
     coin: str,
     token_amount: float,
     current_price: float,
@@ -194,8 +222,10 @@ def hl_market_sell(
     log.info("HL SELL %s: qty=%.4f limit_px=%.4f slippage=%.1f%%",
              coin, qty, limit_px, slippage * 100)
 
+    spot_name = get_hl_spot_market_name(info, coin)
     result = exchange.order(
-        coin,
+        spot_name,   # e.g. "@107" for HYPE/USDC
+        # coin,
         is_buy=False,
         sz=qty,
         limit_px=limit_px,
