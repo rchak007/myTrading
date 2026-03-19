@@ -140,14 +140,14 @@ STOCKS_NOTES = [
 
 CRYPTO_TICKERS = [
     "BTC-USD","ETH-USD", "WETH-USD","SOL-USD","HYPE32196-USD", "SUI20947-USD", "LINK-USD","DOGE-USD", "ONDO-USD","BNB-USD",
-    "AAVE-USD" , "ADA-USD" , "AIXBT-USD", "AKT-USD", "ANON35092-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , 
+    "AAVE-USD" , "ADA-USD" ,"AERO29270-USD",  "AIXBT-USD", "AKT-USD", "ANON35092-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , 
     "cetus-usd" ,"cookie31838-usd" ,"CRV-USD",
      "DBR31528-USD", "DOGE-USD", "DRIFT31278-USD", "ELIZAOS-USD",  "elon-usd" ,"ENA-USD","ENS-USD",
-    "fluid-usd", "fluxb-usd","FAI34330-USD", "griffain-USD",
-    "HNT-USD", "IKA37454-USD", "JTO-USD", "JUP29210-USD", "KMNO-USD", "LFNTY-USD", 
+    "fluid-usd", "fluxb-usd","FAI34330-USD","GIZA-USD",  "griffain-USD",
+    "HIPPO33258-USD", "HNT-USD", "IKA37454-USD", "JTO-USD", "JUP29210-USD", "KMNO-USD", "LFNTY-USD", 
     "MOBILE-USD",  "MON30495-USD", "navx-USD" , "NEAR-USD", "NOS-USD",  "ORCA-USD" , "ore32782-USD",
     "pippin-usd" , "PNK-USD", "PROVE-USD", "PYTH-USD","RAY-USD","RENDER-USD",
-     "SUAI-USD", "suins-usd",  "TAI20605-USD",
+    "SPACEX-USD", "SUAI-USD", "suins-usd",  "TAI20605-USD",
     "VIRTUAL-USD", "W-USD" , "WAL36119-USD", "WLD-USD", "wlfi33251-usd", "WTAO-USD", "XBG-USD" , "XRP-USD", "ZEREBRO-USD" , "ZEUS30391-USD", "zk24091-USD"
 ]
 
