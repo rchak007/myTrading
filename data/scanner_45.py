@@ -303,6 +303,10 @@ def scan_ticker(
         "Score_90":             int(score_data.get("Score_90",  0)),
         "Score_120":            int(score_data.get("Score_120", 0)),
         "Score_Weighted":       int(score_data.get("Score_Weighted", 0)),
+        "%RET30":               score_data.get("%RET30",  np.nan),   # ADD
+        "%RET60":               score_data.get("%RET60",  np.nan),   # ADD
+        "%RET90":               score_data.get("%RET90",  np.nan),   # ADD
+        "%RET120":              score_data.get("%RET120", np.nan),   # ADD        
         "SIGNAL-Super-MOST-ADXR": signal,
         "Earnings_Alert":       earnings_alert,
         "Price":                float(df["Close"].iloc[-1]),
