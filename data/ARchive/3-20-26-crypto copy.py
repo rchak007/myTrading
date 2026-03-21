@@ -346,7 +346,7 @@ def build_crypto_signals_table(
             continue
 
 
-# 2) extra geckoterminal pools (LQL/A0X/GAME etc)
+# 2) extra geckoterminal pools (LVL/A0X/GAME etc)
     for sym, pool_url in gecko_pools.items():
         try:
             base = fetch_geckoterminal_4h_df_from_pool_url(pool_url)
@@ -385,12 +385,12 @@ def build_crypto_signals_table(
             # Gecko pools: no Yahoo ticker for 1D fetch — mark as UNKNOWN
             sig_1d_gecko = "UNKNOWN"
             final_signal_gecko = combine_4h_1d_signals(super_most_adxr, sig_1d_gecko)
-            # Gecko pools: price from last 4H close (GeckoTerminal)
+            # Gecko pools: no reliable real-time feed — use last close
             current_price_gecko = round(float(last["Close"]), 8)
 
             rows.append(
                 {
-                    "Ticker": sym,              # <-- keep as "LQL" etc (matches registry key)
+                    "Ticker": sym,              # <-- IMPORTANT: keep it as "LVL" etc
                     "Timeframe": "4H",
                     "Bar Time": last.name,
                     "Last Close": round(float(last["Close"]), 6),
@@ -586,35 +586,6 @@ def fetch_altcoin_season_index() -> dict:
 
 
 # ====================================================================================
-# HELPER: _find_registry_entry
-# ====================================================================================
-def _find_registry_entry(registry: dict, ticker: str) -> dict | None:
-    """
-    Unified registry lookup.  Tries multiple strategies:
-      1. find_registry_entry_by_yahoo_ticker  (works for Yahoo tickers like "BTC-USD")
-      2. Direct key match                     (works for gecko pool tickers like "LQL")
-      3. Case-insensitive key match           (safety net)
-    Returns the registry dict entry or None.
-    """
-    # 1) Standard yahoo_ticker search
-    entry = find_registry_entry_by_yahoo_ticker(registry, ticker)
-    if entry:
-        return entry
-
-    # 2) Direct key match (gecko pools: Ticker="LQL", registry key="LQL")
-    if ticker in registry:
-        return registry[ticker]
-
-    # 3) Case-insensitive fallback
-    ticker_upper = ticker.upper()
-    for key, val in registry.items():
-        if key.upper() == ticker_upper:
-            return val
-
-    return None
-
-
-# ====================================================================================
 # HELPER: enrich_crypto_portfolio_fields
 # ====================================================================================
 def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
@@ -622,15 +593,9 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
     Given a DataFrame with 'Ticker', add columns:
       - Qty
       - Price
-      - ALT USD Val (Qty * Price)
+      - USD Value (Qty * Price)
       - USDC Value (stablecoin balance in that wallet)
-    Returns a new DataFrame with these columns inserted.
-
-    For gecko pool tokens (registry entry has 'geckoterminal_pool'):
-      - Price comes from the 'Current Price' column (GeckoTerminal last close)
-      - Skip Yahoo price fetch entirely
-    For Yahoo tokens:
-      - Price comes from get_yahoo_price_usd()
+    Returns a new DataFrame with these columns inserted after 'SIGNAL-Super-MOST-ADXR'.
     """
 
     print("In enrich_crypto_portfolio_fields function")
@@ -696,12 +661,11 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
 
     for _, row in df.iterrows():
         try:
-            ticker = row.get("Ticker", "")
+            yahoo_ticker = row.get("Ticker", "")
 
-            # ── FIX: unified registry lookup (works for both Yahoo and gecko pool tickers)
-            entry = _find_registry_entry(registry, ticker)
+            entry = find_registry_entry_by_yahoo_ticker(registry, yahoo_ticker)
             if not entry:
-                print(f"⚠️  No registry entry found for {ticker}")
+                print(f"⚠️  No registry entry found for {yahoo_ticker}")
                 qty_list.append(np.nan)
                 price_list.append(np.nan)
                 usd_list.append(np.nan)
@@ -712,30 +676,17 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
             wallet = entry.get("wallet_address")
             token_contract = entry.get("token_contract")
             stable_contract = entry.get("stablecoin_contract")
-            has_gecko_pool = bool(entry.get("geckoterminal_pool"))
-            print(f"[enrich] {ticker} | chain={chain} | wallet={wallet} | gecko_pool={has_gecko_pool}")
+            print("chain wallet token_contract stable_contract = ", chain, wallet, token_contract, stable_contract)
 
-            # ── Price: use GeckoTerminal last close for gecko pool tokens, Yahoo for others
+
+
+            # Price - wrap in try-except to handle failures gracefully
             price_dec = None
-            if has_gecko_pool:
-                # Price already computed from GeckoTerminal and stored in "Current Price" column
-                price_dec = row.get("Current Price")
-                if price_dec is not None:
-                    try:
-                        price_dec = float(price_dec)
-                    except (ValueError, TypeError):
-                        price_dec = None
-                if price_dec:
-                    print(f"[enrich] {ticker} | GeckoTerminal price: ${price_dec:.8f}")
-                else:
-                    print(f"⚠️  {ticker}: No GeckoTerminal price in row")
-            else:
-                # Yahoo-based token
-                try:
-                    price_dec = get_yahoo_price_usd(ticker)
-                except Exception as e:
-                    print(f"⚠️  Could not fetch price for {ticker}: {e}")
-                    price_dec = None
+            try:
+                price_dec = get_yahoo_price_usd(yahoo_ticker)
+            except Exception as e:
+                print(f"⚠️  Could not fetch price for {yahoo_ticker}: {e}")
+                price_dec = None
 
             # Qty + USDC balances
             qty_dec = None
@@ -753,7 +704,7 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                     elif wallet and token_contract and sol_wallet_cache is not None:
                         qty_dec = get_spl_token_balance_from_cache(wallet, token_contract, sol_wallet_cache)
                         if qty_dec != 0:
-                            print(f"[SOL] {ticker} | Wallet={wallet} | Qty={qty_dec}")
+                            print(f"[SOL] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")
 
                     if wallet and stable_contract and sol_wallet_cache is not None:
                         usdc_dec = get_spl_token_balance_from_cache(wallet, stable_contract, sol_wallet_cache)
@@ -772,7 +723,7 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                     elif wallet and token_contract:
                         qty_dec = get_erc20_balance(wallet, token_contract, ETH_RPC_URLS)
                         if qty_dec != 0:
-                            print(f"[ETH] {ticker} | Wallet={wallet} | Qty={qty_dec}")
+                            print(f"[ETH] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")
                     if wallet and stable_contract:
                         usdc_dec = get_erc20_balance(wallet, stable_contract, ETH_RPC_URLS)
                         debug = True
@@ -788,7 +739,7 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                     elif wallet and token_contract:
                         qty_dec = get_erc20_balance(wallet, token_contract, BASE_RPC_URLS)
                         if qty_dec != 0:
-                            print(f"[BASE] {ticker} | Wallet={wallet} | Qty={qty_dec}")
+                            print(f"[BASE] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")
                     if wallet and stable_contract:
                         usdc_dec = get_erc20_balance(wallet, stable_contract, BASE_RPC_URLS)
                         debug = True
@@ -800,7 +751,7 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                         qty_dec = get_coin_balance(wallet, token_contract)
                         debug = True
                         if debug and qty_dec != 0:
-                            print(f"[SUI] {ticker} | Wallet={wallet} | Qty={qty_dec}")                    
+                            print(f"[SUI] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")                    
                     if wallet and stable_contract:
                         usdc_dec = get_coin_balance(wallet, stable_contract)
                         debug = True
@@ -814,7 +765,7 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                     elif wallet and token_contract:
                         qty_dec = get_erc20_balance(wallet, token_contract, BSC_RPC_URLS)
                         if qty_dec != 0:
-                            print(f"[BNB] {ticker} | Wallet={wallet} | Qty={qty_dec}")    
+                            print(f"[BNB] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")    
                     if wallet and stable_contract:
                         usdc_dec = get_erc20_balance(wallet, stable_contract, BSC_RPC_URLS)
                         debug = True
@@ -836,7 +787,7 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                         qty_dec = get_erc20_balance(wallet, token_contract, rpc_urls)
                         debug = True
                         if debug and qty_dec != 0:
-                            print(f"[Optimism] {ticker} | Wallet={wallet} | Qty={qty_dec}")                        
+                            print(f"[Optimism] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")                        
                     if wallet and stable_contract:
                         usdc_dec = get_erc20_balance(wallet, stable_contract, rpc_urls)
                         debug = True
@@ -848,7 +799,7 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                         qty_dec = get_erc20_balance(wallet, token_contract, rpc_urls)
                         debug = True
                         if debug and qty_dec != 0:
-                            print(f"[Arbitrum] {ticker} | Wallet={wallet} | Qty={qty_dec}")    
+                            print(f"[Arbitrum] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")    
                     if wallet and stable_contract:
                         usdc_dec = get_erc20_balance(wallet, stable_contract, rpc_urls)
                         debug = True
@@ -862,7 +813,7 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                         qty_dec = get_erc20_balance(wallet, token_contract, rpc_urls)
                         debug = True
                         if debug and qty_dec != 0:
-                            print(f"[ZK] {ticker} | Wallet={wallet} | Qty={qty_dec}")    
+                            print(f"[ZK] {yahoo_ticker} | Wallet={wallet} | Qty={qty_dec}")    
                     if wallet and stable_contract:
                         usdc_dec = get_erc20_balance(wallet, stable_contract, rpc_urls)
                         debug = True
@@ -896,7 +847,7 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
         
         except Exception as e:
             # If anything fails for this row, append NaN values and continue
-            print(f"❌ Error enriching portfolio fields for {ticker}: {e}")
+            print(f"❌ Error enriching portfolio fields for {yahoo_ticker}: {e}")
             qty_list.append(np.nan)
             price_list.append(np.nan)
             usd_list.append(np.nan)
