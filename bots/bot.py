@@ -51,7 +51,8 @@ from core.execution.uniswap import (
     ERC20_DECIMALS,
     get_evm_native_balance,
     get_evm_token_balance,
-    uniswap_swap_auto_fee,
+    # uniswap_swap_auto_fee,
+    evm_swap,
     to_smallest_evm,
 )
 
@@ -730,7 +731,8 @@ def _execute_plan_evm(*, private_key: str, plan: dict, asset: AssetInfo) -> dict
 
     if plan["action"] == "BUY_TOKEN":
         stable_amt = float(plan["stable_amount"])
-        tx_hash = uniswap_swap_auto_fee(
+        # tx_hash = uniswap_swap_auto_fee(
+        tx_hash = evm_swap(    
             blockchain=blockchain,
             private_key=private_key,
             token_in=stable_contract,
@@ -745,7 +747,8 @@ def _execute_plan_evm(*, private_key: str, plan: dict, asset: AssetInfo) -> dict
 
     if plan["action"] == "SELL_TOKEN":
         token_amt = float(plan["token_amount"])
-        tx_hash = uniswap_swap_auto_fee(
+        # tx_hash = uniswap_swap_auto_fee(
+        tx_hash = evm_swap(        
             blockchain=blockchain,
             private_key=private_key,
             token_in=token_contract,
