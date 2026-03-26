@@ -111,8 +111,9 @@ STOCK_TICKERS = [
     "HIMS", "HODL","HOOD","IBIT","IDR","INOD","IONQ","IREN","LEU","LITE","LRCX","LTBR",
     "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU",
     "NBIS", "NET","NPPTF","NVDA", "O", "OKLO", "ONDS", "ORCL",  "PLTR",
-    "QBTS","QUBT","RGTI","RDDT", "RKLB", "SE", "SLV", "SOFI", "SPY", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC",
-    "TER","TSLA","TSM","UMAC", "UPXI","VRT", "WDC"  
+    "QBTS","QUBT","RGTI","RDDT", "RKLB", 
+    "SATS", "SE", "SLV", "SOFI", "SPY", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC",
+    "TER","TSLA","TSM","UMAC", "UPXI","VRT", "WDC", "WTI", "XLE"  
 ]
 
 # DESCRIPTION_STOCKS = ["
@@ -128,13 +129,14 @@ STOCKS_NOTES = [
     "🤖 AI / Data Center / Infrastructure NVDA, AMD, MSFT, GOOG, META, ORCL, PLTR, APP, APLD, CORZ, IREN, CLSK, MSTR, MSTX, CRWV, NBIS, ALAB VRT LITE BE  ",
     "🚗 AI Applications / Consumer Tech TSLA, AAPL, ARM, ASML, MU, LRCX, TSM, MRVL, AVGO, TER, COHR, SNDK, WDC, CRDO",
     "⚛️ Quantum Computing QBTS, QUBT, RGTI, IONQ",
-    "☢️ Nuclear / Energy CEG, OKLO, SMR, LTBR, LEU, BWXT, GEV",
-    "🌐 Crypto / Bitcoin Proxy IBIT, ETHA, HODL, ARKB, COIN, HOOD, MSTR, MSTX, ABTC GLXY STRC BMNR",
+    "☢️ ⚡ Nuclear / Energy CEG, OKLO, SMR, LTBR, LEU, BWXT, GEV XLE",
+    "🌐 Crypto / Bitcoin Proxy IBIT, ETHA, HODL, ARKB, COIN, HOOD, MSTR, MSTX, ABTC GLXY STRC BMNR CRCL", 
     "🔒 Cybersecurity CRWD, NET",
     "🛸 Defense / Space / Rare earth MP , NPPTF ,  PLTR, ONDS, UMAC, RKLB",
     "💊 Healthcare / Biotech HIMS",
     "🏦 Fintech / Banking SOFI, CFG, RDDT, SE",
-    "🪙 Commodities / Macro Hedges GLD, SLV, COPX",
+    "🪙 Commodities / Macro Hedges GLD, SLV, COPX -- OIL - WTI Energy - "  ,
+    "🚀 SpaceX partial - SATS - echostar "
 
 ]
 
