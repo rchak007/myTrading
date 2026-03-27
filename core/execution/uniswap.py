@@ -690,8 +690,17 @@ def swap_via_0x(
     if not tx_data:
         raise RuntimeError(f"[{blockchain}] 0x: no 'transaction' in quote response")
 
-    nonce     = w3.eth.get_transaction_count(wallet)
-    gas_price = w3.eth.gas_price
+    # nonce     = w3.eth.get_transaction_count(wallet)
+    # gas_price = w3.eth.gas_price
+
+    nonce          = w3.eth.get_transaction_count(wallet)
+    gas_price      = w3.eth.gas_price
+    # Safety: never broadcast with 0 gas price — use 1 gwei minimum
+    MIN_GAS_PRICE  = 10 ** 9  # 1 gwei in wei
+    if gas_price < MIN_GAS_PRICE:
+        log.warning("[%s] gas_price from RPC=%d — using 1 gwei minimum", blockchain, gas_price)
+        gas_price = MIN_GAS_PRICE
+
 
     tx = {
         "chainId":  chain_id,
