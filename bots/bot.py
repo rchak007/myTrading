@@ -20,6 +20,7 @@ import json
 import os
 import time
 import logging
+import traceback 
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -92,6 +93,10 @@ STATE_MIRROR_DIR     = os.getenv("BOT_STATE_MIRROR_DIR")       # optional
 TRADE_LOG_MIRROR_DIR = os.getenv("BOT_TRADE_LOG_MIRROR_DIR")   # optional
 HEARTBEAT_LOG_DIR    = os.getenv("BOT_HEARTBEAT_LOG_DIR",  "./outputs")
 HEARTBEAT_MIRROR_DIR = os.getenv("BOT_HEARTBEAT_MIRROR_DIR")   # optional
+
+ERROR_LOG_DIR        = os.getenv("BOT_ERROR_LOG_DIR",        "./outputs")
+ERROR_LOG_MIRROR_DIR = os.getenv("BOT_ERROR_LOG_MIRROR_DIR")
+
 
 # Trading behavior
 DRY_RUN      = os.getenv("DRY_RUN", "false").lower() == "true"
@@ -887,6 +892,67 @@ def log_trade(
             log.warning("Master trade log mirror failed: %s", e)
 
 
+def log_error(
+    *,
+    bot_id: str,
+    ticker: str,
+    blockchain: str,
+    error_type: str,
+    error_msg: str,
+    context: str = "",
+    tb: str = "",
+) -> None:
+    """
+    Append an error row to bot_errors_MASTER.csv.
+    Mirrors to ERROR_LOG_MIRROR_DIR (jobMyTrading) if configured.
+ 
+    Parameters
+    ----------
+    bot_id      : e.g. "ONDO_4h"
+    ticker      : e.g. "ONDO"
+    blockchain  : e.g. "ethereum"
+    error_type  : exception class name e.g. "RuntimeError", "Web3RPCError"
+    error_msg   : str(e) — the error message
+    context     : where the error happened e.g. "bot_loop", "manual_trade", "swap"
+    tb          : optional traceback string (from traceback.format_exc())
+    """
+    pst = ZoneInfo("America/Los_Angeles")
+    ts  = datetime.now(pst).strftime("%Y-%m-%d %H:%M:%S")
+ 
+    # Sanitise fields — remove commas and newlines so CSV stays clean
+    def _clean(s: str) -> str:
+        return str(s).replace(",", ";").replace("\n", " | ").replace("\r", "").strip()
+ 
+    error_path = os.path.join(ERROR_LOG_DIR, "bot_errors_MASTER.csv")
+    os.makedirs(ERROR_LOG_DIR, exist_ok=True)
+ 
+    file_exists = os.path.exists(error_path)
+    with open(error_path, "a", encoding="utf-8") as f:
+        if not file_exists:
+            f.write("timestamp,bot_id,ticker,blockchain,context,error_type,error_msg,traceback\n")
+        f.write(
+            f"{ts},"
+            f"{_clean(bot_id)},"
+            f"{_clean(ticker)},"
+            f"{_clean(blockchain)},"
+            f"{_clean(context)},"
+            f"{_clean(error_type)},"
+            f"{_clean(error_msg)},"
+            f"{_clean(tb)}\n"
+        )
+ 
+    log.debug("Error logged to %s", error_path)
+ 
+    # Mirror to jobMyTrading if configured
+    if ERROR_LOG_MIRROR_DIR:
+        try:
+            os.makedirs(ERROR_LOG_MIRROR_DIR, exist_ok=True)
+            mirror_path = os.path.join(ERROR_LOG_MIRROR_DIR, "bot_errors_MASTER.csv")
+            shutil.copyfile(error_path, mirror_path)
+        except Exception as mirror_exc:
+            log.warning("Error log mirror failed: %s", mirror_exc)
+
+
 # ═══════════════════════════════════════════════════════════════════
 # Higher-timeframe confirmation filter (unchanged)
 # ═══════════════════════════════════════════════════════════════════
@@ -1261,8 +1327,20 @@ def main():
                 wallet = wallets[key]
                 st     = states[bot.bot_id]
                 states[bot.bot_id] = tick_bot(bot, wallet, st)
+            # except Exception as e:
+            #     log.exception("[%s] Error: %s", bot.name, e)
             except Exception as e:
+                tb_str = traceback.format_exc()
                 log.exception("[%s] Error: %s", bot.name, e)
+                log_error(
+                    bot_id=bot.bot_id,
+                    ticker=bot.asset.ticker,
+                    blockchain=bot.asset.blockchain,
+                    error_type=type(e).__name__,
+                    error_msg=str(e),
+                    context="bot_loop",
+                    tb=tb_str,
+                )            
             time.sleep(10)
 
         time.sleep(SLEEP_SECONDS)
