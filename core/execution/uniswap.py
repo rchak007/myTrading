@@ -696,7 +696,8 @@ def swap_via_0x(
     nonce          = w3.eth.get_transaction_count(wallet)
     gas_price      = w3.eth.gas_price
     # Safety: never broadcast with 0 gas price — use 1 gwei minimum
-    MIN_GAS_PRICE  = 10 ** 9  # 1 gwei in wei
+    # MIN_GAS_PRICE  = 10 ** 9  # 1 gwei in wei
+    MIN_GAS_PRICE = 2 * 10 ** 9  # 2 gwei — safer floor during low congestion
     if gas_price < MIN_GAS_PRICE:
         log.warning("[%s] gas_price from RPC=%d — using 1 gwei minimum", blockchain, gas_price)
         gas_price = MIN_GAS_PRICE
