@@ -14,9 +14,6 @@ from core.signals import (
     signal_super_most_adxr,
     FINAL_COLUMN_ORDER,
 )
-from core.macro import compute_regime_action
-
-from core.ohlcv_cache import cached_yahoo_download
 
 # Import scoring functions
 from data.stock_scoring import (
@@ -37,6 +34,17 @@ def fetch_market_cap(ticker: str) -> str:
         val = info.get("marketCap") or info.get("market_cap")
         if val and isinstance(val, (int, float)) and val > 0:
             return round(float(val) / 1_000_000, 2)  # convert to millions        
+        # info = yf.Ticker(ticker).info
+        # val = info.get("marketCap") or info.get("market_cap")
+        # if val and isinstance(val, (int, float)) and val > 0:
+        #     v = float(val)
+        #     if v >= 1e12:
+        #         return f"${v/1e12:.2f}T"
+        #     if v >= 1e9:
+        #         return f"${v/1e9:.1f}B"
+        #     if v >= 1e6:
+        #         return f"${v/1e6:.1f}M"
+        #     return f"${v:,.0f}"
     except Exception:
         pass
     return "N/A"
@@ -86,8 +94,8 @@ def fetch_current_price(ticker: str) -> float:
 
 def fetch_stock_1d_df(ticker: str, lookback_days: int = 450) -> pd.DataFrame | None:
     try:
-        raw = cached_yahoo_download(ticker, "1d", lookback_days)
-
+        raw = yf.download(ticker, period=f"{lookback_days}d", interval="1d", progress=False)
+       
         if raw is None or raw.empty:
             return None
         raw = _fix_yf_cols(raw)
@@ -109,7 +117,7 @@ def _fetch_spy_close(lookback_days: int = 450) -> pd.Series | None:
     Returns None if fetch fails.
     """
     try:
-        spy_raw = cached_yahoo_download("SPY", "1d", lookback_days)
+        spy_raw = yf.download("SPY", period=f"{lookback_days}d", interval="1d", progress=False)
         if spy_raw is None or spy_raw.empty:
             return None
         spy_raw = _fix_yf_cols(spy_raw)
@@ -131,7 +139,7 @@ def build_stocks_signals_table(
     adxr_lenx: int = 14,
     adxr_low_threshold: float = 20.0,
     adxr_flat_eps: float = 1e-6,
-    include_scoring: bool = True,
+    include_scoring: bool = True,  # New parameter to enable scoring
 ) -> pd.DataFrame:
     """
     Build stocks signals table with optional 45° trend scoring and earnings alerts.
@@ -193,6 +201,10 @@ def build_stocks_signals_table(
                 score_90  = score_data["Score_90"]
                 score_120 = score_data["Score_120"]
                 score_weighted = score_data["Score_Weighted"]
+                ret30  = score_data.get("%RET30",  np.nan)
+                ret60  = score_data.get("%RET60",  np.nan)
+                ret90  = score_data.get("%RET90",  np.nan)
+                ret120 = score_data.get("%RET120", np.nan)
                 earnings_alert = get_earnings_alert(t)
             except Exception as e:
                 print(f"Warning: Could not calculate score for {t}: {e}")
@@ -219,6 +231,10 @@ def build_stocks_signals_table(
             row["Score_90"]  = int(score_90)  if pd.notna(score_90)  else 0
             row["Score_120"] = int(score_120) if pd.notna(score_120) else 0
             row["Score_Weighted"] = int(score_weighted) if pd.notna(score_weighted) else 0
+            row["%RET30"]  = ret30
+            row["%RET60"]  = ret60
+            row["%RET90"]  = ret90
+            row["%RET120"] = ret120
             row["Earnings_Alert"] = earnings_alert
 
         # Market_Cap always after signal block
@@ -250,6 +266,7 @@ def build_stocks_signals_table(
         columns_order = [
             "Ticker", "Timeframe", "Bar Time", "Last Close", "Current Price",
             "SIGNAL-Super-MOST-ADXR", "Supertrend", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
+            "%RET30", "%RET60", "%RET90", "%RET120",
             "Earnings_Alert", "Market_Cap_M",
              "Supertrend Signal", "RSI",
             "MOST MA", "MOST Line", "MOST Signal",
@@ -267,66 +284,3 @@ def build_stocks_signals_table(
     # Reindex with available columns only
     available_cols = [col for col in columns_order if col in out.columns]
     return out.reindex(columns=available_cols)
-
-
-# ═══════════════════════════════════════════════════════════════════
-# Macro regime enrichment (called AFTER build_stocks_signals_table)
-# ═══════════════════════════════════════════════════════════════════
-
-def add_macro_regime_columns(
-    df: pd.DataFrame,
-    macro_regime: str,
-) -> pd.DataFrame:
-    """
-    Add 'Macro_Regime' and 'Regime_Action' columns to a stock signals DataFrame.
-
-    Call this AFTER build_stocks_signals_table() with the regime string
-    from compute_macro_regime().  Keeps build_stocks_signals_table() unchanged
-    so crypto / other callers are unaffected.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        Output of build_stocks_signals_table()
-    macro_regime : str
-        "BULL", "NEUTRAL", or "BEAR" — from compute_macro_regime() or override.
-
-    Returns
-    -------
-    pd.DataFrame with two new columns inserted right after SIGNAL-Super-MOST-ADXR:
-        Macro_Regime  : str — same for every row (market-wide)
-        Regime_Action : str — per-stock action combining signal + regime + score
-    """
-    if df.empty:
-        return df
-
-    df = df.copy()
-
-    # Add Macro_Regime (same for all rows — it's a market-level field)
-    df["Macro_Regime"] = macro_regime
-
-    # Add Regime_Action (per-stock, combines signal + regime + score)
-    sig_col = "SIGNAL-Super-MOST-ADXR"
-    score_col = "Score_Weighted"
-
-    def _action(row):
-        sig = str(row.get(sig_col, ""))
-        score = float(row.get(score_col, 0)) if pd.notna(row.get(score_col)) else 0.0
-        return compute_regime_action(sig, macro_regime, score)
-
-    df["Regime_Action"] = df.apply(_action, axis=1)
-
-    # Reorder: insert Macro_Regime and Regime_Action right after SIGNAL-Super-MOST-ADXR
-    cols = list(df.columns)
-    for new_col in ["Regime_Action", "Macro_Regime"]:
-        if new_col in cols:
-            cols.remove(new_col)
-    if sig_col in cols:
-        idx = cols.index(sig_col) + 1
-        cols.insert(idx, "Macro_Regime")
-        cols.insert(idx + 1, "Regime_Action")
-    else:
-        # Fallback: append
-        cols.extend(["Macro_Regime", "Regime_Action"])
-
-    return df.reindex(columns=cols)

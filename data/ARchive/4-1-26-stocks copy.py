@@ -16,8 +16,6 @@ from core.signals import (
 )
 from core.macro import compute_regime_action
 
-from core.ohlcv_cache import cached_yahoo_download
-
 # Import scoring functions
 from data.stock_scoring import (
     calculate_all_scores,
@@ -86,8 +84,8 @@ def fetch_current_price(ticker: str) -> float:
 
 def fetch_stock_1d_df(ticker: str, lookback_days: int = 450) -> pd.DataFrame | None:
     try:
-        raw = cached_yahoo_download(ticker, "1d", lookback_days)
-
+        raw = yf.download(ticker, period=f"{lookback_days}d", interval="1d", progress=False)
+       
         if raw is None or raw.empty:
             return None
         raw = _fix_yf_cols(raw)
@@ -109,7 +107,7 @@ def _fetch_spy_close(lookback_days: int = 450) -> pd.Series | None:
     Returns None if fetch fails.
     """
     try:
-        spy_raw = cached_yahoo_download("SPY", "1d", lookback_days)
+        spy_raw = yf.download("SPY", period=f"{lookback_days}d", interval="1d", progress=False)
         if spy_raw is None or spy_raw.empty:
             return None
         spy_raw = _fix_yf_cols(spy_raw)

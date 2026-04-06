@@ -3,12 +3,11 @@
 jobStocksSignals.py
 ===================
 Standalone cron job (no Streamlit) that:
-  1. Loads STOCK_TICKERS from app.py, params from core.config (single source of truth)
+  1. Loads STOCK_TICKERS + all params directly from app.py (no hardcoding)
   2. Builds stock signals table
-  3. Computes macro regime (VIX + SPY vs 200MA + breadth) and adds Macro_Regime / Regime_Action columns
-  4. Fetches Schwab holdings (QTY / VALUE) via saved tokens.json
-  5. Merges them → outputs/merged_holdings_signals.csv + HTML + README
-  6. Git commits & pushes to jobMyTrading repo
+  3. Fetches Schwab holdings (QTY / VALUE) via saved tokens.json
+  4. Merges them → outputs/merged_holdings_signals.csv + HTML + README
+  5. Git commits & pushes to jobMyTrading repo
 
 Cron on Pi (weekdays 6 AM PST = 14:00 UTC):
     0 14 * * 1-5 cd /home/rchak007/github/myTrading && .venv/bin/python jobStocksSignals.py >> /home/rchak007/github/jobMyTrading/job_stocks.log 2>&1
@@ -234,60 +233,51 @@ def main(no_push: bool = False):
     if str(MYTRADING_DIR) not in sys.path:
         sys.path.insert(0, str(MYTRADING_DIR))
 
-    # ── Load config: params from core.config, tickers from app.py ──────────────
-    from core.config import INDICATOR_PARAMS, MACRO_REGIME_OVERRIDE
-    from core.macro import compute_macro_regime
-    from data.stocks import build_stocks_signals_table, add_macro_regime_columns
-    from data.breadth import fetch_vix_value, fetch_spy_vs_200ma, breadth_proxy_from_spy
-
-    # Still need app.py for STOCK_TICKERS list and Schwab module ref
+    # ── Load config from app.py (same pattern as jobCryptoSignals.py) ──────────
     try:
         spec = importlib.util.spec_from_file_location("myTrading_app", str(MYTRADING_DIR / "app.py"))
         mod  = importlib.util.module_from_spec(spec)
         assert spec and spec.loader
         spec.loader.exec_module(mod)
-        STOCK_TICKERS = getattr(mod, "STOCK_TICKERS")
+
+        STOCK_TICKERS      = getattr(mod, "STOCK_TICKERS")
+        ATR_PERIOD         = getattr(mod, "ATR_PERIOD",         10)
+        ATR_MULTIPLIER     = getattr(mod, "ATR_MULTIPLIER",     3.0)
+        RSI_PERIOD         = getattr(mod, "RSI_PERIOD",         14)
+        VOL_LOOKBACK       = getattr(mod, "VOL_LOOKBACK",       20)
+        VOL_MULTIPLIER     = getattr(mod, "VOL_MULTIPLIER",     1.2)
+        RSI_BUY_THRESHOLD  = getattr(mod, "RSI_BUY_THRESHOLD",  50.0)
+        ADXR_LEN           = getattr(mod, "ADXR_LEN",           14)
+        ADXR_LENX          = getattr(mod, "ADXR_LENX",          14)
+        ADXR_LOW_THRESHOLD = getattr(mod, "ADXR_LOW_THRESHOLD", 20.0)
+        ADXR_FLAT_EPS      = getattr(mod, "ADXR_FLAT_EPS",      1e-6)
     except Exception as e:
-        raise RuntimeError(f"Could not load STOCK_TICKERS from myTrading/app.py: {e}")
+        raise RuntimeError(f"Could not load config from myTrading/app.py: {e}")
+
+    from data.stocks import build_stocks_signals_table
 
     pacific     = pytz.timezone("America/Los_Angeles")
     updated_pst = datetime.now(pacific).strftime("%Y-%m-%d %H:%M:%S %Z")
 
     log("=== jobStocksSignals.py start ===")
     log(f"Loaded {len(STOCK_TICKERS)} tickers from app.py")
-    log(f"Params from core.config: ATR={INDICATOR_PARAMS['atr_period']}/{INDICATOR_PARAMS['atr_multiplier']}, "
-        f"ADXR_LOW={INDICATOR_PARAMS['adxr_low_threshold']}")
 
-    # ── 1. Build signals (using centralized params) ─────────────────────────────
+    # ── 1. Build signals ────────────────────────────────────────────────────────
     log("Computing stock signals...")
     df_signals = build_stocks_signals_table(
         STOCK_TICKERS,
-        **INDICATOR_PARAMS,
+        atr_period=ATR_PERIOD,
+        atr_multiplier=ATR_MULTIPLIER,
+        rsi_period=RSI_PERIOD,
+        vol_lookback=VOL_LOOKBACK,
+        vol_multiplier=VOL_MULTIPLIER,
+        rsi_buy_threshold=RSI_BUY_THRESHOLD,
+        adxr_len=ADXR_LEN,
+        adxr_lenx=ADXR_LENX,
+        adxr_low_threshold=ADXR_LOW_THRESHOLD,
+        adxr_flat_eps=ADXR_FLAT_EPS,
     )
     log(f"Signals built: {len(df_signals)} rows")
-
-    # ── 1b. Compute macro regime & add columns ─────────────────────────────────
-    log("Computing macro regime...")
-    try:
-        vix = fetch_vix_value()
-        spy_close, spy_ma200, spy_status = fetch_spy_vs_200ma()
-        breadth = breadth_proxy_from_spy(spy_close, spy_ma200)
-
-        macro_info = compute_macro_regime(
-            vix=vix,
-            spy_above_200ma=(spy_status == "ABOVE"),
-            breadth_pct=breadth["pct"],
-            override=MACRO_REGIME_OVERRIDE,
-        )
-        macro_regime = macro_info["regime"]
-        log(f"Macro regime: {macro_regime} — {macro_info['reason']}")
-    except Exception as e:
-        log(f"⚠️  Macro regime computation failed: {e} — defaulting to NEUTRAL")
-        macro_regime = "NEUTRAL"
-        macro_info = {"regime": "NEUTRAL", "reason": f"Fallback (error: {e})", "risk_pct": 1.0}
-
-    df_signals = add_macro_regime_columns(df_signals, macro_regime)
-    log(f"Macro columns added: Macro_Regime={macro_regime}")
 
     # ── 2. Fetch Schwab holdings ────────────────────────────────────────────────
     df_holdings = fetch_schwab_holdings(mod)
@@ -313,9 +303,6 @@ def main(no_push: bool = False):
 
     meta = {
         "updated_at_pst": updated_pst,
-        "macro_regime": macro_regime,
-        "macro_reason": macro_info["reason"],
-        "macro_risk_pct": macro_info.get("risk_pct", 0),
         "tickers_scanned": len(df_signals),
         "tickers_held": len(held),
         "total_portfolio_value": total_val,
@@ -326,11 +313,6 @@ def main(no_push: bool = False):
     readme = f"""# Stock Signals Snapshot
 
 Last updated: **{updated_pst}**
-
-## Market Regime
-- **Macro Regime:** {macro_regime}
-- **Risk per trade:** {macro_info.get('risk_pct', 0)}%
-- **Reason:** {macro_info['reason']}
 
 ## Portfolio Summary
 - **Tickers scanned:** {len(df_signals)}

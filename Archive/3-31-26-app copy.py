@@ -70,23 +70,20 @@ CRYPTO_CSV = OUTPUTS_DIR / "supertrend_crypto_4h.csv"
 
 
 # -----------------------
-# SETTINGS / PARAMETERS  (from core.config — single source of truth)
+# SETTINGS / PARAMETERS
 # -----------------------
-from core.config import INDICATOR_PARAMS, MACRO_REGIME_OVERRIDE
-from core.macro import compute_macro_regime
-from data.stocks import add_macro_regime_columns
+# USED
+ATR_PERIOD = 10
+ATR_MULTIPLIER = 3.0
+RSI_PERIOD = 14
+VOL_LOOKBACK = 20
+VOL_MULTIPLIER = 1.2
+RSI_BUY_THRESHOLD = 50.0
 
-# Unpack for backward-compatibility with existing code in this file
-ATR_PERIOD         = INDICATOR_PARAMS["atr_period"]
-ATR_MULTIPLIER     = INDICATOR_PARAMS["atr_multiplier"]
-RSI_PERIOD         = INDICATOR_PARAMS["rsi_period"]
-VOL_LOOKBACK       = INDICATOR_PARAMS["vol_lookback"]
-VOL_MULTIPLIER     = INDICATOR_PARAMS["vol_multiplier"]
-RSI_BUY_THRESHOLD  = INDICATOR_PARAMS["rsi_buy_threshold"]
-ADXR_LEN           = INDICATOR_PARAMS["adxr_len"]
-ADXR_LENX          = INDICATOR_PARAMS["adxr_lenx"]
-ADXR_LOW_THRESHOLD = INDICATOR_PARAMS["adxr_low_threshold"]
-ADXR_FLAT_EPS      = INDICATOR_PARAMS["adxr_flat_eps"]
+ADXR_LEN = 14
+ADXR_LENX = 14
+ADXR_LOW_THRESHOLD = 20.0
+ADXR_FLAT_EPS = 1e-6
 
 # NOT USED YET (kept for future expansion)
 # - Schwab integration
@@ -106,27 +103,22 @@ PLACEHOLDER_FUTURE = True
 #     "META","MP","MSFT","MSTR","MSTX","MU","NET","NPPTF","NVDA","OKLO","ORCL","PLTR",
 #     "QBTS","QUBT","RGTI","RDDT","SOFI","SSK","STKE","VRT","TER","TSLA","TSM","UPXI",
 # ]
-
-
-
 STOCK_TICKERS = [
-    "AAPL","AAOI","ABTC", "ALAB","AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML","AVAV", "AVGO",
+    "AAPL","AAOI","ABTC", "ALAB","AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML", "AVGO",
     "BABA", "BE", "BMNR", "BWXT", 
     "CEG",  "CFG","CLSK", "COIN","COHR","COPX", "CORZ", "CRCL", "CRDO","CRWV", "CRWD", "CTVA",
-    "DPRO",
+    
     "ETHA","GEV", "GLD", "GLXY", "GOOG",
-    "HIMS", "HODL","HOOD","IBIT","IDR","INOD","IONQ","IREN", "KTOS",
-    "LEU","LITE", "LMT", "LRCX","LTBR", "LUNR",
+    "HIMS", "HODL","HOOD","IBIT","IDR","INOD","IONQ","IREN","LEU","LITE","LRCX","LTBR",
     "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU",
-    "NBIS", "NET", "NOC", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL",  "PLTR",
-    "QBTS","QUBT","RCAT", "RGTI","RDDT", "RKLB", "RTX",
+    "NBIS", "NET","NPPTF","NVDA", "O", "OKLO", "ONDS", "ORCL",  "PLTR",
+    "QBTS","QUBT","RGTI","RDDT", "RKLB", 
     "SATS", "SE", "SLV", "SOFI", "SPY", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC",
     "TER","TSLA","TSM","UMAC", "UPXI","VRT", "WDC", "WTI", "XLE"  
 ]
 
-
 # DESCRIPTION_STOCKS = ["
-# # SNA, O and CTVA - just momemntum 45 degree trades in scharls scwab 885 "MNST",
+# # SNA, O and CTVA - just momemntum 45 degree trades in scharls scwab 885
 # # 10 WAYS TO CAPTURE A $1.5T U.S. DEFENSE BUDGET IN 2027
 # # PLTR ONDS AVAV KTOS DPRO UMAC RCAT NOC RTX LMT
 #  "
@@ -136,31 +128,29 @@ STOCKS_NOTES = [
     "SNA, O and CTVA - just momentum 45 degree trades in Charles Schwab 885",
     "10 WAYS TO CAPTURE A $1.5T U.S. DEFENSE BUDGET IN 2027 = PLTR ONDS AVAV KTOS DPRO UMAC RCAT NOC RTX LMT",
     "🤖 AI / Data Center / Infrastructure NVDA, AMD, MSFT, GOOG, META, ORCL, PLTR, APP, APLD, CORZ, IREN, CLSK, MSTR, MSTX, CRWV, NBIS, ALAB VRT LITE BE  ",
-    "🤖 AI / Data Center / Infrastructure CEIN",
     "🚗 AI Applications / Consumer Tech TSLA, AAPL, ARM, ASML, MU, LRCX, TSM, MRVL, AVGO, TER, COHR, SNDK, WDC, CRDO",
     "⚛️ Quantum Computing QBTS, QUBT, RGTI, IONQ",
-    "☢️ Nuclear / Energy CEG, OKLO, SMR, LTBR, LEU, BWXT, GEV",
-    "🌐 Crypto / Bitcoin Proxy IBIT, ETHA, HODL, ARKB, COIN, HOOD, MSTR, MSTX, ABTC GLXY STRC BMNR",
+    "☢️ ⚡ Nuclear / Energy CEG, OKLO, SMR, LTBR, LEU, BWXT, GEV XLE",
+    "🌐 Crypto / Bitcoin Proxy IBIT, ETHA, HODL, ARKB, COIN, HOOD, MSTR, MSTX, ABTC GLXY STRC BMNR CRCL", 
     "🔒 Cybersecurity CRWD, NET",
     "🛸 Defense / Space / Rare earth MP , NPPTF ,  PLTR, ONDS, UMAC, RKLB",
     "💊 Healthcare / Biotech HIMS",
     "🏦 Fintech / Banking SOFI, CFG, RDDT, SE",
-    "🪙 Commodities / Macro Hedges GLD, SLV, COPX",
-    "🚀 SpaceX partial - SATS - echostar , LUNR"
-
+    "🪙 Commodities / Macro Hedges GLD, SLV, COPX -- OIL - WTI Energy - "  ,
+    "🚀 SpaceX partial - SATS - echostar "
 
 ]
 
 CRYPTO_TICKERS = [
     "BTC-USD","ETH-USD", "WETH-USD","SOL-USD","HYPE32196-USD", "SUI20947-USD", "LINK-USD","DOGE-USD", "ONDO-USD","BNB-USD",
-    "AAVE-USD" , "ADA-USD" , "AIXBT-USD", "AKT-USD", "ANON35092-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , 
+    "AAVE-USD" , "ADA-USD" ,"AERO29270-USD",  "AIXBT-USD", "AKT-USD", "ANON35092-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , 
     "cetus-usd" ,"cookie31838-usd" ,"CRV-USD",
      "DBR31528-USD", "DOGE-USD", "DRIFT31278-USD", "ELIZAOS-USD",  "elon-usd" ,"ENA-USD","ENS-USD",
-    "fluid-usd", "fluxb-usd","FAI34330-USD", "griffain-USD",
-    "HNT-USD", "IKA37454-USD", "JTO-USD", "JUP29210-USD", "KMNO-USD", "LFNTY-USD", 
+    "fluid-usd", "fluxb-usd","FAI34330-USD", "GAME34647-USD", "GIZA-USD",  "griffain-USD",
+    "HIPPO33258-USD", "HNT-USD", "IKA37454-USD", "JTO-USD", "JUP29210-USD", "KMNO-USD", "LFNTY-USD", 
     "MOBILE-USD",  "MON30495-USD", "navx-USD" , "NEAR-USD", "NOS-USD",  "ORCA-USD" , "ore32782-USD",
     "pippin-usd" , "PNK-USD", "PROVE-USD", "PYTH-USD","RAY-USD","RENDER-USD",
-     "SUAI-USD", "suins-usd",  "TAI20605-USD",
+    "SPACEX-USD", "SUAI-USD", "suins-usd",  "TAI20605-USD",
     "VIRTUAL-USD", "W-USD" , "WAL36119-USD", "WLD-USD", "wlfi33251-usd", "WTAO-USD", "XBG-USD" , "XRP-USD", "ZEREBRO-USD" , "ZEUS30391-USD", "zk24091-USD"
 ]
 
@@ -169,7 +159,7 @@ CRYPTO_TICKERS = [
 CRYPTO_NOT_FOUND_YAHOO = {
     "LQL": "https://www.geckoterminal.com/solana/pools/GiRyo4r3kREH8oRCe9GoJJARZuGo4ksto6xXvUok4wdd",
     "A0X": "https://www.geckoterminal.com/base/pools/0xfd100e192d0ff7a284f31a93b367d582666e406b",
-    "GAME": "https://www.geckoterminal.com/base/pools/0xd418dfe7670c21f682e041f34250c114db5d7789",
+    # "GAME": "https://www.geckoterminal.com/base/pools/0xd418dfe7670c21f682e041f34250c114db5d7789",
     "AoT": "https://www.geckoterminal.com/base/pools/0x6e7a1875810afb6074953094c35a101e1cc7aee010fb1372d8f41b0fbe92d83c",   
 }
 
@@ -466,22 +456,6 @@ def main():
             st.warning("No token in DB yet.")
             st.caption("After you login once, click 'Sync local → DB'.")
 
-    with st.sidebar:
-        st.subheader("🎛️ Macro Regime Override")
-        regime_options = ["AUTO", "BULL", "NEUTRAL", "BEAR"]
-        default_idx = regime_options.index(MACRO_REGIME_OVERRIDE) \
-            if MACRO_REGIME_OVERRIDE in regime_options else 0
-        macro_override = st.selectbox(
-            "Override macro regime:",
-            regime_options,
-            index=default_idx,
-            help="AUTO = computed from VIX+SPY+breadth. "
-                 "Set BULL/NEUTRAL/BEAR to force a regime for testing. "
-                 "Can also be set via .env: MACRO_REGIME_OVERRIDE=BULL"
-        )
-        if macro_override != "AUTO":
-            st.warning(f"⚠️ Macro regime OVERRIDDEN → {macro_override}")
-
     # @st.cache_data(ttl=120)
 
 
@@ -546,25 +520,6 @@ def main():
         st.markdown("- VIX < 20 ✅  + Breadth diverging ⚠️  + SPY > 200MA ✅  → **Risk 1% per trade**")
         st.markdown("- VIX 20–30 ⚠️ + Either breadth OR 200MA warning → **Risk 0.5% per trade**")
         st.markdown("- VIX > 30 ❌ OR SPY < 200MA ❌ → **Sit out**")
-
-        # ── Compute macro regime ──
-        macro_info = compute_macro_regime(
-            vix=vix,
-            spy_above_200ma=(spy_status == "ABOVE"),
-            breadth_pct=breadth["pct"],
-            override=macro_override,
-        )
-        macro_regime = macro_info["regime"]
-
-        st.markdown("---")
-        regime_icons = {"BULL": "🟢", "NEUTRAL": "🟡", "BEAR": "🔴"}
-        st.markdown(
-            f"### Macro Regime: {regime_icons.get(macro_regime, '')} **{macro_regime}** "
-            f"(Risk {macro_info['risk_pct']}%/trade)"
-        )
-        st.caption(macro_info["reason"])
-        if macro_info["overridden"]:
-            st.warning("⚠️ Regime is manually overridden — not computed from market data")
 
 
     st.divider()
@@ -646,9 +601,6 @@ def main():
             df_stocks["QTY"] = df_stocks["QTY"].fillna(0)
         if "VALUE" in df_stocks.columns:
             df_stocks["VALUE"] = df_stocks["VALUE"].fillna(0.0)
-
-        # --- Add macro regime + action columns ---
-        df_stocks = add_macro_regime_columns(df_stocks, macro_regime)
 
         # --- Reorder columns ---
         # Desired order after SIGNAL: QTY, VALUE, Score_30/60/90/120/Weighted, Market_Cap, Earnings_Alert

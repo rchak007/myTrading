@@ -13,8 +13,6 @@
 #   asset.blockchain == "base"         → Uniswap V3 (Base)
 #   asset.blockchain == "optimism"     → Uniswap V3 (Optimism)
 #   asset.blockchain == "hyperliquid"  → Hyperliquid L1 spot order book
-#   asset.blockchain == "bnb"          → PancakeSwap V3 / 0x (BSC)
-#   asset.blockchain == "sui"          → Aftermath Finance (SUI)
 
 from __future__ import annotations
 
@@ -114,10 +112,7 @@ USD_TOLERANCE   = float(os.getenv("USD_TOLERANCE",   "5"))
 MIN_SWAP_USD    = float(os.getenv("MIN_SWAP_USD",     "10"))
 SOL_FEE_RESERVE = float(os.getenv("SOL_FEE_RESERVE", "0.01"))
 ETH_FEE_RESERVE = float(os.getenv("ETH_FEE_RESERVE", "0.005"))  # ~$10-15 buffer for gas
-BNB_FEE_RESERVE = float(os.getenv("BNB_FEE_RESERVE", "0.005"))  # ~$3 buffer for BSC gas
-SUI_FEE_RESERVE = float(os.getenv("SUI_FEE_RESERVE", "0.05"))   # SUI gas is very cheap
 HL_SLIPPAGE     = float(os.getenv("HL_SLIPPAGE",     "0.03"))   # 3% IOC slippage for HL spot
-SUI_SLIPPAGE    = float(os.getenv("SUI_SLIPPAGE",    "0.03"))   # 3% slippage for SUI swaps
 
 # Indicator params (shared across all bots)
 ATR_PERIOD  = int(os.getenv("ATR_PERIOD",  "10"))
@@ -151,8 +146,6 @@ YF_INTERVAL_MAP = {
 EVM_CHAINS = {"ethereum", "base", "optimism"}
 SOLANA_CHAINS = {"solana"}
 HYPERLIQUID_CHAINS = {"hyperliquid"}
-BNB_CHAINS = {"bnb"}
-SUI_CHAINS = {"sui"}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -185,14 +178,6 @@ class AssetInfo:
     @property
     def is_hyperliquid(self) -> bool:
         return self.blockchain in HYPERLIQUID_CHAINS
-
-    @property
-    def is_bnb(self) -> bool:
-        return self.blockchain in BNB_CHAINS
-
-    @property
-    def is_sui(self) -> bool:
-        return self.blockchain in SUI_CHAINS
 
     # ── Solana helpers ──
     @property
@@ -285,20 +270,6 @@ def _lookup_decimals_on_chain(
 TOKEN_DECIMALS: dict[str, int] = _load_token_decimals()
 
 
-def _default_stablecoin(blockchain: str) -> str:
-    """Return the default stablecoin contract for a given blockchain."""
-    defaults = {
-        "solana":      "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",       # USDC
-        "ethereum":    "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",          # USDC
-        "base":        "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",          # USDC
-        "optimism":    "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",          # USDC
-        "bnb":         "0x55d398326f99059fF775485246999027B3197955",          # USDT (BSC)
-        "sui":         "0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC",
-        "hyperliquid": "",
-    }
-    return defaults.get(blockchain, "")
-
-
 def load_asset_registry(path: str) -> dict[str, AssetInfo]:
     with open(path, "r", encoding="utf-8") as f:
         raw = json.load(f)
@@ -334,17 +305,11 @@ def load_asset_registry(path: str) -> dict[str, AssetInfo]:
                 log.warning("⚠️  Could not determine decimals for %s — defaulting to 9. "
                             "Add manually to token_decimals.json if wrong.", key_upper)
 
-        elif blockchain in EVM_CHAINS or blockchain in BNB_CHAINS:
-            decimals = 18   # EVM-compatible tokens are virtually always 18
-
-        elif blockchain in SUI_CHAINS:
-            decimals = 9    # SUI default
+        elif blockchain in EVM_CHAINS:
+            decimals = 18   # EVM tokens are virtually always 18
 
         else:
             decimals = 9    # Solana fallback
-
-        # Default stablecoin per chain
-        default_stable = _default_stablecoin(blockchain)
 
         registry[key_upper] = AssetInfo(
             ticker=val["ticker"],
@@ -352,7 +317,12 @@ def load_asset_registry(path: str) -> dict[str, AssetInfo]:
             wallet_address=wallet_address,
             token_contract=token_contract,
             yahoo_ticker=val["yahoo_ticker"],
-            stablecoin_contract=val.get("stablecoin_contract", default_stable),
+            stablecoin_contract=val.get(
+                "stablecoin_contract",
+                "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"   # Solana USDC
+                if blockchain == "solana"
+                else "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"  # Ethereum/Base/Optimism USDC
+            ),
             decimals=decimals,
             hl_api_key_env=val.get("hl_api_key_env", ""),
         )
@@ -437,19 +407,17 @@ def load_wallet(wallet_env: str, blockchain: str):
     Load the correct wallet type based on blockchain.
     Returns:
         Keypair           for Solana
-        str (hex privkey) for EVM chains (ethereum/base/optimism)
-        str (hex privkey) for BNB (same EVM key format)
-        str (hex privkey) for SUI (Ed25519 hex key)
+        str (hex privkey) for EVM chains
         None              for Hyperliquid (HL API key is loaded per-asset, not per-wallet-env)
     """
     if blockchain in SOLANA_CHAINS:
         return load_keypair_solana(wallet_env)
-    elif blockchain in EVM_CHAINS or blockchain in BNB_CHAINS:
+    elif blockchain in EVM_CHAINS:
         return load_private_key_evm(wallet_env)
-    elif blockchain in SUI_CHAINS:
-        # SUI uses Ed25519 keys — stored the same way (Fernet-encrypted hex in .env)
-        return load_private_key_evm(wallet_env)  # same decryption, different usage
     elif blockchain in HYPERLIQUID_CHAINS:
+        # HL bots don't use a shared wallet_env — the API key is stored in
+        # asset_registry.json under hl_api_key_env and loaded per-asset.
+        # Return None; execute_plan_hyperliquid handles key loading itself.
         return None
     else:
         raise ValueError(f"Unknown blockchain '{blockchain}' for wallet loading")
@@ -593,76 +561,18 @@ def get_portfolio_evm(
     return _build_portfolio_dict(token_bal, tradable_token, stable_bal, token_price)
 
 
-def get_portfolio_bnb(
-    wallet_address: str,
-    asset: AssetInfo,
-    token_price: float,
-) -> dict:
-    """Get portfolio snapshot for a BNB Smart Chain wallet."""
-    from core.execution.bnb_chain import get_bnb_native_balance, get_bnb_token_balance
-
-    # Token balance
-    if asset.token_contract:
-        token_bal = get_bnb_token_balance(wallet_address, asset.token_contract, asset.decimals)
-    else:
-        # Native BNB
-        token_bal = get_bnb_native_balance(wallet_address)
-
-    # Gas reserve check
-    bnb_bal = get_bnb_native_balance(wallet_address)
-    if bnb_bal < BNB_FEE_RESERVE:
-        log.warning("[bnb] Low BNB for gas: %.6f BNB (need %.6f)", bnb_bal, BNB_FEE_RESERVE)
-    tradable_token = token_bal
-
-    # Stablecoin balance (USDT on BSC — 18 decimals for BSC USDT)
-    stable_bal = get_bnb_token_balance(
-        wallet_address, asset.stablecoin_contract, decimals=18
-    )
-
-    return _build_portfolio_dict(token_bal, tradable_token, stable_bal, token_price)
-
-
-def get_portfolio_sui(
-    wallet_address: str,
-    asset: AssetInfo,
-    token_price: float,
-) -> dict:
-    """Get portfolio snapshot for a SUI wallet."""
-    from core.execution.sui_swap import get_coin_balance, get_coin_decimals, SUI_COIN_TYPE
-
-    # Token balance
-    token_bal = get_coin_balance(wallet_address, asset.token_contract)
-
-    # Gas reserve check (native SUI)
-    if asset.token_contract == SUI_COIN_TYPE:
-        tradable_token = max(0.0, token_bal - SUI_FEE_RESERVE)
-    else:
-        tradable_token = token_bal
-        sui_bal = get_coin_balance(wallet_address, SUI_COIN_TYPE)
-        if sui_bal < SUI_FEE_RESERVE:
-            log.warning("[sui] Low SUI for gas: %.4f SUI (need %.4f)", sui_bal, SUI_FEE_RESERVE)
-
-    # Stablecoin balance (USDC on SUI — 6 decimals)
-    stable_bal = get_coin_balance(wallet_address, asset.stablecoin_contract)
-
-    return _build_portfolio_dict(token_bal, tradable_token, stable_bal, token_price)
-
-
 def get_portfolio(
-    wallet,           # Keypair (Solana) or str pubkey (EVM/BNB/SUI) or None (HL)
+    wallet,           # Keypair (Solana) or str pubkey (EVM) or None (HL)
     asset: AssetInfo,
     token_price: float,
 ) -> dict:
-    """Dispatch to Solana, EVM, BNB, SUI, or Hyperliquid portfolio function."""
+    """Dispatch to Solana, EVM, or Hyperliquid portfolio function."""
     if asset.is_solana:
         pubkey = str(wallet.pubkey())
         return get_portfolio_solana(pubkey, asset, token_price)
     elif asset.is_evm:
+        # For EVM we need the public address — stored in asset_registry.json
         return get_portfolio_evm(asset.wallet_address, asset, token_price)
-    elif asset.is_bnb:
-        return get_portfolio_bnb(asset.wallet_address, asset, token_price)
-    elif asset.is_sui:
-        return get_portfolio_sui(asset.wallet_address, asset, token_price)
     elif asset.is_hyperliquid:
         return get_portfolio_hyperliquid(asset, token_price)
     else:
@@ -765,10 +675,6 @@ def execute_plan(
         return _execute_plan_solana(wallet=wallet, plan=plan, asset=asset)
     elif asset.is_evm:
         return _execute_plan_evm(private_key=wallet, plan=plan, asset=asset)
-    elif asset.is_bnb:
-        return _execute_plan_bnb(private_key=wallet, plan=plan, asset=asset)
-    elif asset.is_sui:
-        return _execute_plan_sui(private_key=wallet, plan=plan, asset=asset)
     elif asset.is_hyperliquid:
         return _execute_plan_hyperliquid(plan=plan, asset=asset, price=price)
     else:
@@ -859,93 +765,6 @@ def _execute_plan_evm(*, private_key: str, plan: dict, asset: AssetInfo) -> dict
         )
         log.info("✅ EVM SELL %s [%s]: sold %.6f tx=%s", ticker, blockchain, token_amt, tx_hash)
         return {"action": f"SELL_{ticker}", "amount": token_amt, "amount_ccy": ticker, "tx_sig": tx_hash}
-
-    raise RuntimeError(f"Unknown plan action: {plan}")
-
-
-def _execute_plan_bnb(*, private_key: str, plan: dict, asset: AssetInfo) -> dict | None:
-    """Execute a swap on BNB Smart Chain via PancakeSwap V3 / 0x."""
-    from core.execution.bnb_chain import bnb_swap
-
-    token_contract  = asset.token_contract
-    stable_contract = asset.stablecoin_contract
-    ticker          = asset.ticker
-    stable_decimals = 18  # BSC USDT is 18 decimals
-
-    if plan["action"] == "BUY_TOKEN":
-        stable_amt = float(plan["stable_amount"])
-        tx_hash = bnb_swap(
-            private_key=private_key,
-            token_in=stable_contract,
-            token_out=token_contract,
-            amount_in_human=stable_amt,
-            token_in_decimals=stable_decimals,
-            token_out_decimals=asset.decimals,
-            slippage_bps=SLIPPAGE_BPS,
-        )
-        log.info("✅ BNB BUY %s: spent USDT=%.2f tx=%s", ticker, stable_amt, tx_hash)
-        return {"action": f"BUY_{ticker}", "amount": stable_amt, "amount_ccy": "USDT", "tx_sig": tx_hash}
-
-    if plan["action"] == "SELL_TOKEN":
-        token_amt = float(plan["token_amount"])
-        tx_hash = bnb_swap(
-            private_key=private_key,
-            token_in=token_contract,
-            token_out=stable_contract,
-            amount_in_human=token_amt,
-            token_in_decimals=asset.decimals,
-            token_out_decimals=stable_decimals,
-            slippage_bps=SLIPPAGE_BPS,
-        )
-        log.info("✅ BNB SELL %s: sold %.6f tx=%s", ticker, token_amt, tx_hash)
-        return {"action": f"SELL_{ticker}", "amount": token_amt, "amount_ccy": ticker, "tx_sig": tx_hash}
-
-    raise RuntimeError(f"Unknown plan action: {plan}")
-
-
-def _execute_plan_sui(*, private_key: str, plan: dict, asset: AssetInfo) -> dict | None:
-    """Execute a swap on SUI via Aftermath Finance aggregator."""
-    from core.execution.sui_swap import sui_swap, get_coin_decimals
-
-    coin_in_type    = asset.token_contract
-    coin_out_type   = asset.stablecoin_contract
-    ticker          = asset.ticker
-
-    # Get stablecoin decimals (USDC on SUI = 6)
-    try:
-        stable_decimals = get_coin_decimals(asset.stablecoin_contract)
-    except Exception:
-        stable_decimals = 6  # USDC default
-
-    if plan["action"] == "BUY_TOKEN":
-        stable_amt = float(plan["stable_amount"])
-        digest = sui_swap(
-            private_key=private_key,
-            wallet_address=asset.wallet_address,
-            coin_in_type=coin_out_type,     # stable → token (reversed)
-            coin_out_type=coin_in_type,
-            amount_in_human=stable_amt,
-            coin_in_decimals=stable_decimals,
-            coin_out_decimals=asset.decimals,
-            slippage=SUI_SLIPPAGE,
-        )
-        log.info("✅ SUI BUY %s: spent USDC=%.2f digest=%s", ticker, stable_amt, digest)
-        return {"action": f"BUY_{ticker}", "amount": stable_amt, "amount_ccy": "USDC", "tx_sig": digest}
-
-    if plan["action"] == "SELL_TOKEN":
-        token_amt = float(plan["token_amount"])
-        digest = sui_swap(
-            private_key=private_key,
-            wallet_address=asset.wallet_address,
-            coin_in_type=coin_in_type,      # token → stable
-            coin_out_type=coin_out_type,
-            amount_in_human=token_amt,
-            coin_in_decimals=asset.decimals,
-            coin_out_decimals=stable_decimals,
-            slippage=SUI_SLIPPAGE,
-        )
-        log.info("✅ SUI SELL %s: sold %.6f digest=%s", ticker, token_amt, digest)
-        return {"action": f"SELL_{ticker}", "amount": token_amt, "amount_ccy": ticker, "tx_sig": digest}
 
     raise RuntimeError(f"Unknown plan action: {plan}")
 
@@ -1487,11 +1306,7 @@ def main():
             elif bot.asset.is_hyperliquid:
                 log.info("  [%s | hyperliquid] wallet=%s (API key loaded per-asset from .env var '%s')",
                          bot.name, bot.asset.wallet_address, bot.asset.hl_api_key_env)
-            elif bot.asset.is_sui:
-                log.info("  [%s | sui] wallet=%s (Ed25519 key loaded)",
-                         bot.name, bot.asset.wallet_address)
             else:
-                # EVM-compatible: ethereum, base, optimism, bnb
                 log.info("  [%s | %s] wallet=%s (EVM key loaded)",
                          bot.name, bot.asset.blockchain, bot.wallet_env)
 

@@ -20,16 +20,19 @@ from core.indicators import apply_indicators
 from core.signals import signal_super_most_adxr
 from data.stock_scoring import calculate_45_degree_score, calculate_all_scores, get_earnings_alert
 
-from core.config import INDICATOR_PARAMS
-
 
 # -----------------------
 # CONFIGURATION DEFAULTS
 # -----------------------
-# Indicator params come from core.config (single source of truth).
-# Scanner-specific settings (scan_period, min_dollar_volume, etc.) are local.
 DEFAULT_CONFIG = {
-    **INDICATOR_PARAMS,                  # atr_period, atr_multiplier, rsi_period, etc.
+    "atr_period": 10,
+    "atr_multiplier": 3.0,
+    "rsi_period": 14,
+    "vol_lookback": 20,
+    "adxr_len": 14,
+    "adxr_lenx": 14,
+    "adxr_low_threshold": 20.0,
+    "adxr_flat_eps": 1e-6,
     "scan_period": "420d",
     "scan_interval": "1d",
     "earnings_window_days": 7,
