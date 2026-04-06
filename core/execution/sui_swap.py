@@ -127,6 +127,41 @@ def get_all_coins(owner: str, coin_type: str) -> list[dict]:
 # ═══════════════════════════════════════════════════════════════════
 # Aftermath Finance Router — quote + swap
 # ═══════════════════════════════════════════════════════════════════
+
+def _strip_bigint_n(obj):
+    """
+    Recursively strip trailing 'n' from string values in a JSON-like object.
+    Aftermath REST API returns JavaScript BigInt values as strings like "5003839364n".
+    These must be cleaned to plain numeric strings before sending back.
+    """
+    import re
+    if isinstance(obj, dict):
+        return {k: _strip_bigint_n(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_strip_bigint_n(v) for v in obj]
+    elif isinstance(obj, str) and re.fullmatch(r'-?\d+n', obj):
+        return obj[:-1]  # strip trailing 'n'
+    return obj
+
+
+def _parse_aftermath_json(response) -> dict:
+    """
+    Parse Aftermath API response, handling JS BigInt notation.
+    The REST API sometimes returns BigInt values like 12345n which break json.loads().
+    We strip the 'n' suffix from number literals before parsing.
+    """
+    import re
+    raw = response.text
+    # Replace JS BigInt notation: digits followed by 'n' (not inside quotes yet handled)
+    # Handle both in-string "12345n" and bare 12345n in JSON
+    cleaned = re.sub(r'(?<=[\s:,\[])(\d+)n(?=[\s,}\]])', r'\1', raw)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        # Fallback: standard parse (works if response was clean JSON)
+        return response.json()
+
+
 def aftermath_get_route(
     coin_in_type: str,
     coin_out_type: str,
@@ -148,7 +183,10 @@ def aftermath_get_route(
 
     r = requests.post(url, json=payload, timeout=30)
     r.raise_for_status()
-    route = r.json()
+    route = _parse_aftermath_json(r)
+
+    # Also strip any remaining 'n' suffixes in nested values
+    route = _strip_bigint_n(route)
 
     if not route or "coinOut" not in route:
         raise RuntimeError(f"Aftermath: no route found for {coin_in_type}→{coin_out_type}")
@@ -167,21 +205,41 @@ def aftermath_build_tx(
     """
     Build a swap transaction via Aftermath Finance API.
     Returns the transaction block bytes (base64) ready for signing.
+
+    Aftermath REST API expects:
+      POST /router/transactions/trade
+      {
+        "completeRoute": <full route object from /router/trade-route>,
+        "walletAddress": "0x...",
+        "slippage": 0.03
+      }
     """
     url = f"{AFTERMATH_API_BASE}/router/transactions/trade"
     payload = {
-        "route":    route,
-        "sender":   sender,
-        "slippage": slippage,
+        "completeRoute":  route,
+        "walletAddress":  sender,
+        "slippage":       slippage,
     }
 
+    log.info("Aftermath build_tx: wallet=%s slippage=%.1f%%", sender[:16], slippage * 100)
+
     r = requests.post(url, json=payload, timeout=30)
-    r.raise_for_status()
+
+    # Log error body before raising
+    if r.status_code != 200:
+        try:
+            err_body = r.text[:500]
+        except Exception:
+            err_body = "(could not read body)"
+        log.error("Aftermath build_tx FAILED: status=%d body=%s", r.status_code, err_body)
+        r.raise_for_status()
+
     tx_data = r.json()
 
-    if "tx" not in tx_data and "txBytes" not in tx_data:
-        raise RuntimeError(f"Aftermath: no transaction in response: {tx_data}")
+    if "tx" not in tx_data and "txBytes" not in tx_data and "transaction" not in tx_data:
+        raise RuntimeError(f"Aftermath: no transaction in response: {list(tx_data.keys())}")
 
+    log.info("Aftermath build_tx: got tx data keys=%s", list(tx_data.keys()))
     return tx_data
 
 
@@ -294,10 +352,15 @@ def sui_swap(
     # Step 2: Build transaction
     tx_data = aftermath_build_tx(route, wallet_address, slippage)
 
-    # Extract tx bytes (Aftermath may return as "tx" or "txBytes")
-    tx_bytes_b64 = tx_data.get("txBytes") or tx_data.get("tx", "")
+    # Extract tx bytes (Aftermath may return as "tx", "txBytes", or "transaction")
+    tx_bytes_b64 = (
+        tx_data.get("txBytes")
+        or tx_data.get("tx")
+        or tx_data.get("transaction")
+        or ""
+    )
     if not tx_bytes_b64:
-        raise RuntimeError("[sui] Aftermath returned no transaction bytes")
+        raise RuntimeError(f"[sui] Aftermath returned no transaction bytes. Keys: {list(tx_data.keys())}")
 
     # Step 3: Sign and execute
     digest = sign_and_execute_sui_tx(tx_bytes_b64, private_key)
