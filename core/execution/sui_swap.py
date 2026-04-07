@@ -310,7 +310,18 @@ def sign_and_execute_sui_tx(
 
 # ═══════════════════════════════════════════════════════════════════
 # sui_swap() — SINGLE ENTRY POINT for all SUI swaps in bot.py
+# Uses the Aftermath TypeScript SDK via a Node.js helper subprocess.
+# The REST API's transaction endpoint requires wallet-signed auth tokens,
+# so we delegate to the TS SDK which handles this natively.
 # ═══════════════════════════════════════════════════════════════════
+
+# Path to the Node.js helper script (relative to repo root)
+SUI_SWAP_HELPER = os.getenv(
+    "SUI_SWAP_HELPER_PATH",
+    os.path.join(os.path.dirname(__file__), "sui_swap_helper.js"),
+)
+
+
 def sui_swap(
     *,
     private_key: str,
@@ -324,6 +335,9 @@ def sui_swap(
 ) -> str:
     """
     Unified SUI swap entry point for bot.py.
+
+    Delegates to sui_swap_helper.js (Node.js + Aftermath TS SDK) for
+    route discovery, transaction building, signing, and execution.
 
     Parameters
     ----------
@@ -340,30 +354,73 @@ def sui_swap(
     -------
     Transaction digest string.
     """
+    import subprocess
+
     amount_in_raw = int(amount_in_human * (10 ** coin_in_decimals))
 
     log.info("[sui] swap: %s → %s | amount=%.6f (raw=%d) slippage=%.1f%%",
              coin_in_type.split("::")[-1], coin_out_type.split("::")[-1],
              amount_in_human, amount_in_raw, slippage * 100)
 
-    # Step 1: Get route from Aftermath
-    route = aftermath_get_route(coin_in_type, coin_out_type, amount_in_raw)
+    # Build command
+    cmd = [
+        "node", SUI_SWAP_HELPER,
+        "--coinIn",     coin_in_type,
+        "--coinOut",    coin_out_type,
+        "--amount",     str(amount_in_raw),
+        "--wallet",     wallet_address,
+        "--privateKey", private_key,
+        "--slippage",   str(slippage),
+    ]
 
-    # Step 2: Build transaction
-    tx_data = aftermath_build_tx(route, wallet_address, slippage)
+    # Add custom RPC URL if set
+    rpc_url = os.getenv("SUI_RPC_URL")
+    if rpc_url:
+        cmd.extend(["--rpcUrl", rpc_url])
 
-    # Extract tx bytes (Aftermath may return as "tx", "txBytes", or "transaction")
-    tx_bytes_b64 = (
-        tx_data.get("txBytes")
-        or tx_data.get("tx")
-        or tx_data.get("transaction")
-        or ""
-    )
-    if not tx_bytes_b64:
-        raise RuntimeError(f"[sui] Aftermath returned no transaction bytes. Keys: {list(tx_data.keys())}")
+    log.info("[sui] calling sui_swap_helper.js ...")
 
-    # Step 3: Sign and execute
-    digest = sign_and_execute_sui_tx(tx_bytes_b64, private_key)
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=120,  # 2 min timeout
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("[sui] sui_swap_helper.js timed out after 120s")
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"[sui] Node.js not found or helper script missing at {SUI_SWAP_HELPER}. "
+            "Install: npm install aftermath-ts-sdk @mysten/sui"
+        )
 
-    log.info("[sui] ✅ swap confirmed: digest=%s", digest)
-    return digest
+    # Log stderr (helper's debug output)
+    if result.stderr:
+        for line in result.stderr.strip().split("\n"):
+            log.info("[sui_helper] %s", line)
+
+    # Parse stdout JSON
+    stdout = result.stdout.strip()
+    if not stdout:
+        raise RuntimeError(
+            f"[sui] sui_swap_helper.js returned no output. "
+            f"exit_code={result.returncode} stderr={result.stderr[:500]}"
+        )
+
+    try:
+        data = json.loads(stdout)
+    except json.JSONDecodeError:
+        raise RuntimeError(
+            f"[sui] sui_swap_helper.js returned invalid JSON: {stdout[:500]}"
+        )
+
+    if data.get("status") == "success":
+        digest = data.get("digest", "")
+        amount_out = data.get("amountOut", "?")
+        log.info("✅ SUI swap SUCCESS | digest=%s amountOut=%s", digest, amount_out)
+        return digest
+
+    # Error
+    error_msg = data.get("message", "unknown error")
+    raise RuntimeError(f"[sui] swap failed: {error_msg}")
