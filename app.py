@@ -108,14 +108,13 @@ PLACEHOLDER_FUTURE = True
 # ]
 
 
-
 STOCK_TICKERS = [
-    "AAPL","AAOI","ABTC", "ALAB","AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML","AVAV", "AVGO",
-    "BABA", "BE", "BMNR", "BWXT", 
-    "CEG",  "CFG","CLSK", "COIN","COHR","COPX", "CORZ", "CRCL", "CRDO","CRWV", "CRWD", "CTVA",
+    "AAPL","AAOI","ABTC", "ALAB", "AMAT", "AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML","AVAV", "AVGO",
+    "BABA", "BE", "BMNR", "BOTZ", "BWXT", 
+    "CEG",  "CFG", "CIEN",  "CLSK", "COIN","COHR","COPX", "CORZ", "CRCL", "CRDO","CRWV", "CRWD", "CTVA",
     "DPRO",
     "ETHA","GEV", "GLD", "GLXY", "GOOG",
-    "HIMS", "HODL","HOOD","IBIT","IDR","INOD","IONQ","IREN", "KTOS",
+    "HIMS", "HODL","HOOD","IBIT","IDR","INOD","IONQ", "IRDM",  "IREN", "KTOS",
     "LEU","LITE", "LMT", "LRCX","LTBR", "LUNR",
     "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU",
     "NBIS", "NET", "NOC", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL",  "PLTR",
@@ -123,7 +122,6 @@ STOCK_TICKERS = [
     "SATS", "SE", "SLV", "SOFI", "SPY", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC",
     "TER","TSLA","TSM","UMAC", "UPXI","VRT", "WDC", "WTI", "XLE"  
 ]
-
 
 # DESCRIPTION_STOCKS = ["
 # # SNA, O and CTVA - just momemntum 45 degree trades in scharls scwab 885 "MNST",
@@ -135,19 +133,17 @@ STOCK_TICKERS = [
 STOCKS_NOTES = [
     "SNA, O and CTVA - just momentum 45 degree trades in Charles Schwab 885",
     "10 WAYS TO CAPTURE A $1.5T U.S. DEFENSE BUDGET IN 2027 = PLTR ONDS AVAV KTOS DPRO UMAC RCAT NOC RTX LMT",
-    "🤖 AI / Data Center / Infrastructure NVDA, AMD, MSFT, GOOG, META, ORCL, PLTR, APP, APLD, CORZ, IREN, CLSK, MSTR, MSTX, CRWV, NBIS, ALAB VRT LITE BE  ",
-    "🤖 AI / Data Center / Infrastructure CEIN",
+    "🤖 AI / Data Center / Infrastructure NVDA, AMD, MSFT, GOOG, META, ORCL, PLTR, APP, APLD, CIEN CORZ, ",
+    "🤖 AI / Data Center / Infrastructure   CRWV, NBIS, ALAB VRT LITE BE  ",
     "🚗 AI Applications / Consumer Tech TSLA, AAPL, ARM, ASML, MU, LRCX, TSM, MRVL, AVGO, TER, COHR, SNDK, WDC, CRDO",
     "⚛️ Quantum Computing QBTS, QUBT, RGTI, IONQ",
     "☢️ Nuclear / Energy CEG, OKLO, SMR, LTBR, LEU, BWXT, GEV",
-    "🌐 Crypto / Bitcoin Proxy IBIT, ETHA, HODL, ARKB, COIN, HOOD, MSTR, MSTX, ABTC GLXY STRC BMNR",
+    "🌐 Crypto / Bitcoin Proxy IBIT, ETHA, HODL, ARKB, COIN, HOOD, MSTR, MSTX, ABTC GLXY STRC BMNR IREN, CLSK",
     "🔒 Cybersecurity CRWD, NET",
     "🛸 Defense / Space / Rare earth MP , NPPTF ,  PLTR, ONDS, UMAC, RKLB",
     "💊 Healthcare / Biotech HIMS",
     "🏦 Fintech / Banking SOFI, CFG, RDDT, SE",
     "🪙 Commodities / Macro Hedges GLD, SLV, COPX",
-    "🚀 SpaceX partial - SATS - echostar , LUNR"
-
 
 ]
 
@@ -650,12 +646,16 @@ def main():
         # --- Add macro regime + action columns ---
         df_stocks = add_macro_regime_columns(df_stocks, macro_regime)
 
+        # --- Ensure Market_Cap_M is numeric for proper sorting ---
+        if "Market_Cap_M" in df_stocks.columns:
+            df_stocks["Market_Cap_M"] = pd.to_numeric(df_stocks["Market_Cap_M"], errors="coerce")
+
         # --- Reorder columns ---
-        # Desired order after SIGNAL: QTY, VALUE, Score_30/60/90/120/Weighted, Market_Cap, Earnings_Alert
+        # Desired order after SIGNAL: QTY, VALUE, Score_30/60/90/120/Weighted, Market_Cap_M, Earnings_Alert
         cols = list(df_stocks.columns)
 
         # Pull out columns we want to place explicitly
-        priority_cols = ["QTY", "VALUE", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted", "Earnings_Alert", "Market_Cap"]
+        priority_cols = ["QTY", "VALUE", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted", "Earnings_Alert", "Market_Cap_M"]
         for c in priority_cols:
             if c in cols:
                 cols.remove(c)

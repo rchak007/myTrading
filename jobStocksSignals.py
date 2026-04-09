@@ -202,7 +202,7 @@ def fetch_schwab_holdings(app_mod) -> pd.DataFrame:
 def reorder_columns(df: pd.DataFrame) -> pd.DataFrame:
     cols = list(df.columns)
     priority_cols = ["QTY", "VALUE", "Score_30", "Score_60", "Score_90", "Score_120",
-                     "Score_Weighted", "Earnings_Alert", "Market_Cap"]
+                     "Score_Weighted", "Earnings_Alert", "Market_Cap_M"]
     for c in priority_cols:
         if c in cols:
             cols.remove(c)
