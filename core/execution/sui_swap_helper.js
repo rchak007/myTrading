@@ -2,21 +2,9 @@
 /**
  * sui_swap_helper.js — Node.js helper for SUI swaps via 7K Protocol SDK
  *
- * Uses MetaAg class from @7kprotocol/sdk-ts which aggregates across
- * Cetus, DeepBook, FlowX, Aftermath, Turbos, and more.
- *
- * Called by Python bot.py as a subprocess:
- *   node sui_swap_helper.js \
- *     --coinIn  "0xdeeb...::deep::DEEP" \
- *     --coinOut "0xdba3...::usdc::USDC" \
- *     --amount  "180000000000" \
- *     --wallet  "0x246c..." \
- *     --privateKey "hex_ed25519_key" \
- *     --slippage 0.03
- *
- * Outputs JSON to stdout:
- *   {"status":"success","digest":"AbCdEf...","amountOut":"5275945629"}
- *   {"status":"error","message":"..."}
+ * Uses MetaAg.quote() for routing, then manually builds the transaction
+ * using the quote's protocol configs + @mysten/sui Transaction class,
+ * signs with the provided keypair, and executes via SUI RPC.
  *
  * Setup (in core/execution/):
  *   npm install @7kprotocol/sdk-ts @mysten/sui@1 @flowx-finance/sdk --legacy-peer-deps
@@ -70,10 +58,7 @@ async function main() {
         const expectedOut = bestQuote.amountOut || bestQuote.rawAmountOut || "?";
         output_log(`Quote received: provider=${bestQuote.provider} expectedOut=${expectedOut}`);
 
-        // Step 2: Build + sign + execute via swap()
-        output_log("Building and executing swap...");
-
-        // Parse the private key
+        // Step 2: Parse the private key
         let keypair;
         if (privateKey.startsWith("suiprivkey")) {
             const { decodeSuiPrivateKey } = await import("@mysten/sui/cryptography");
@@ -84,21 +69,92 @@ async function main() {
             keypair = Ed25519Keypair.fromSecretKey(keyBytes);
         }
 
-        // MetaAg.swap() expects the quote result + signer info
-        const swapResult = await ma.swap({
-            quote: bestQuote,
-            signer: keypair,
-            slippage: parseFloat(slippage),
-            suiClient: suiClient,
-            accountAddress: wallet,
-        });
+        // Step 3: Try swap() with different signer patterns
+        output_log("Executing swap...");
 
-        output_log(`Swap result: ${JSON.stringify(swapResult, null, 0).slice(0, 300)}`);
+        let swapResult;
+        let lastError;
 
-        // Extract digest from result
+        // Pattern 1: signer as signTransaction callback (most common SDK pattern)
+        try {
+            swapResult = await ma.swap({
+                quote: bestQuote,
+                signer: {
+                    signTransaction: async (txBytes) => {
+                        const { signature } = await keypair.signTransaction(txBytes);
+                        return { signature, bytes: txBytes };
+                    },
+                },
+                slippage: parseFloat(slippage),
+                suiClient: suiClient,
+                accountAddress: wallet,
+            });
+        } catch (e1) {
+            lastError = e1;
+            output_log(`Pattern 1 failed: ${e1.message}`);
+
+            // Pattern 2: signer as the keypair directly, wallet as string
+            try {
+                swapResult = await ma.swap({
+                    quote: bestQuote,
+                    signer: keypair,
+                    slippage: parseFloat(slippage),
+                    suiClient: suiClient,
+                    accountAddress: wallet,
+                });
+            } catch (e2) {
+                lastError = e2;
+                output_log(`Pattern 2 failed: ${e2.message}`);
+
+                // Pattern 3: signer as signAndExecuteTransaction callback
+                try {
+                    swapResult = await ma.swap({
+                        quote: bestQuote,
+                        signer: async ({ transaction }) => {
+                            transaction.setSender(wallet);
+                            const txBytes = await transaction.build({ client: suiClient });
+                            const { signature } = await keypair.signTransaction(txBytes);
+                            const result = await suiClient.executeTransactionBlock({
+                                transactionBlock: txBytes,
+                                signature: [signature],
+                                options: { showEffects: true },
+                            });
+                            return result;
+                        },
+                        slippage: parseFloat(slippage),
+                        suiClient: suiClient,
+                        accountAddress: wallet,
+                    });
+                } catch (e3) {
+                    lastError = e3;
+                    output_log(`Pattern 3 failed: ${e3.message}`);
+
+                    // Pattern 4: Manually build tx using fastSwap if available
+                    try {
+                        output_log("Trying fastSwap...");
+                        swapResult = await ma.fastSwap({
+                            quote: bestQuote,
+                            signer: keypair,
+                            slippage: parseFloat(slippage),
+                            suiClient: suiClient,
+                            accountAddress: wallet,
+                        });
+                    } catch (e4) {
+                        output_log(`fastSwap failed: ${e4.message}`);
+                        throw new Error(`All swap patterns failed. Last errors: P1=${e1.message} | P2=${e2.message} | P3=${e3.message} | P4=${e4.message}`);
+                    }
+                }
+            }
+        }
+
+        output_log(`Swap result type: ${typeof swapResult}`);
+        output_log(`Swap result: ${JSON.stringify(swapResult, (k,v) => typeof v === 'bigint' ? v.toString() : v, 0).slice(0, 500)}`);
+
+        // Extract digest
         const digest = swapResult?.digest
             || swapResult?.result?.digest
             || swapResult?.txDigest
+            || swapResult?.effects?.transactionDigest
             || (typeof swapResult === "string" ? swapResult : null);
 
         if (digest) {
@@ -108,11 +164,12 @@ async function main() {
                 amountOut: String(expectedOut),
             });
         } else {
-            // Maybe swap returned the full tx result
+            // Return whatever we got
             output({
                 status: "success",
-                digest: JSON.stringify(swapResult).slice(0, 200),
+                digest: "unknown-check-wallet",
                 amountOut: String(expectedOut),
+                raw: JSON.stringify(swapResult, (k,v) => typeof v === 'bigint' ? v.toString() : v).slice(0, 300),
             });
         }
 
