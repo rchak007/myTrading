@@ -2,14 +2,11 @@
 /**
  * sui_swap_helper.js — Node.js helper for SUI swaps via 7K Protocol SDK
  *
- * MetaAg.swap() expects:
- *   - signer: wallet address STRING (not keypair)
- *   - tx: a @mysten/sui Transaction object
- *   - quote: the quote result from MetaAg.quote()
- * It builds the swap commands into the Transaction, then we sign + execute.
+ * Handles SUI's UTXO-like coin model by merging all coin objects of the
+ * input type before swapping — same as what Slush wallet does automatically.
  *
  * Setup (in core/execution/):
- *   npm install @7kprotocol/sdk-ts @mysten/sui@1 @flowx-finance/sdk axios --legacy-peer-deps
+ *   npm install @7kprotocol/sdk-ts @mysten/sui@1 @flowx-finance/sdk @cetusprotocol/aggregator-sdk axios --legacy-peer-deps
  */
 
 async function main() {
@@ -44,6 +41,11 @@ async function main() {
         // Initialize MetaAg
         const ma = new sevenK.MetaAg({ suiClient });
 
+        // Step 0: Merge all coins of the input type first
+        // SUI uses UTXO model — tokens may be split across multiple coin objects
+        output_log("Checking coin objects for merge...");
+        await mergeCoinObjects(suiClient, wallet, coinIn, privateKey);
+
         // Step 1: Get quote
         output_log(`Getting quote: ${coinIn.split("::").pop()} -> ${coinOut.split("::").pop()} amount=${amount}`);
 
@@ -62,31 +64,21 @@ async function main() {
         output_log(`Quote received: provider=${bestQuote.provider} expectedOut=${expectedOut}`);
 
         // Step 2: Build transaction via swap()
-        // swap() expects: { signer: walletAddressString, tx: Transaction, quote: quoteResult }
         output_log("Building swap transaction...");
 
         const tx = new Transaction();
 
         await ma.swap({
-            signer: wallet,        // wallet address as STRING
-            tx: tx,                // Transaction object — swap() adds commands to it
+            signer: wallet,
+            tx: tx,
             quote: bestQuote,
         });
 
         output_log("Transaction built, signing...");
 
         // Step 3: Parse private key and sign
-        let keypair;
-        if (privateKey.startsWith("suiprivkey")) {
-            const { decodeSuiPrivateKey } = await import("@mysten/sui/cryptography");
-            const parsed = decodeSuiPrivateKey(privateKey);
-            keypair = Ed25519Keypair.fromSecretKey(parsed.secretKey);
-        } else {
-            const keyBytes = Buffer.from(privateKey.replace("0x", ""), "hex");
-            keypair = Ed25519Keypair.fromSecretKey(keyBytes);
-        }
+        let keypair = parseKeypair(privateKey);
 
-        // Set sender and build
         tx.setSender(wallet);
         const txBytes = await tx.build({ client: suiClient });
         const { signature } = await keypair.signTransaction(txBytes);
@@ -131,6 +123,86 @@ async function main() {
         process.exit(1);
     }
 }
+
+
+/**
+ * Merge all coin objects of a given type into one.
+ * This is what wallets like Slush do automatically before swaps.
+ * Only merges if there are 2+ non-zero coin objects.
+ */
+async function mergeCoinObjects(suiClient, wallet, coinType, privateKey) {
+    const { Transaction } = await import("@mysten/sui/transactions");
+
+    // Fetch all coin objects of this type
+    const allCoins = [];
+    let cursor = null;
+    while (true) {
+        const page = await suiClient.getCoins({ owner: wallet, coinType, cursor });
+        allCoins.push(...page.data);
+        if (!page.hasNextPage) break;
+        cursor = page.nextCursor;
+    }
+
+    // Filter to non-zero coins
+    const nonZero = allCoins.filter(c => BigInt(c.balance) > 0n);
+
+    output_log(`Found ${allCoins.length} coin objects (${nonZero.length} non-zero) for ${coinType.split("::").pop()}`);
+
+    if (nonZero.length <= 1) {
+        output_log("No merge needed — single coin object or empty");
+        return;
+    }
+
+    // Merge all into the first coin
+    output_log(`Merging ${nonZero.length} coin objects into one...`);
+
+    const tx = new Transaction();
+    const primary = nonZero[0];
+    const toMerge = nonZero.slice(1);
+
+    tx.mergeCoins(
+        tx.object(primary.coinObjectId),
+        toMerge.map(c => tx.object(c.coinObjectId)),
+    );
+
+    // Sign and execute the merge
+    const keypair = parseKeypair(privateKey);
+    tx.setSender(wallet);
+    const txBytes = await tx.build({ client: suiClient });
+    const { signature } = await keypair.signTransaction(txBytes);
+
+    const result = await suiClient.executeTransactionBlock({
+        transactionBlock: txBytes,
+        signature: [signature],
+        options: { showEffects: true },
+    });
+
+    const mergeStatus = result.effects?.status?.status;
+    if (mergeStatus !== "success") {
+        const err = result.effects?.status?.error || "unknown";
+        throw new Error(`Coin merge failed: ${err}`);
+    }
+
+    output_log(`Merge successful: digest=${result.digest}`);
+
+    // Wait a moment for the merge to be indexed
+    await new Promise(r => setTimeout(r, 2000));
+}
+
+
+/**
+ * Parse private key from hex or SUI bech32 format.
+ */
+function parseKeypair(privateKey) {
+    if (privateKey.startsWith("suiprivkey")) {
+        // Dynamic import for bech32 format
+        throw new Error("suiprivkey format not yet supported — use hex format");
+    }
+    const { Ed25519Keypair } = require("@mysten/sui/keypairs/ed25519");
+    const keyBytes = Buffer.from(privateKey.replace("0x", ""), "hex");
+    return Ed25519Keypair.fromSecretKey(keyBytes);
+}
+
 
 function parseArgs(argv) {
     const args = {};
