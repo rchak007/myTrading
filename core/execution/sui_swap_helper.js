@@ -29,7 +29,6 @@ async function main() {
 
     try {
         const { SuiClient, getFullnodeUrl } = await import("@mysten/sui/client");
-        const { Ed25519Keypair } = await import("@mysten/sui/keypairs/ed25519");
         const { Transaction } = await import("@mysten/sui/transactions");
         const sevenK = await import("@7kprotocol/sdk-ts");
 
@@ -42,7 +41,6 @@ async function main() {
         const ma = new sevenK.MetaAg({ suiClient });
 
         // Step 0: Merge all coins of the input type first
-        // SUI uses UTXO model — tokens may be split across multiple coin objects
         output_log("Checking coin objects for merge...");
         await mergeCoinObjects(suiClient, wallet, coinIn, privateKey);
 
@@ -76,8 +74,8 @@ async function main() {
 
         output_log("Transaction built, signing...");
 
-        // Step 3: Parse private key and sign
-        let keypair = parseKeypair(privateKey);
+        // Step 3: Sign
+        const keypair = await parseKeypair(privateKey);
 
         tx.setSender(wallet);
         const txBytes = await tx.build({ client: suiClient });
@@ -128,7 +126,6 @@ async function main() {
 /**
  * Merge all coin objects of a given type into one.
  * This is what wallets like Slush do automatically before swaps.
- * Only merges if there are 2+ non-zero coin objects.
  */
 async function mergeCoinObjects(suiClient, wallet, coinType, privateKey) {
     const { Transaction } = await import("@mysten/sui/transactions");
@@ -166,7 +163,7 @@ async function mergeCoinObjects(suiClient, wallet, coinType, privateKey) {
     );
 
     // Sign and execute the merge
-    const keypair = parseKeypair(privateKey);
+    const keypair = await parseKeypair(privateKey);
     tx.setSender(wallet);
     const txBytes = await tx.build({ client: suiClient });
     const { signature } = await keypair.signTransaction(txBytes);
@@ -185,20 +182,24 @@ async function mergeCoinObjects(suiClient, wallet, coinType, privateKey) {
 
     output_log(`Merge successful: digest=${result.digest}`);
 
-    // Wait a moment for the merge to be indexed
+    // Wait for the merge to be indexed
     await new Promise(r => setTimeout(r, 2000));
 }
 
 
 /**
- * Parse private key from hex or SUI bech32 format.
+ * Parse private key from hex or SUI bech32 (suiprivkey) format.
  */
-function parseKeypair(privateKey) {
+async function parseKeypair(privateKey) {
+    const { Ed25519Keypair } = await import("@mysten/sui/keypairs/ed25519");
+
     if (privateKey.startsWith("suiprivkey")) {
-        // Dynamic import for bech32 format
-        throw new Error("suiprivkey format not yet supported — use hex format");
+        const { decodeSuiPrivateKey } = await import("@mysten/sui/cryptography");
+        const parsed = decodeSuiPrivateKey(privateKey);
+        return Ed25519Keypair.fromSecretKey(parsed.secretKey);
     }
-    const { Ed25519Keypair } = require("@mysten/sui/keypairs/ed25519");
+
+    // Raw hex key (32 bytes)
     const keyBytes = Buffer.from(privateKey.replace("0x", ""), "hex");
     return Ed25519Keypair.fromSecretKey(keyBytes);
 }
