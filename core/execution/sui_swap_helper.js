@@ -2,12 +2,14 @@
 /**
  * sui_swap_helper.js — Node.js helper for SUI swaps via 7K Protocol SDK
  *
- * Uses MetaAg.quote() for routing, then manually builds the transaction
- * using the quote's protocol configs + @mysten/sui Transaction class,
- * signs with the provided keypair, and executes via SUI RPC.
+ * MetaAg.swap() expects:
+ *   - signer: wallet address STRING (not keypair)
+ *   - tx: a @mysten/sui Transaction object
+ *   - quote: the quote result from MetaAg.quote()
+ * It builds the swap commands into the Transaction, then we sign + execute.
  *
  * Setup (in core/execution/):
- *   npm install @7kprotocol/sdk-ts @mysten/sui@1 @flowx-finance/sdk --legacy-peer-deps
+ *   npm install @7kprotocol/sdk-ts @mysten/sui@1 @flowx-finance/sdk axios --legacy-peer-deps
  */
 
 async function main() {
@@ -31,6 +33,7 @@ async function main() {
     try {
         const { SuiClient, getFullnodeUrl } = await import("@mysten/sui/client");
         const { Ed25519Keypair } = await import("@mysten/sui/keypairs/ed25519");
+        const { Transaction } = await import("@mysten/sui/transactions");
         const sevenK = await import("@7kprotocol/sdk-ts");
 
         // Initialize SUI client
@@ -58,7 +61,21 @@ async function main() {
         const expectedOut = bestQuote.amountOut || bestQuote.rawAmountOut || "?";
         output_log(`Quote received: provider=${bestQuote.provider} expectedOut=${expectedOut}`);
 
-        // Step 2: Parse the private key
+        // Step 2: Build transaction via swap()
+        // swap() expects: { signer: walletAddressString, tx: Transaction, quote: quoteResult }
+        output_log("Building swap transaction...");
+
+        const tx = new Transaction();
+
+        await ma.swap({
+            signer: wallet,        // wallet address as STRING
+            tx: tx,                // Transaction object — swap() adds commands to it
+            quote: bestQuote,
+        });
+
+        output_log("Transaction built, signing...");
+
+        // Step 3: Parse private key and sign
         let keypair;
         if (privateKey.startsWith("suiprivkey")) {
             const { decodeSuiPrivateKey } = await import("@mysten/sui/cryptography");
@@ -69,108 +86,40 @@ async function main() {
             keypair = Ed25519Keypair.fromSecretKey(keyBytes);
         }
 
-        // Step 3: Try swap() with different signer patterns
-        output_log("Executing swap...");
+        // Set sender and build
+        tx.setSender(wallet);
+        const txBytes = await tx.build({ client: suiClient });
+        const { signature } = await keypair.signTransaction(txBytes);
 
-        let swapResult;
-        let lastError;
+        output_log("Executing transaction...");
 
-        // Pattern 1: signer as signTransaction callback (most common SDK pattern)
-        try {
-            swapResult = await ma.swap({
-                quote: bestQuote,
-                signer: {
-                    signTransaction: async (txBytes) => {
-                        const { signature } = await keypair.signTransaction(txBytes);
-                        return { signature, bytes: txBytes };
-                    },
-                },
-                slippage: parseFloat(slippage),
-                suiClient: suiClient,
-                accountAddress: wallet,
-            });
-        } catch (e1) {
-            lastError = e1;
-            output_log(`Pattern 1 failed: ${e1.message}`);
+        // Step 4: Execute
+        const result = await suiClient.executeTransactionBlock({
+            transactionBlock: txBytes,
+            signature: [signature],
+            options: {
+                showEffects: true,
+                showEvents: true,
+            },
+        });
 
-            // Pattern 2: signer as the keypair directly, wallet as string
-            try {
-                swapResult = await ma.swap({
-                    quote: bestQuote,
-                    signer: keypair,
-                    slippage: parseFloat(slippage),
-                    suiClient: suiClient,
-                    accountAddress: wallet,
-                });
-            } catch (e2) {
-                lastError = e2;
-                output_log(`Pattern 2 failed: ${e2.message}`);
+        const digest = result.digest;
+        const status = result.effects?.status?.status;
 
-                // Pattern 3: signer as signAndExecuteTransaction callback
-                try {
-                    swapResult = await ma.swap({
-                        quote: bestQuote,
-                        signer: async ({ transaction }) => {
-                            transaction.setSender(wallet);
-                            const txBytes = await transaction.build({ client: suiClient });
-                            const { signature } = await keypair.signTransaction(txBytes);
-                            const result = await suiClient.executeTransactionBlock({
-                                transactionBlock: txBytes,
-                                signature: [signature],
-                                options: { showEffects: true },
-                            });
-                            return result;
-                        },
-                        slippage: parseFloat(slippage),
-                        suiClient: suiClient,
-                        accountAddress: wallet,
-                    });
-                } catch (e3) {
-                    lastError = e3;
-                    output_log(`Pattern 3 failed: ${e3.message}`);
-
-                    // Pattern 4: Manually build tx using fastSwap if available
-                    try {
-                        output_log("Trying fastSwap...");
-                        swapResult = await ma.fastSwap({
-                            quote: bestQuote,
-                            signer: keypair,
-                            slippage: parseFloat(slippage),
-                            suiClient: suiClient,
-                            accountAddress: wallet,
-                        });
-                    } catch (e4) {
-                        output_log(`fastSwap failed: ${e4.message}`);
-                        throw new Error(`All swap patterns failed. Last errors: P1=${e1.message} | P2=${e2.message} | P3=${e3.message} | P4=${e4.message}`);
-                    }
-                }
-            }
-        }
-
-        output_log(`Swap result type: ${typeof swapResult}`);
-        output_log(`Swap result: ${JSON.stringify(swapResult, (k,v) => typeof v === 'bigint' ? v.toString() : v, 0).slice(0, 500)}`);
-
-        // Extract digest
-        const digest = swapResult?.digest
-            || swapResult?.result?.digest
-            || swapResult?.txDigest
-            || swapResult?.effects?.transactionDigest
-            || (typeof swapResult === "string" ? swapResult : null);
-
-        if (digest) {
+        if (status === "success") {
             output({
                 status: "success",
-                digest: String(digest),
+                digest: digest,
                 amountOut: String(expectedOut),
             });
         } else {
-            // Return whatever we got
+            const error = result.effects?.status?.error || "unknown";
             output({
-                status: "success",
-                digest: "unknown-check-wallet",
-                amountOut: String(expectedOut),
-                raw: JSON.stringify(swapResult, (k,v) => typeof v === 'bigint' ? v.toString() : v).slice(0, 300),
+                status: "error",
+                message: `Transaction failed on-chain: ${error}`,
+                digest: digest,
             });
+            process.exit(1);
         }
 
     } catch (err) {
