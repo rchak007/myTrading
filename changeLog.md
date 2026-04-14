@@ -3,6 +3,11 @@
 Adding SUI and BNB bots
 bot.py being changed too
 
+.env --- spacex ,
+asset_resgitr - sui wallet too. here. 
+
+
+
 ## 4/1/26
 Doing lot of backtesting related changes
 

@@ -109,18 +109,18 @@ PLACEHOLDER_FUTURE = True
 
 
 STOCK_TICKERS = [
-    "AAPL","AAOI","ABTC", "ALAB", "AMAT", "AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML","AVAV", "AVGO",
+    "AAPL","AAOI","ABTC", "ALAB", "AMAT", "AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML", "ASTS", "AVAV", "AVGO",
     "BABA", "BE", "BMNR", "BOTZ", "BWXT", 
     "CEG",  "CFG", "CIEN",  "CLSK", "COIN","COHR","COPX", "CORZ", "CRCL", "CRDO","CRWV", "CRWD", "CTVA",
     "DPRO",
-    "ETHA","GEV", "GLD", "GLXY", "GOOG",
+    "ETHA", "FIG", "GEV", "GLD", "GLXY", "GOOG",
     "HIMS", "HODL","HOOD","IBIT","IDR","INOD","INVA", "IONQ", "IRDM",  "IREN", "KTOS",
     "LEU","LITE", "LMT", "LRCX","LTBR", "LUNR",
     "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU",
-    "NBIS", "NBR", "NET", "NOC", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL", "PANW",  "PLTR",
+    "NBIS", "NBR", "NET", "NOC", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL", "PANW", "PL", "PLTR",
     "QBTS","QUBT","RCAT", "RGTI","RDDT", "RKLB", "RTX",
     "SATS", "SE", "SLV", "SOFI", "SPY", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC",
-    "TER","TSLA","TSM","UMAC", "UPXI","VRT", "WDC", "WTI", "XLE"  
+    "TEM",  "TER","TSLA","TSM","UMAC", "UPXI","VRT", "WDC", "WTI", "XLE"  
 ]
 
 # DESCRIPTION_STOCKS = ["
@@ -140,7 +140,7 @@ STOCKS_NOTES = [
     "☢️ Nuclear / Energy CEG, OKLO, SMR, LTBR, LEU, BWXT, GEV",
     "🌐 Crypto / Bitcoin Proxy IBIT, ETHA, HODL, ARKB, COIN, HOOD, MSTR, MSTX, ABTC GLXY STRC BMNR IREN, CLSK",
     "🔒 Cybersecurity CRWD, NET PANW",
-    "🛸 Defense / Space / Rare earth MP , NPPTF ,  PLTR, ONDS, UMAC, RKLB",
+    "🛸 Defense / Space / Rare earth MP , NPPTF ,  PLTR, ONDS, UMAC, RKLB ASTS",
     "💊 Healthcare / Biotech HIMS",
     "🏦 Fintech / Banking SOFI, CFG, RDDT, SE",
     "🪙 Commodities / Macro Hedges GLD, SLV, COPX",

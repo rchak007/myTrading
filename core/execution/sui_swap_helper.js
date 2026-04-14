@@ -3,7 +3,7 @@
  * sui_swap_helper.js — Node.js helper for SUI swaps via 7K Protocol SDK
  *
  * Setup (in core/execution/):
- *   npm install @7kprotocol/sdk-ts @mysten/sui@1 @flowx-finance/sdk @cetusprotocol/aggregator-sdk axios --legacy-peer-deps
+ *   npm install @7kprotocol/sdk-ts @mysten/sui@1 @flowx-finance/sdk axios --legacy-peer-deps
  */
 
 async function main() {
@@ -21,7 +21,18 @@ async function main() {
         const sevenK = await import("@7kprotocol/sdk-ts");
 
         const suiClient = new SuiClient({ url: rpcUrl || getFullnodeUrl("mainnet") });
-        const ma = new sevenK.MetaAg({ suiClient });
+
+        // Initialize MetaAg — disable broken providers, increase timeout
+        const ma = new sevenK.MetaAg({
+            suiClient,
+            providers: {
+                // FlowX works reliably — increase timeout for Pi's slower network
+                flowx: { enabled: true, timeout: 15000 },
+                // Disable providers with broken Pyth/dependency issues
+                cetus: { disabled: true },
+                bluefin7k: { disabled: true },
+            },
+        });
 
         // Step 0: Merge coins if fragmented
         output_log("Checking coin objects for merge...");
@@ -30,7 +41,7 @@ async function main() {
         // Step 1: Get quote
         output_log(`Getting quote: ${coinIn.split("::").pop()} -> ${coinOut.split("::").pop()} amount=${amount}`);
         const quotes = await ma.quote({ coinTypeIn: coinIn, coinTypeOut: coinOut, amountIn: amount });
-        if (!quotes || quotes.length === 0) throw new Error("No quotes returned");
+        if (!quotes || quotes.length === 0) throw new Error("No quotes returned — try again in a moment");
 
         const bestQuote = quotes[0];
         const expectedOut = bestQuote.amountOut || bestQuote.rawAmountOut || "?";
@@ -40,10 +51,9 @@ async function main() {
         output_log("Building swap transaction...");
         const tx = new Transaction();
 
-        // swap() returns the output coin reference — we must transfer it to the wallet
         const coinOutResult = await ma.swap({ signer: wallet, tx, quote: bestQuote });
 
-        // Transfer the output coin to our wallet (SUI PTB requires all outputs to be consumed)
+        // Transfer the output coin to our wallet (SUI PTB requires all outputs consumed)
         if (coinOutResult) {
             tx.transferObjects([coinOutResult], wallet);
         }
@@ -98,10 +108,7 @@ async function mergeCoinObjects(suiClient, wallet, coinType, privateKey) {
     const nonZero = allCoins.filter(c => BigInt(c.balance) > 0n);
     output_log(`Found ${allCoins.length} coin objects (${nonZero.length} non-zero) for ${coinType.split("::").pop()}`);
 
-    if (nonZero.length <= 1) {
-        output_log("No merge needed");
-        return;
-    }
+    if (nonZero.length <= 1) { output_log("No merge needed"); return; }
 
     output_log(`Merging ${nonZero.length} coin objects into one...`);
     const tx = new Transaction();
