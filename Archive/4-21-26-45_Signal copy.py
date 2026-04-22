@@ -13,7 +13,7 @@ Usage:
 Outputs:
     - outputs/45_signal_full.csv    : All tickers that passed filters
     - outputs/45_signal_top.csv     : Tickers with Score >= pass_score
-    - outputs/45_signal_mylist.csv  : Your MYLIST watchlist tickers (= STOCK_TICKERS from app.py)
+    - outputs/45_signal_mylist.csv  : Your MYLIST watchlist tickers
 """
 
 import sys
@@ -43,20 +43,11 @@ MORE_TICKERS = [
     "SOFI", "OKTA", "MSTR", "BMNR", "SSK"
 ]
 
-# Your permanent watchlist — synced from STOCK_TICKERS in app.py
+# Your permanent watchlist
 MYLIST = [
-    "AAPL","AAOI","ABTC", "AEHR",  "ALAB", "AMAT", "AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML", "ASTS", "AVAV", "AVGO",
-    "BABA", "BE", "BMNR", "BOTZ", "BWXT", 
-    "CEG",  "CFG", "CIEN", "CLS", "CLSK", "COIN","COHR","COPX", "CORZ", "CRCL", "CRDO","CRWV", "CRWD", "CTVA",
-    "DPRO",
-    "ETHA", "FIG", "GEV", "GLD", "GLXY", "GOOG",
-    "HIMS", "HODL","HOOD","IBIT","IDR","INOD","INVA", "IONQ", "IRDM",  "IREN", "KTOS",
-    "LEU","LITE", "LMT", "LRCX","LTBR", "LUNR",
-    "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU",
-    "NBIS", "NBR", "NET", "NOC", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL", "PANW", "PL", "PLTR",
-    "QBTS","QUBT","RCAT", "RDDT", "RGTI", "RIOT", "RKLB", "RTX",
-    "SATS", "SE", "SLV", "SOFI", "SPY", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC",
-    "TEM",  "TER","TSLA","TSM","UMAC", "UPXI","VRT", "WDC", "WTI", "XLE"  
+    "TSLA", "MSTR", "NVDA", "GOOG", "PLTR", "BMNR", "BE", "MU", "IREN", "CRDO",
+    "AVGO", "TSM", "SOFI", "AMD", "APP", "COIN", "LEU", "HOOD", "OKLO", "CRVW",
+    "MP", "INOD", "CFG", "APLD", "AAOI", "CORZ", "UPXI", "STKE"
 ]
 MYLIST_SET = set(MYLIST)
 
@@ -171,7 +162,7 @@ Examples:
         print(f"  (No tickers scored >= {pass_score})")
 
     print("\n" + "=" * 80)
-    print("MYLIST WATCHLIST (STOCK_TICKERS from app.py)")
+    print("MYLIST WATCHLIST")
     print("=" * 80)
     if not mylist_df.empty:
         print(mylist_df[safe_cols(mylist_df, preview_cols)].to_string(index=False))

@@ -182,7 +182,6 @@ def build_stocks_signals_table(
 
         # Calculate scoring and earnings if enabled
         score_30 = score_60 = score_90 = score_120 = score_weighted = np.nan
-        ret30 = ret60 = ret90 = ret120 = np.nan
         earnings_alert = ""
         if include_scoring:
             try:
@@ -192,10 +191,6 @@ def build_stocks_signals_table(
                 score_90  = score_data["Score_90"]
                 score_120 = score_data["Score_120"]
                 score_weighted = score_data["Score_Weighted"]
-                ret30  = score_data.get("%RET30",  np.nan)
-                ret60  = score_data.get("%RET60",  np.nan)
-                ret90  = score_data.get("%RET90",  np.nan)
-                ret120 = score_data.get("%RET120", np.nan)
                 earnings_alert = get_earnings_alert(t)
             except Exception as e:
                 print(f"Warning: Could not calculate score for {t}: {e}")
@@ -222,10 +217,6 @@ def build_stocks_signals_table(
             row["Score_90"]  = int(score_90)  if pd.notna(score_90)  else 0
             row["Score_120"] = int(score_120) if pd.notna(score_120) else 0
             row["Score_Weighted"] = int(score_weighted) if pd.notna(score_weighted) else 0
-            row["%RET30"]  = round(float(ret30),  2) if pd.notna(ret30)  else np.nan
-            row["%RET60"]  = round(float(ret60),  2) if pd.notna(ret60)  else np.nan
-            row["%RET90"]  = round(float(ret90),  2) if pd.notna(ret90)  else np.nan
-            row["%RET120"] = round(float(ret120), 2) if pd.notna(ret120) else np.nan
             row["Earnings_Alert"] = earnings_alert
 
         # Market_Cap always after signal block
@@ -257,7 +248,6 @@ def build_stocks_signals_table(
         columns_order = [
             "Ticker", "Timeframe", "Bar Time", "Last Close", "Current Price",
             "SIGNAL-Super-MOST-ADXR", "Supertrend", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
-            "%RET30", "%RET60", "%RET90", "%RET120",
             "Earnings_Alert", "Market_Cap_M",
              "Supertrend Signal", "RSI",
             "MOST MA", "MOST Line", "MOST Signal",

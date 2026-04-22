@@ -151,10 +151,9 @@ STOCKS_NOTES = [
     "💊 Healthcare / Biotech HIMS",
     "🏦 Fintech / Banking SOFI, CFG, SE",
     "🪙 Commodities / Macro Hedges GLD, SLV, COPX",
-    "IO-FUND 4/17/26 - ALAB AAOI AEHR BE BTCUSD CLS COHR GEV GOOGL LITE LINKUSD META MU NET NVDA PLTR RDDT SNDK ",
-    "INVESTAnswers 4/17/26 - BTC 6.7%, SOL 4.5%, AVGO 1.0%, IBIT 3.6%, SATS 1.5%, BABA 0.4%, ALAB 0.6%", 
-    "    InvestAnswers NPPTF 0.4%, STRC 11.1%, PLTR 1.2%, SE 0.7%, MRVL 0.4%, AMD 0.4%, RIOT 0.1%, CLSK 0.7%, NVDA 5.5%, MSTR 10.8%",
-
+    " ******************  ",
+    "IO-FUND - ALAB AAOI AEHR BE BTCUSD CLS COHR GEV GOOGL LITE LINKUSD META MU NET NVDA PLTR RDDT SNDK 4/17/26",
+    "INVESTAnswers Stocks -  AVGO SATS BABA ALAB NPPTF PLTR SE MRVL AMD RIOT CLSK NVDA MSTR 4/17/26"
 
 ]
 
@@ -698,57 +697,6 @@ def main():
             df_stocks = df_stocks.sort_values(by=sort_by, ascending=(sort_order == "Ascending"), na_position="last")
 
         st.dataframe(df_stocks, width="stretch")
-
-        # -----------------------
-        # IO Fund & InvestAnswers sub-tables
-        # -----------------------
-        # Map list tickers to the Ticker column in df_stocks
-        # Some list entries like GOOGL map to GOOG, BTCUSD/LINKUSD are crypto-only (skip)
-        _TICKER_ALIAS = {"GOOGL": "GOOG"}
-        _CRYPTO_ONLY = {"BTCUSD", "LINKUSD"}
-
-        def _filter_fund_df(df: pd.DataFrame, fund_list: list[str]) -> pd.DataFrame:
-            mapped = [_TICKER_ALIAS.get(t, t) for t in fund_list if t not in _CRYPTO_ONLY]
-            return df[df["Ticker"].isin(mapped)].copy()
-
-        for label, fund_list in [
-            ("📌 IO Fund", IO_FUND),
-            ("📌 InvestAnswers", INVESTANSWERS),
-        ]:
-            st.divider()
-            st.subheader(label)
-            df_fund = _filter_fund_df(df_stocks, fund_list)
-
-            if df_fund.empty:
-                st.info(f"No matching tickers found for {label}.")
-            else:
-                # Same sort controls, unique keys per fund
-                fund_key = label.replace(" ", "_").replace("📌_", "")
-                sortable_fund = [c for c in df_fund.columns if df_fund[c].dtype in ("int64", "float64", "int32", "float32")]
-                sort_fund = st.multiselect(
-                    "Sort by (in order of priority)",
-                    sortable_fund,
-                    default=[],
-                    key=f"{fund_key}_sort_cols",
-                )
-                if sort_fund:
-                    sort_fund_order = st.radio(
-                        "Sort order",
-                        ["Descending", "Ascending"],
-                        horizontal=True,
-                        key=f"{fund_key}_sort_order",
-                    )
-                    df_fund = df_fund.sort_values(
-                        by=sort_fund,
-                        ascending=(sort_fund_order == "Ascending"),
-                        na_position="last",
-                    )
-                st.dataframe(df_fund, width="stretch")
-
-                # Note which tickers are crypto-only and not shown
-                crypto_only_in_list = [t for t in fund_list if t in _CRYPTO_ONLY]
-                if crypto_only_in_list:
-                    st.caption(f"ℹ️ Crypto-only tickers (see crypto table): {', '.join(crypto_only_in_list)}")
 
     except Exception as e:
         st.error(f"Error loading stock signals: {e}")

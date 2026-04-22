@@ -98,29 +98,29 @@ PLACEHOLDER_FUTURE = True
 # os.makedirs(OUTPUTS_DIR, exist_ok=True)
 
 
+# Your real lists (keep yours here)
+# STOCK_TICKERS = [
+#     "AAPL","AAOI","ALAB","AMD","AMZN","APH","APLD","APP","ARKB","ARM","ASML","AVGO",
+#     "BE","BMNR","CEG","CFG","COIN","COHR","CORZ","CRDO","CRVW","CRWD","ETHA","GEV","GOOG",
+#     "HODL","HOOD","IBIT","IDR","INOD","IONQ","IREN","LEU","LITE","LRCX","LTBR",
+#     "META","MP","MSFT","MSTR","MSTX","MU","NET","NPPTF","NVDA","OKLO","ORCL","PLTR",
+#     "QBTS","QUBT","RGTI","RDDT","SOFI","SSK","STKE","VRT","TER","TSLA","TSM","UPXI",
+# ]
+
 
 STOCK_TICKERS = [
-    "AAPL","AAOI","ABTC", "AEHR",  "ALAB", "AMAT", "AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML", "ASTS", "AVAV", "AVGO",
+    "AAPL","AAOI","ABTC", "ALAB", "AMAT", "AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML", "ASTS", "AVAV", "AVGO",
     "BABA", "BE", "BMNR", "BOTZ", "BWXT", 
-    "CEG",  "CFG", "CIEN", "CLS", "CLSK", "COIN","COHR","COPX", "CORZ", "CRCL", "CRDO","CRWV", "CRWD", "CTVA",
+    "CEG",  "CFG", "CIEN",  "CLSK", "COIN","COHR","COPX", "CORZ", "CRCL", "CRDO","CRWV", "CRWD", "CTVA",
     "DPRO",
     "ETHA", "FIG", "GEV", "GLD", "GLXY", "GOOG",
     "HIMS", "HODL","HOOD","IBIT","IDR","INOD","INVA", "IONQ", "IRDM",  "IREN", "KTOS",
     "LEU","LITE", "LMT", "LRCX","LTBR", "LUNR",
     "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU",
     "NBIS", "NBR", "NET", "NOC", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL", "PANW", "PL", "PLTR",
-    "QBTS","QUBT","RCAT", "RDDT", "RGTI", "RIOT", "RKLB", "RTX",
+    "QBTS","QUBT","RCAT", "RGTI","RDDT", "RKLB", "RTX",
     "SATS", "SE", "SLV", "SOFI", "SPY", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC",
     "TEM",  "TER","TSLA","TSM","UMAC", "UPXI","VRT", "WDC", "WTI", "XLE"  
-]
-
-
-IO_FUND = [
-    "ALAB","AAOI","AEHR","BE","BTCUSD","CLS","COHR","GEV","GOOGL","LITE","LINKUSD","META","MU","NET","NVDA","PLTR","RDDT","SNDK"
-]
-
-INVESTANSWERS = [
-    "AVGO","SATS","BABA","ALAB","NPPTF","PLTR","SE","MRVL","AMD","RIOT","CLSK","NVDA","MSTR"
 ]
 
 # DESCRIPTION_STOCKS = ["
@@ -132,29 +132,18 @@ INVESTANSWERS = [
 
 STOCKS_NOTES = [
     "SNA, O and CTVA - just momentum 45 degree trades in Charles Schwab 885",
-    "10 WAYS TO CAPTURE A $1.5T U.S. DEFENSE BUDGET IN 2027 = ONDS AVAV KTOS DPRO UMAC RCAT NOC RTX LMT",
-    "🤖 AI / Data Center / Infrastructure AMD, MSFT, , ORCL, APP, APLD, CIEN CORZ, ",
-    "🤖 AI / Data Center / Infrastructure   CRWV, NBIS,  VRT  ",
-    "AI Energy - BE GEV",
-    "SEMIS NVDA (& AI Accelerator,EV,Data Cenetrs/Gaming/Crypto)",
-    "🚗 AI Applications / Consumer Tech TSLA, AAPL, ARM, ASML, LRCX, TSM, MRVL, AVGO, TER, , WDC, CRDO",
-    "AI Networking - AAOI ALAB CLS COHR LITE",
-    "AI Software GOOG META (& ADs) NET (& inference) PLTR RDDT",
-    " AI Hardware AEHR",
-    "AI Memory MU SNDK",
+    "10 WAYS TO CAPTURE A $1.5T U.S. DEFENSE BUDGET IN 2027 = PLTR ONDS AVAV KTOS DPRO UMAC RCAT NOC RTX LMT",
+    "🤖 AI / Data Center / Infrastructure NVDA, AMD, MSFT, GOOG, META, ORCL, PLTR, APP, APLD, CIEN CORZ, ",
+    "🤖 AI / Data Center / Infrastructure   CRWV, NBIS, ALAB VRT LITE BE  ",
+    "🚗 AI Applications / Consumer Tech TSLA, AAPL, ARM, ASML, MU, LRCX, TSM, MRVL, AVGO, TER, COHR, SNDK, WDC, CRDO",
     "⚛️ Quantum Computing QBTS, QUBT, RGTI, IONQ",
-    "☢️ Nuclear / Energy CEG, OKLO, SMR, LTBR, LEU, BWXT, ",
+    "☢️ Nuclear / Energy CEG, OKLO, SMR, LTBR, LEU, BWXT, GEV",
     "🌐 Crypto / Bitcoin Proxy IBIT, ETHA, HODL, ARKB, COIN, HOOD, MSTR, MSTX, ABTC GLXY STRC BMNR IREN, CLSK",
-    "🔒 Cybersecurity CRWD, PANW",
-    "🛸 Defense  Rare earth MP , NPPTF ,  ONDS, UMAC, RKLB ASTS IRDM LUNR (space) PL",
-    "🛸 Space  SATS RKLB ASTS IRDM LUNR (space) PL",
+    "🔒 Cybersecurity CRWD, NET PANW",
+    "🛸 Defense / Space / Rare earth MP , NPPTF ,  PLTR, ONDS, UMAC, RKLB ASTS",
     "💊 Healthcare / Biotech HIMS",
-    "🏦 Fintech / Banking SOFI, CFG, SE",
+    "🏦 Fintech / Banking SOFI, CFG, RDDT, SE",
     "🪙 Commodities / Macro Hedges GLD, SLV, COPX",
-    "IO-FUND 4/17/26 - ALAB AAOI AEHR BE BTCUSD CLS COHR GEV GOOGL LITE LINKUSD META MU NET NVDA PLTR RDDT SNDK ",
-    "INVESTAnswers 4/17/26 - BTC 6.7%, SOL 4.5%, AVGO 1.0%, IBIT 3.6%, SATS 1.5%, BABA 0.4%, ALAB 0.6%", 
-    "    InvestAnswers NPPTF 0.4%, STRC 11.1%, PLTR 1.2%, SE 0.7%, MRVL 0.4%, AMD 0.4%, RIOT 0.1%, CLSK 0.7%, NVDA 5.5%, MSTR 10.8%",
-
 
 ]
 
@@ -666,7 +655,7 @@ def main():
         cols = list(df_stocks.columns)
 
         # Pull out columns we want to place explicitly
-        priority_cols = ["QTY", "VALUE", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted", "%RET30", "%RET60", "%RET90", "%RET120", "Earnings_Alert", "Market_Cap_M"]
+        priority_cols = ["QTY", "VALUE", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted", "Earnings_Alert", "Market_Cap_M"]
         for c in priority_cols:
             if c in cols:
                 cols.remove(c)
@@ -690,65 +679,7 @@ def main():
 
         df_stocks = df_stocks[cols]
 
-        # --- Multi-column sort ---
-        sortable_cols = [c for c in df_stocks.columns if df_stocks[c].dtype in ("int64", "float64", "int32", "float32")]
-        sort_by = st.multiselect("Sort by (in order of priority)", sortable_cols, default=[], key="stock_sort_cols")
-        if sort_by:
-            sort_order = st.radio("Sort order", ["Descending", "Ascending"], horizontal=True, key="stock_sort_order")
-            df_stocks = df_stocks.sort_values(by=sort_by, ascending=(sort_order == "Ascending"), na_position="last")
-
         st.dataframe(df_stocks, width="stretch")
-
-        # -----------------------
-        # IO Fund & InvestAnswers sub-tables
-        # -----------------------
-        # Map list tickers to the Ticker column in df_stocks
-        # Some list entries like GOOGL map to GOOG, BTCUSD/LINKUSD are crypto-only (skip)
-        _TICKER_ALIAS = {"GOOGL": "GOOG"}
-        _CRYPTO_ONLY = {"BTCUSD", "LINKUSD"}
-
-        def _filter_fund_df(df: pd.DataFrame, fund_list: list[str]) -> pd.DataFrame:
-            mapped = [_TICKER_ALIAS.get(t, t) for t in fund_list if t not in _CRYPTO_ONLY]
-            return df[df["Ticker"].isin(mapped)].copy()
-
-        for label, fund_list in [
-            ("📌 IO Fund", IO_FUND),
-            ("📌 InvestAnswers", INVESTANSWERS),
-        ]:
-            st.divider()
-            st.subheader(label)
-            df_fund = _filter_fund_df(df_stocks, fund_list)
-
-            if df_fund.empty:
-                st.info(f"No matching tickers found for {label}.")
-            else:
-                # Same sort controls, unique keys per fund
-                fund_key = label.replace(" ", "_").replace("📌_", "")
-                sortable_fund = [c for c in df_fund.columns if df_fund[c].dtype in ("int64", "float64", "int32", "float32")]
-                sort_fund = st.multiselect(
-                    "Sort by (in order of priority)",
-                    sortable_fund,
-                    default=[],
-                    key=f"{fund_key}_sort_cols",
-                )
-                if sort_fund:
-                    sort_fund_order = st.radio(
-                        "Sort order",
-                        ["Descending", "Ascending"],
-                        horizontal=True,
-                        key=f"{fund_key}_sort_order",
-                    )
-                    df_fund = df_fund.sort_values(
-                        by=sort_fund,
-                        ascending=(sort_fund_order == "Ascending"),
-                        na_position="last",
-                    )
-                st.dataframe(df_fund, width="stretch")
-
-                # Note which tickers are crypto-only and not shown
-                crypto_only_in_list = [t for t in fund_list if t in _CRYPTO_ONLY]
-                if crypto_only_in_list:
-                    st.caption(f"ℹ️ Crypto-only tickers (see crypto table): {', '.join(crypto_only_in_list)}")
 
     except Exception as e:
         st.error(f"Error loading stock signals: {e}")
