@@ -90,6 +90,15 @@ def build_html_table(df: pd.DataFrame, title: str, updated_utc: str) -> str:
             df2[c] = pd.to_numeric(df2[c], errors="coerce").fillna(0.0).map(lambda v: f"{v:.2f}%")
         if c in ("Qty", "QTY"):
             df2[c] = pd.to_numeric(df2[c], errors="coerce").fillna(0.0).map(lambda v: f"{v:,.6f}".rstrip("0").rstrip("."))
+        # ── Mean Reversion Channel formatting ──
+        if c == "MRC_Dist_Pct":
+            df2[c] = pd.to_numeric(df2[c], errors="coerce").map(
+                lambda v: f"{v:+.2f}%" if pd.notna(v) else ""
+            )
+        if c in ("MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2"):
+            df2[c] = pd.to_numeric(df2[c], errors="coerce").map(
+                lambda v: f"{v:,.6f}".rstrip("0").rstrip(".") if pd.notna(v) else ""
+            )
 
     # add simple class for ACTION rows
     def row_class(r):
@@ -110,7 +119,8 @@ def build_html_table(df: pd.DataFrame, title: str, updated_utc: str) -> str:
         for c in cols:
             v = r.get(c, "")
             # right-align numbers a bit
-            if c in ("ALT USD Val", "USDC Value", "Total Val", "ALT%", "Qty", "QTY"):
+            if c in ("ALT USD Val", "USDC Value", "Total Val", "ALT%", "Qty", "QTY",
+                     "MRC_Dist_Pct", "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2"):
                 html.append(f"<td class='num'>{v}</td>")
             else:
                 html.append(f"<td>{v}</td>")
@@ -183,6 +193,25 @@ def main():
     )
 
     log(f"Complete crypto table built with {len(df_crypto)} rows.")
+
+    # ── Reorder: place MRC block right after "Total Val" ──
+    # MRC = Mean Reversion Channel (fareid's MRI Variant). 7 new columns:
+    #   MRC_Zone, MRC_Dist_Pct, MRC_R2, MRC_R1, MRC_Mean, MRC_S1, MRC_S2
+    # By default they land at the end of the dataframe — move them up so the
+    # crypto CSV/HTML reads:  ... | ALT% | USDC Value | Total Val | MRC_Zone | MRC_Dist_Pct | MRC_R2 ...
+    mrc_cols = ["MRC_Zone", "MRC_Dist_Pct", "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2"]
+    cols = list(df_crypto.columns)
+    if "Total Val" in cols and any(c in cols for c in mrc_cols):
+        # Pull MRC cols out of their current position
+        for c in mrc_cols:
+            if c in cols:
+                cols.remove(c)
+        # Re-insert right after Total Val (preserving the MRC order above)
+        idx = cols.index("Total Val") + 1
+        for c in reversed(mrc_cols):
+            if c in df_crypto.columns:
+                cols.insert(idx, c)
+        df_crypto = df_crypto[cols]
 
     # Totals (already computed in the DataFrame)
     alt_total = float(pd.to_numeric(df_crypto["ALT USD Val"], errors="coerce").fillna(0.0).sum())
