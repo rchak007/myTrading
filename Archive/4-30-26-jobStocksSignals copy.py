@@ -92,10 +92,6 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
             df2[c] = pd.to_numeric(df2[c], errors="coerce").map(
                 lambda v: f"{v:+.2f}%" if pd.notna(v) else ""
             )
-        elif c == "MRC_Dist_Pct":
-            df2[c] = pd.to_numeric(df2[c], errors="coerce").map(
-                lambda v: f"{v:+.2f}%" if pd.notna(v) else ""
-            )
 
     cols = list(df2.columns)
 
@@ -125,8 +121,7 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
 
     num_cols = {"VALUE", "QTY", "%RET30", "%RET60", "%RET90", "%RET120",
                 "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
-                "Supertrend", "Last Close", "Current Price",
-                "MRC_Dist_Pct", "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2"}
+                "Supertrend", "Last Close", "Current Price"}
 
     for _, row in df2.iterrows():
         sig = str(row.get("SIGNAL-Super-MOST-ADXR", ""))
@@ -213,9 +208,6 @@ def reorder_columns(df: pd.DataFrame) -> pd.DataFrame:
         "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
         "%RET30", "%RET60", "%RET90", "%RET120",
         "Earnings_Alert", "Market_Cap_M",
-        # ── Mean Reversion Channel block (right after Market_Cap_M) ──
-        "MRC_Zone", "MRC_Dist_Pct",
-        "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2",
     ]
 
     for c in priority_cols:

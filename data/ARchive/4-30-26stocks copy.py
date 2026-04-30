@@ -182,6 +182,7 @@ def build_stocks_signals_table(
 
         # Calculate scoring and earnings if enabled
         score_30 = score_60 = score_90 = score_120 = score_weighted = np.nan
+        ret30 = ret60 = ret90 = ret120 = np.nan
         earnings_alert = ""
         if include_scoring:
             try:
@@ -191,6 +192,10 @@ def build_stocks_signals_table(
                 score_90  = score_data["Score_90"]
                 score_120 = score_data["Score_120"]
                 score_weighted = score_data["Score_Weighted"]
+                ret30  = score_data.get("%RET30",  np.nan)
+                ret60  = score_data.get("%RET60",  np.nan)
+                ret90  = score_data.get("%RET90",  np.nan)
+                ret120 = score_data.get("%RET120", np.nan)
                 earnings_alert = get_earnings_alert(t)
             except Exception as e:
                 print(f"Warning: Could not calculate score for {t}: {e}")
@@ -217,6 +222,10 @@ def build_stocks_signals_table(
             row["Score_90"]  = int(score_90)  if pd.notna(score_90)  else 0
             row["Score_120"] = int(score_120) if pd.notna(score_120) else 0
             row["Score_Weighted"] = int(score_weighted) if pd.notna(score_weighted) else 0
+            row["%RET30"]  = round(float(ret30),  2) if pd.notna(ret30)  else np.nan
+            row["%RET60"]  = round(float(ret60),  2) if pd.notna(ret60)  else np.nan
+            row["%RET90"]  = round(float(ret90),  2) if pd.notna(ret90)  else np.nan
+            row["%RET120"] = round(float(ret120), 2) if pd.notna(ret120) else np.nan
             row["Earnings_Alert"] = earnings_alert
 
         # Market_Cap always after signal block
@@ -237,15 +246,6 @@ def build_stocks_signals_table(
             "Supertrend+Vol Signal": vol_sig,
             "Combined Signal": comb_sig,
             "Full Combined": full_sig,
-            # ── Mean Reversion Channel (fareid's MRI Variant) ──
-            # Five band values + zone label + % distance from mean
-            "MRC_Zone":     str(last.get("MRC_Zone", "N/A")),
-            "MRC_Dist_Pct": round(float(last["MRC_Dist_Pct"]), 2) if pd.notna(last.get("MRC_Dist_Pct")) else np.nan,
-            "MRC_R2":       round(float(last["MRC_R2"]),   2) if pd.notna(last.get("MRC_R2"))   else np.nan,
-            "MRC_R1":       round(float(last["MRC_R1"]),   2) if pd.notna(last.get("MRC_R1"))   else np.nan,
-            "MRC_Mean":     round(float(last["MRC_Mean"]), 2) if pd.notna(last.get("MRC_Mean")) else np.nan,
-            "MRC_S1":       round(float(last["MRC_S1"]),   2) if pd.notna(last.get("MRC_S1"))   else np.nan,
-            "MRC_S2":       round(float(last["MRC_S2"]),   2) if pd.notna(last.get("MRC_S2"))   else np.nan,
         })
         
         rows.append(row)
@@ -257,14 +257,12 @@ def build_stocks_signals_table(
         columns_order = [
             "Ticker", "Timeframe", "Bar Time", "Last Close", "Current Price",
             "SIGNAL-Super-MOST-ADXR", "Supertrend", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
+            "%RET30", "%RET60", "%RET90", "%RET120",
             "Earnings_Alert", "Market_Cap_M",
              "Supertrend Signal", "RSI",
             "MOST MA", "MOST Line", "MOST Signal",
             "ADXR State", "ADXR Signal", "Volume",
-            "Supertrend+Vol Signal", "Combined Signal", "Full Combined",
-            # MRC block — keep grouped together at the end
-            "MRC_Zone", "MRC_Dist_Pct",
-            "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2",
+            "Supertrend+Vol Signal", "Combined Signal", "Full Combined"
         ]
     else:
         # Non-scoring path: insert Market_Cap right after SIGNAL-Super-MOST-ADXR
@@ -272,11 +270,6 @@ def build_stocks_signals_table(
         sig_col = "SIGNAL-Super-MOST-ADXR"
         if sig_col in base_order:
             base_order.insert(base_order.index(sig_col) + 1, "Market_Cap")
-        # Append MRC block to the end
-        mrc_cols = ["MRC_Zone", "MRC_Dist_Pct", "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2"]
-        for c in mrc_cols:
-            if c not in base_order:
-                base_order.append(c)
         columns_order = base_order
     
     # Reindex with available columns only

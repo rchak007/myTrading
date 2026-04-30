@@ -162,7 +162,7 @@ STOCKS_NOTES = [
     " ********************  Bought 50 shares STRC @$99.4099 total amount $4,970.50 - Reserved for Quantum stocks - RGTI, IONQ QBTS",
     " **** ***************  CHITRA  - Sold 2 MSFT 846.50 @ $423.24, ",
     "*********************  SOLD MSFT -2 shares @422.78 total 845.54, Boight 8 STRC @99.505 for $796.04  Account 171",
-    "*********************  SOLD META -2 shares @669.04 - total 1,338.05, Bought STRC qty 13 @99.515 total 1,293.70 Acct 922"
+    "*****  SOLD META -2 shares @669.04 - total 1,338.05, Bought STRC qty 13 @99.515 total 1,293.70 Acct 922; bought back 2 MEta 1,249.32 @624.6594 0 need to sell the STRC back"
 
 
 ]
@@ -671,20 +671,11 @@ def main():
             df_stocks["Market_Cap_M"] = pd.to_numeric(df_stocks["Market_Cap_M"], errors="coerce")
 
         # --- Reorder columns ---
-        # Desired order after SIGNAL: QTY, VALUE, Score_30/60/90/120/Weighted, Market_Cap_M, Earnings_Alert,
-        # then the Mean Reversion Channel block (MRC_Zone, MRC_Dist_Pct, R2/R1/Mean/S1/S2)
+        # Desired order after SIGNAL: QTY, VALUE, Score_30/60/90/120/Weighted, Market_Cap_M, Earnings_Alert
         cols = list(df_stocks.columns)
 
         # Pull out columns we want to place explicitly
-        priority_cols = [
-            "QTY", "VALUE",
-            "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
-            "%RET30", "%RET60", "%RET90", "%RET120",
-            "Earnings_Alert", "Market_Cap_M",
-            # ── Mean Reversion Channel block (right after Market_Cap_M) ──
-            "MRC_Zone", "MRC_Dist_Pct",
-            "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2",
-        ]
+        priority_cols = ["QTY", "VALUE", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted", "%RET30", "%RET60", "%RET90", "%RET120", "Earnings_Alert", "Market_Cap_M"]
         for c in priority_cols:
             if c in cols:
                 cols.remove(c)

@@ -33,6 +33,8 @@ from functools import lru_cache
 
 from core.balances.solana import get_spl_token_balance_from_cache
 
+from core.ohlcv_cache import cached_yahoo_download, cached_gecko_download
+
 
 def _coingecko_headers() -> dict:
     headers = {}
@@ -45,39 +47,22 @@ def _coingecko_headers() -> dict:
 def fetch_crypto_4h_df(ticker: str, lookback_days: int = 70) -> pd.DataFrame | None:
     """
     Yahoo often supports 1h; we resample to 4H.
+    Uses Parquet disk cache to avoid repeated downloads.
     """
-    import threading
-    
-    result = {"data": None, "error": None}
-    
-    def download_worker():
-        try:
-            result["data"] = yf.download(ticker, period=f"{lookback_days}d", interval="60m", progress=False)
-        except Exception as e:
-            result["error"] = str(e)
-    
     try:
-        # Run download in a thread with 30-second timeout
-        thread = threading.Thread(target=download_worker)
-        thread.daemon = True
-        thread.start()
-        thread.join(timeout=30)
-        
-        if thread.is_alive():
-            print(f"⏱️  Ticker {ticker}: Timeout after 30 seconds - skipping")
-            return None
-        
-        if result["error"]:
-            print(f"❌ Ticker {ticker}: Error - {result['error']}")
-            return None
-        
-        raw = result["data"]
+        raw = cached_yahoo_download(ticker, "60m", lookback_days)
         if raw is None or raw.empty:
             print(f"⚠️  Ticker {ticker}: No data from Yahoo Finance")
             return None
-            
+
         raw = _fix_yf_cols(raw)
-        df = raw[["Open", "High", "Low", "Close", "Volume"]].dropna()
+
+        # Ensure we have the needed columns (cache may already be clean)
+        avail_cols = raw.columns.tolist()
+        if "Open" in avail_cols:
+            df = raw[["Open", "High", "Low", "Close", "Volume"]].dropna()
+        else:
+            df = raw[["High", "Low", "Close", "Volume"]].dropna()
 
         try:
             df.index = df.index.tz_localize(None)
@@ -99,7 +84,7 @@ def fetch_crypto_4h_df(ticker: str, lookback_days: int = 70) -> pd.DataFrame | N
             print(f"⚠️  Ticker {ticker}: Insufficient data (need 240 bars, got {len(df_4h)})")
             return None
         return df_4h
-        
+
     except Exception as e:
         print(f"❌ Ticker {ticker}: Error fetching data - {str(e)}")
         return None
@@ -110,31 +95,10 @@ def fetch_crypto_4h_df(ticker: str, lookback_days: int = 70) -> pd.DataFrame | N
 def fetch_crypto_1d_df(ticker: str, lookback_days: int = 400) -> pd.DataFrame | None:
     """
     Fetch daily OHLCV for a crypto ticker (for 1D confirmation signal).
+    Uses Parquet disk cache to avoid repeated downloads.
     """
-    import threading
-
-    result = {"data": None, "error": None}
-
-    def download_worker():
-        try:
-            result["data"] = yf.download(ticker, period=f"{lookback_days}d", interval="1d", progress=False)
-        except Exception as e:
-            result["error"] = str(e)
-
     try:
-        thread = threading.Thread(target=download_worker)
-        thread.daemon = True
-        thread.start()
-        thread.join(timeout=30)
-
-        if thread.is_alive():
-            print(f"⏱️  1D Ticker {ticker}: Timeout after 30 seconds - skipping")
-            return None
-
-        if result["error"]:
-            return None
-
-        raw = result["data"]
+        raw = cached_yahoo_download(ticker, "1d", lookback_days)
         if raw is None or raw.empty:
             return None
 
@@ -339,14 +303,6 @@ def build_crypto_signals_table(
                     "Supertrend+Vol Signal": vol_sig,
                     "Combined Signal": comb_sig,
                     "Full Combined": full_sig,
-                    # ── Mean Reversion Channel (fareid's MRI Variant) ──
-                    "MRC_Zone":     str(last.get("MRC_Zone", "N/A")),
-                    "MRC_Dist_Pct": round(float(last["MRC_Dist_Pct"]), 2) if pd.notna(last.get("MRC_Dist_Pct")) else np.nan,
-                    "MRC_R2":       round(float(last["MRC_R2"]),   6) if pd.notna(last.get("MRC_R2"))   else np.nan,
-                    "MRC_R1":       round(float(last["MRC_R1"]),   6) if pd.notna(last.get("MRC_R1"))   else np.nan,
-                    "MRC_Mean":     round(float(last["MRC_Mean"]), 6) if pd.notna(last.get("MRC_Mean")) else np.nan,
-                    "MRC_S1":       round(float(last["MRC_S1"]),   6) if pd.notna(last.get("MRC_S1"))   else np.nan,
-                    "MRC_S2":       round(float(last["MRC_S2"]),   6) if pd.notna(last.get("MRC_S2"))   else np.nan,
                 }
             )
         except Exception as e:
@@ -418,14 +374,6 @@ def build_crypto_signals_table(
                     "Supertrend+Vol Signal": vol_sig,
                     "Combined Signal": comb_sig,
                     "Full Combined": full_sig,
-                    # ── Mean Reversion Channel (fareid's MRI Variant) ──
-                    "MRC_Zone":     str(last.get("MRC_Zone", "N/A")),
-                    "MRC_Dist_Pct": round(float(last["MRC_Dist_Pct"]), 2) if pd.notna(last.get("MRC_Dist_Pct")) else np.nan,
-                    "MRC_R2":       round(float(last["MRC_R2"]),   8) if pd.notna(last.get("MRC_R2"))   else np.nan,
-                    "MRC_R1":       round(float(last["MRC_R1"]),   8) if pd.notna(last.get("MRC_R1"))   else np.nan,
-                    "MRC_Mean":     round(float(last["MRC_Mean"]), 8) if pd.notna(last.get("MRC_Mean")) else np.nan,
-                    "MRC_S1":       round(float(last["MRC_S1"]),   8) if pd.notna(last.get("MRC_S1"))   else np.nan,
-                    "MRC_S2":       round(float(last["MRC_S2"]),   8) if pd.notna(last.get("MRC_S2"))   else np.nan,
                 }
             )
             print(f"✅ Gecko pool {sym}: Successfully processed")
@@ -453,69 +401,27 @@ def fetch_geckoterminal_4h_df_from_pool_url(pool_url: str, lookback_days: int = 
     Given a GeckoTerminal pool URL like:
       https://www.geckoterminal.com/solana/pools/GiRyo4r3kREH8oRCe9GoJJARZuGo4ksto6xXvUok4wdd
     parse out the network + pool address, call the GeckoTerminal API, and return 4H OHLCV.
+    Uses Parquet disk cache to avoid repeated downloads.
     """
     try:
-        match = re.search(r"geckoterminal\.com/(\w+)/pools/([A-Za-z0-9]+)", pool_url)
-        if not match:
-            print(f"⚠️  Invalid GeckoTerminal URL format: {pool_url}")
-            return None
-        network = match.group(1)
-        pool_address = match.group(2)
-
-        # GeckoTerminal timeframe mapping
-        timeframe = "hour"  # or "minute", "day"
-        # aggregate = 4 means 4-hour candles
-        aggregate = 4
-        # currency = 'usd'
-
-        limit = lookback_days * 6 + 50  # 6 four-hour bars per day
-        url = (
-            f"https://api.geckoterminal.com/api/v2/networks/{network}/pools/{pool_address}/ohlcv/{timeframe}"
-            f"?aggregate={aggregate}&limit={limit}&currency=usd"
-        )
-
-        headers = _coingecko_headers()
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code != 200:
-            print(f"⚠️  GeckoTerminal API returned status {resp.status_code} for {pool_url}")
+        df = cached_gecko_download(pool_url, "4h", lookback_days)
+        if df is None or df.empty:
+            print(f"⚠️  No data from GeckoTerminal for {pool_url}")
             return None
 
-        data = resp.json()
-        ohlcv_list = data.get("data", {}).get("attributes", {}).get("ohlcv_list", [])
-        if not ohlcv_list:
-            print(f"⚠️  No OHLCV data from GeckoTerminal for {pool_url}")
-            return None
-
-        rows = []
-        for candle in ohlcv_list:
-            # candle format: [timestamp, open, high, low, close, volume]
-            if len(candle) < 6:
-                continue
-            ts = candle[0]
-            o, h, l, c, v = float(candle[1]), float(candle[2]), float(candle[3]), float(candle[4]), float(candle[5])
-            dt = pd.to_datetime(ts, unit="s", utc=True)
-            rows.append({
-                "timestamp": dt,
-                "Open": o,
-                "High": h,
-                "Low": l,
-                "Close": c,
-                "Volume": v,
-            })
-
-        df = pd.DataFrame(rows)
-        if df.empty:
-            print(f"⚠️  Empty DataFrame from GeckoTerminal for {pool_url}")
-            return None
-
-        df = df.set_index("timestamp").sort_index()
-        df = df[["High", "Low", "Close", "Volume"]].dropna()
+        # Strip timezone for consistency
+        try:
+            df.index = df.index.tz_localize(None)
+        except Exception:
+            try:
+                df.index = df.index.tz_convert(None)
+            except Exception:
+                pass
 
         if len(df) < 240:
             print(f"⚠️  Insufficient data from GeckoTerminal (need 240 bars, got {len(df)}) for {pool_url}")
             return None
 
-        print(f"✅ GeckoTerminal {network}/{pool_address}: {len(df)} bars fetched")
         return df
 
     except Exception as e:

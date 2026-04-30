@@ -33,6 +33,13 @@ from functools import lru_cache
 
 from core.balances.solana import get_spl_token_balance_from_cache
 
+# ── Bittensor / Taostats integration ──
+try:
+    from taostats import TaostatsAPI, parse_pool_data, build_ohlcv_from_7day
+    HAS_TAOSTATS = True
+except ImportError:
+    HAS_TAOSTATS = False
+
 
 def _coingecko_headers() -> dict:
     headers = {}
@@ -230,6 +237,64 @@ def fetch_crypto_current_price(ticker: str) -> float | None:
     return None
 
 
+# ═══════════════════════════════════════════════════════════════════
+# Bittensor subnet alpha — fetch OHLCV from taostats 7-day data
+# ═══════════════════════════════════════════════════════════════════
+def fetch_bittensor_4h_df(netuid: int, api: "TaostatsAPI" = None) -> pd.DataFrame | None:
+    """
+    Fetch 7-day price snapshots from taostats API and build pseudo-4H OHLCV.
+
+    Returns ~42 bars (7 days × 6 bars/day).  Not enough for full indicator
+    warmup (need 100+), but gives directional signals.  For proper signals,
+    use collected OHLCV data via taostats.py --collect.
+    """
+    if not HAS_TAOSTATS:
+        print(f"⚠️  taostats module not available — cannot fetch SN{netuid}")
+        return None
+
+    try:
+        if api is None:
+            api = TaostatsAPI()
+
+        result = api.pool_latest(netuid)
+        data_list = result.get("data", [])
+        if not data_list:
+            print(f"⚠️  Bittensor SN{netuid}: No pool data from taostats")
+            return None
+
+        pool = parse_pool_data(data_list[0])
+        seven_day = pool.get("seven_day_prices", [])
+        if not seven_day or len(seven_day) < 10:
+            print(f"⚠️  Bittensor SN{netuid}: Insufficient 7-day price data ({len(seven_day)} points)")
+            return None
+
+        df = build_ohlcv_from_7day(seven_day, pool["price_tao"])
+        if df.empty:
+            print(f"⚠️  Bittensor SN{netuid}: Failed to build OHLCV from 7-day data")
+            return None
+
+        print(f"✅ Bittensor SN{netuid} ({pool['name']}): {len(df)} bars from 7-day data")
+        return df
+
+    except Exception as e:
+        print(f"❌ Bittensor SN{netuid}: Error fetching data — {e}")
+        return None
+
+
+def _get_bittensor_entries_from_registry() -> list[dict]:
+    """
+    Scan asset registry for entries with blockchain='bittensor'.
+    Returns list of registry entries with their registry keys.
+    """
+    registry = load_asset_registry()
+    entries = []
+    for key, entry in registry.items():
+        if entry.get("blockchain", "").lower() == "bittensor":
+            entry["_registry_key"] = key
+            entries.append(entry)
+    return entries
+
+
 def combine_4h_1d_signals(sig_4h: str, sig_1d: str) -> str:
     """
     Final signal combining 4H primary + 1D confirmation (mirrors bot.py HTF logic).
@@ -339,14 +404,6 @@ def build_crypto_signals_table(
                     "Supertrend+Vol Signal": vol_sig,
                     "Combined Signal": comb_sig,
                     "Full Combined": full_sig,
-                    # ── Mean Reversion Channel (fareid's MRI Variant) ──
-                    "MRC_Zone":     str(last.get("MRC_Zone", "N/A")),
-                    "MRC_Dist_Pct": round(float(last["MRC_Dist_Pct"]), 2) if pd.notna(last.get("MRC_Dist_Pct")) else np.nan,
-                    "MRC_R2":       round(float(last["MRC_R2"]),   6) if pd.notna(last.get("MRC_R2"))   else np.nan,
-                    "MRC_R1":       round(float(last["MRC_R1"]),   6) if pd.notna(last.get("MRC_R1"))   else np.nan,
-                    "MRC_Mean":     round(float(last["MRC_Mean"]), 6) if pd.notna(last.get("MRC_Mean")) else np.nan,
-                    "MRC_S1":       round(float(last["MRC_S1"]),   6) if pd.notna(last.get("MRC_S1"))   else np.nan,
-                    "MRC_S2":       round(float(last["MRC_S2"]),   6) if pd.notna(last.get("MRC_S2"))   else np.nan,
                 }
             )
         except Exception as e:
@@ -418,20 +475,113 @@ def build_crypto_signals_table(
                     "Supertrend+Vol Signal": vol_sig,
                     "Combined Signal": comb_sig,
                     "Full Combined": full_sig,
-                    # ── Mean Reversion Channel (fareid's MRI Variant) ──
-                    "MRC_Zone":     str(last.get("MRC_Zone", "N/A")),
-                    "MRC_Dist_Pct": round(float(last["MRC_Dist_Pct"]), 2) if pd.notna(last.get("MRC_Dist_Pct")) else np.nan,
-                    "MRC_R2":       round(float(last["MRC_R2"]),   8) if pd.notna(last.get("MRC_R2"))   else np.nan,
-                    "MRC_R1":       round(float(last["MRC_R1"]),   8) if pd.notna(last.get("MRC_R1"))   else np.nan,
-                    "MRC_Mean":     round(float(last["MRC_Mean"]), 8) if pd.notna(last.get("MRC_Mean")) else np.nan,
-                    "MRC_S1":       round(float(last["MRC_S1"]),   8) if pd.notna(last.get("MRC_S1"))   else np.nan,
-                    "MRC_S2":       round(float(last["MRC_S2"]),   8) if pd.notna(last.get("MRC_S2"))   else np.nan,
                 }
             )
             print(f"✅ Gecko pool {sym}: Successfully processed")
         except Exception as e:
             print(f"❌ Error processing gecko pool {sym}: {str(e)}")
             continue
+
+
+    # 3) Bittensor subnet alpha tokens (auto-discovered from asset registry)
+    if HAS_TAOSTATS:
+        bittensor_entries = _get_bittensor_entries_from_registry()
+        if bittensor_entries:
+            print(f"\n🧠 Processing {len(bittensor_entries)} Bittensor subnets...")
+            try:
+                tao_api = TaostatsAPI()
+            except SystemExit:
+                print("⚠️  TAOSTATS_API_KEY not set — skipping Bittensor subnets")
+                tao_api = None
+
+            if tao_api:
+                for entry in bittensor_entries:
+                    netuid = entry.get("netuid")
+                    reg_key = entry.get("_registry_key", f"SN{netuid}")
+                    ticker_label = entry.get("ticker", reg_key)
+
+                    if netuid is None:
+                        print(f"⚠️  Bittensor entry {reg_key}: No netuid specified — skipping")
+                        continue
+
+                    try:
+                        base = fetch_bittensor_4h_df(int(netuid), api=tao_api)
+                        if base is None:
+                            continue
+
+                        # With only ~42 bars, reduce minimum bar requirement
+                        if len(base) < 20:
+                            print(f"⚠️  Bittensor SN{netuid}: Only {len(base)} bars — need at least 20")
+                            continue
+
+                        df = apply_indicators(
+                            base,
+                            atr_period=atr_period,
+                            atr_multiplier=atr_multiplier,
+                            rsi_period=rsi_period,
+                            vol_lookback=vol_lookback,
+                            adxr_len=adxr_len,
+                            adxr_lenx=adxr_lenx,
+                            adxr_low_threshold=adxr_low_threshold,
+                            adxr_flat_eps=adxr_flat_eps,
+                        )
+
+                        last = df.iloc[-1]
+
+                        st_sig = str(last.get("Supertrend_Signal", "SELL"))
+                        most_sig = str(last.get("MOST_Signal", "SELL"))
+                        adxr_state = str(last.get("ADXR_State", "FLAT"))
+
+                        vol_sig = signal_supertrend_plus_volume(
+                            st_sig,
+                            float(last.get("Volume", np.nan)),
+                            float(last.get("Avg_Volume", np.nan)),
+                            vol_multiplier=vol_multiplier,
+                        )
+                        comb_sig = signal_combined(st_sig, vol_sig, float(last.get("RSI", np.nan)), rsi_buy_threshold=rsi_buy_threshold)
+                        full_sig = signal_full_combined(comb_sig, most_sig)
+                        super_most_adxr = signal_super_most_adxr(st_sig, most_sig, adxr_state)
+
+                        # No 1D data for Bittensor subnets (only 7-day history)
+                        sig_1d_tao = "UNKNOWN"
+                        final_signal_tao = combine_4h_1d_signals(super_most_adxr, sig_1d_tao)
+
+                        # Current price from last bar
+                        current_price_tao = round(float(last["Close"]), 8)
+
+                        rows.append(
+                            {
+                                "Ticker": ticker_label,
+                                "Timeframe": "4H*",  # asterisk = limited 7-day data
+                                "Bar Time": last.name,
+                                "Last Close": round(float(last["Close"]), 6),
+                                "Current Price": current_price_tao,
+                                "Supertrend": round(float(last["Supertrend"]), 6) if pd.notna(last["Supertrend"]) else np.nan,
+                                "SIGNAL-Super-MOST-ADXR": super_most_adxr,
+                                "Signal-1D": sig_1d_tao,
+                                "Final Signal": final_signal_tao,
+                                "Supertrend Signal": st_sig,
+                                "RSI": round(float(last["RSI"]), 2) if pd.notna(last["RSI"]) else np.nan,
+                                "MOST MA": round(float(last["MOST_MA"]), 2) if pd.notna(last["MOST_MA"]) else np.nan,
+                                "MOST Line": round(float(last["MOST_Line"]), 2) if pd.notna(last["MOST_Line"]) else np.nan,
+                                "MOST Signal": most_sig,
+                                "ADXR State": adxr_state,
+                                "ADXR Signal": str(last.get("ADXR_Signal", "WEAK")),
+                                "Volume": float(last["Volume"]) if pd.notna(last["Volume"]) else np.nan,
+                                "Supertrend+Vol Signal": vol_sig,
+                                "Combined Signal": comb_sig,
+                                "Full Combined": full_sig,
+                            }
+                        )
+                        print(f"✅ Bittensor SN{netuid} ({ticker_label}): Signal = {final_signal_tao}")
+                    except Exception as e:
+                        print(f"❌ Error processing Bittensor SN{netuid}: {str(e)}")
+                        continue
+    else:
+        # Check if registry has bittensor entries but module missing
+        bittensor_entries = _get_bittensor_entries_from_registry()
+        if bittensor_entries:
+            print(f"⚠️  Found {len(bittensor_entries)} Bittensor entries in registry but taostats module not available")
 
 
     df_out = pd.DataFrame(rows)
@@ -650,6 +800,10 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
     """
 
     print("In enrich_crypto_portfolio_fields function")
+
+    # Reset cached TAO/USD price for fresh fetch each run
+    if hasattr(enrich_crypto_portfolio_fields, "_tao_usd"):
+        del enrich_crypto_portfolio_fields._tao_usd
     # Import balance functions - these may not exist in all setups
     try:
         from core.balances.solana import get_native_sol_balance, get_wallet_token_balances_by_mint
@@ -731,9 +885,33 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
             has_gecko_pool = bool(entry.get("geckoterminal_pool"))
             print(f"[enrich] {ticker} | chain={chain} | wallet={wallet} | gecko_pool={has_gecko_pool}")
 
-            # ── Price: use GeckoTerminal last close for gecko pool tokens, Yahoo for others
+            # ── Price: use GeckoTerminal last close for gecko pool tokens,
+            #    taostats for bittensor, Yahoo for others
             price_dec = None
-            if has_gecko_pool:
+            if chain == "bittensor":
+                # Bittensor: price is in TAO from "Current Price" column;
+                # convert to USD using TAO price
+                price_tao = row.get("Current Price")
+                if price_tao is not None:
+                    try:
+                        price_tao = float(price_tao)
+                        # Fetch TAO/USD price (cached per session)
+                        if not hasattr(enrich_crypto_portfolio_fields, "_tao_usd"):
+                            if HAS_TAOSTATS:
+                                try:
+                                    tao_api = TaostatsAPI()
+                                    enrich_crypto_portfolio_fields._tao_usd = tao_api.get_tao_price_usd()
+                                    print(f"[TAO] TAO/USD = ${enrich_crypto_portfolio_fields._tao_usd:.2f}")
+                                except Exception:
+                                    enrich_crypto_portfolio_fields._tao_usd = 0.0
+                            else:
+                                enrich_crypto_portfolio_fields._tao_usd = 0.0
+                        tao_usd = enrich_crypto_portfolio_fields._tao_usd
+                        price_dec = price_tao * tao_usd
+                        print(f"[TAO] {ticker} | Price: τ{price_tao:.8f} = ${price_dec:.6f}")
+                    except (ValueError, TypeError):
+                        price_dec = None
+            elif has_gecko_pool:
                 # Price already computed from GeckoTerminal and stored in "Current Price" column
                 price_dec = row.get("Current Price")
                 if price_dec is not None:
@@ -884,6 +1062,33 @@ def enrich_crypto_portfolio_fields(df: pd.DataFrame) -> pd.DataFrame:
                         debug = True
                         if debug and usdc_dec != 0:
                             print(f"[ZK] USDC | Wallet={wallet} | Qty={usdc_dec}")
+
+                elif chain == "bittensor":
+                    # Bittensor: balance fetched via taostats stake_balance API
+                    # Uses coldkey from registry entry
+                    coldkey = entry.get("coldkey", "")
+                    netuid = entry.get("netuid")
+                    if coldkey and netuid and HAS_TAOSTATS:
+                        try:
+                            tao_api = TaostatsAPI()
+                            result = tao_api.stake_balance(coldkey)
+                            data = result.get("data", [])
+                            # Sum balance across all hotkeys for this netuid
+                            total_balance = 0.0
+                            for pos in data:
+                                if int(pos.get("netuid", -1)) == int(netuid):
+                                    bal = float(pos.get("balance_as_tao", 0)) / 1e9
+                                    total_balance += bal
+                            if total_balance > 0:
+                                qty_dec = Decimal(str(total_balance))
+                                print(f"[TAO] {ticker} SN{netuid} | Coldkey={coldkey[:12]}... | Staked: τ{total_balance:.4f}")
+                        except Exception as e:
+                            print(f"⚠️  [TAO] Balance fetch failed for {ticker}: {e}")
+                    else:
+                        if not coldkey:
+                            print(f"[TAO] {ticker}: No coldkey in registry — balance skipped")
+                    # No USDC equivalent on Bittensor
+                    usdc_dec = None
 
                 else:
                     qty_dec = None

@@ -258,7 +258,6 @@ def scan_ticker(
         earnings_alert = ""
 
     # Calculate trading signals
-    last = None  # initialize so MRC fields below have a safe fallback if the try fails
     try:
         df_indicators = apply_indicators(
             df,
@@ -294,13 +293,6 @@ def scan_ticker(
         print(f"  📈 {ticker}: S30={score_data.get('Score_30',0)} S60={score_data.get('Score_60',0)} S90={score_data.get('Score_90',0)} S120={score_data.get('Score_120',0)}, Signal={signal}, Price=${df['Close'].iloc[-1]:.2f}"
               f"{' 🔴 EARNINGS!' if earnings_alert else ''}")
 
-    # Helper for safe MRC field extraction
-    def _mrc_val(key: str, decimals: int = 2):
-        if last is None:
-            return np.nan
-        v = last.get(key)
-        return round(float(v), decimals) if pd.notna(v) else np.nan
-
     return {
         "Ticker":               ticker,
         "Score_30":             int(score_data.get("Score_30",  0)),
@@ -314,14 +306,6 @@ def scan_ticker(
         "%RET120":              score_data.get("%RET120", np.nan),   # ADD        
         "SIGNAL-Super-MOST-ADXR": signal,
         "Earnings_Alert":       earnings_alert,
-        # ── Mean Reversion Channel (fareid's MRI Variant) ──
-        "MRC_Zone":             str(last.get("MRC_Zone", "N/A")) if last is not None else "N/A",
-        "MRC_Dist_Pct":         _mrc_val("MRC_Dist_Pct"),
-        "MRC_R2":               _mrc_val("MRC_R2"),
-        "MRC_R1":               _mrc_val("MRC_R1"),
-        "MRC_Mean":             _mrc_val("MRC_Mean"),
-        "MRC_S1":               _mrc_val("MRC_S1"),
-        "MRC_S2":               _mrc_val("MRC_S2"),
         "Price":                float(df["Close"].iloc[-1]),
         "Supertrend_Signal":    st_sig,
         "MOST_Signal":          most_sig,
