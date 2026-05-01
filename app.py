@@ -161,11 +161,20 @@ STOCKS_NOTES = [
     "*********************  Sold 1 GE Vernova GEV share $1,124.04 @1,124.0646, and bought STRC $1,094.72  ",
     " ********************  Bought 50 shares STRC @$99.4099 total amount $4,970.50 - Reserved for Quantum stocks - RGTI, IONQ QBTS",
     " **** ***************  CHITRA  - Sold 2 MSFT 846.50 @ $423.24, ",
-    "*********************  SOLD MSFT -2 shares @422.78 total 845.54, Boight 8 STRC @99.505 for $796.04  Account 171",
-    "*********************  SOLD META -2 shares @669.04 - total 1,338.05, Bought STRC qty 13 @99.515 total 1,293.70 Acct 922"
+    "*********************  SOLD META -2 shares @669.04 - total 1,338.05, Bought STRC qty 13 @99.515 total 1,293.70 Acct 922",
+    " *********************   Sell 4 ALAB @ Trailing stop 3.00 percent  since now in Orange trim zone",
+    "******************    AVAILABLE now - Bought 8 STRC @99.505 for $796.04 - we can sell"
 
 
 ]
+
+history = [
+
+"*********************  SOLD MSFT -2 shares @422.78 total 845.54, Bought 8 STRC @99.505 for $796.04  Account 171, again bought back 2 @421.43 total $842.86 ",
+    
+
+]
+
 
 CRYPTO_TICKERS = [
     "BTC-USD","ETH-USD", "WETH-USD","SOL-USD","HYPE32196-USD", "SUI20947-USD", "LINK-USD","DOGE-USD", "ONDO-USD","BNB-USD",
