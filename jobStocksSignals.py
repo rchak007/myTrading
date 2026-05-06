@@ -77,6 +77,50 @@ def git_has_changes(repo_dir: Path) -> bool:
 
 
 # -----------------------------
+# MRC_Zone decoration (shared)
+# -----------------------------
+# Prepending the legend emoji so the zone is still recognizable when the CSV /
+# HTML are viewed on GitHub (background colors get stripped there).
+_MRC_ZONE_EMOJI = {
+    "Strong_OB": "🔴",
+    "OB":        "🟠",
+    "Near_Mean": "🔵",
+    "OS":        "🟢",
+    "Strong_OS": "🟩",
+}
+_MRC_ZONE_BG = {
+    "Strong_OB": "#ff6b6b",
+    "OB":        "#ffd699",
+    "Near_Mean": "#a8c8e8",
+    "OS":        "#b8e0b8",
+    "Strong_OS": "#5fa86f",
+}
+_MRC_ZONE_FG = {
+    "Strong_OB": "#1a1a1a",
+    "OB":        "#1a1a1a",
+    "Near_Mean": "#1a1a1a",
+    "OS":        "#1a1a1a",
+    "Strong_OS": "#ffffff",
+}
+
+
+def _decorate_mrc_zone_value(val: object) -> str:
+    """Prepend the legend emoji to a raw zone label (e.g. 'Strong_OB' → '🔴 Strong_OB')."""
+    s = "" if val is None else str(val)
+    emoji = _MRC_ZONE_EMOJI.get(s, "")
+    return f"{emoji} {s}".strip() if emoji else s
+
+
+def _strip_mrc_zone_emoji(val: object) -> str:
+    """Recover the raw zone key from a possibly-decorated value (for color lookup)."""
+    s = "" if val is None else str(val)
+    for emoji in _MRC_ZONE_EMOJI.values():
+        if s.startswith(emoji + " "):
+            return s[len(emoji) + 1:]
+    return s
+
+
+# -----------------------------
 # HTML builder  (mirrors jobCryptoSignals.py style)
 # -----------------------------
 def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
@@ -89,10 +133,6 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
         elif c == "QTY":
             df2[c] = pd.to_numeric(df2[c], errors="coerce").fillna(0.0).map(lambda v: f"{v:,.2f}")
         elif c in ("%RET30", "%RET60", "%RET90", "%RET120"):
-            df2[c] = pd.to_numeric(df2[c], errors="coerce").map(
-                lambda v: f"{v:+.2f}%" if pd.notna(v) else ""
-            )
-        elif c == "MRC_Dist_Pct":
             df2[c] = pd.to_numeric(df2[c], errors="coerce").map(
                 lambda v: f"{v:+.2f}%" if pd.notna(v) else ""
             )
@@ -125,8 +165,7 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
 
     num_cols = {"VALUE", "QTY", "%RET30", "%RET60", "%RET90", "%RET120",
                 "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
-                "Supertrend", "Last Close", "Current Price",
-                "MRC_Dist_Pct", "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2"}
+                "Supertrend", "Last Close", "Current Price"}
 
     for _, row in df2.iterrows():
         sig = str(row.get("SIGNAL-Super-MOST-ADXR", ""))
@@ -134,8 +173,19 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
         html.append(f"<tr{row_cls}>")
         for c in cols:
             v = row.get(c, "")
-            td_cls = " class='num'" if c in num_cols else ""
-            html.append(f"<td{td_cls}>{v}</td>")
+            if c == "MRC_Zone":
+                # Pull raw zone key (cell may already be decorated with emoji) and color it.
+                key = _strip_mrc_zone_emoji(v)
+                bg = _MRC_ZONE_BG.get(key)
+                fg = _MRC_ZONE_FG.get(key)
+                if bg:
+                    style = f"background-color:{bg};color:{fg};font-weight:600;text-align:center;"
+                    html.append(f"<td style=\"{style}\">{v}</td>")
+                else:
+                    html.append(f"<td>{v}</td>")
+            else:
+                td_cls = " class='num'" if c in num_cols else ""
+                html.append(f"<td{td_cls}>{v}</td>")
         html.append("</tr>")
 
     html.append("</tbody></table>")
@@ -207,30 +257,39 @@ def fetch_schwab_holdings(app_mod) -> pd.DataFrame:
 def reorder_columns(df: pd.DataFrame) -> pd.DataFrame:
     cols = list(df.columns)
 
-    # ── Synced with app.py priority_cols (line ~669) ──
+    # Block that should sit right after SIGNAL-Super-MOST-ADXR | MRC_Zone
+    # (mirrors app.py priority_cols layout exactly).
     priority_cols = [
         "QTY", "VALUE",
         "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
         "%RET30", "%RET60", "%RET90", "%RET120",
         "Earnings_Alert", "Market_Cap_M",
-        # ── Mean Reversion Channel block (right after Market_Cap_M) ──
-        "MRC_Zone", "MRC_Dist_Pct",
+        # Numeric MRC band block — MRC_Zone is placed separately, right after the signal.
+        "MRC_Dist_Pct",
         "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2",
     ]
-
     for c in priority_cols:
         if c in cols:
             cols.remove(c)
+    # Pull MRC_Zone out — placed separately so it lands immediately after the signal.
+    if "MRC_Zone" in cols:
+        cols.remove("MRC_Zone")
 
     insert_after = "SIGNAL-Super-MOST-ADXR"
     if insert_after in cols:
         idx = cols.index(insert_after) + 1
+        # Insert MRC_Zone first so it sits right next to the signal column
+        if "MRC_Zone" in df.columns:
+            cols.insert(idx, "MRC_Zone")
+            idx += 1
         for extra_col in reversed(priority_cols):
             if extra_col in df.columns:
                 cols.insert(idx, extra_col)
     else:
-        cols = ["Ticker", "QTY", "VALUE"] + priority_cols + [
-            c for c in cols if c not in ("Ticker", "QTY", "VALUE") + tuple(priority_cols)
+        head = ["Ticker", "QTY", "VALUE"]
+        mrc_zone_block = ["MRC_Zone"] if "MRC_Zone" in df.columns else []
+        cols = head + mrc_zone_block + priority_cols + [
+            c for c in cols if c not in tuple(head) + tuple(mrc_zone_block) + tuple(priority_cols)
         ]
 
     for move_col in ["Timeframe", "Bar Time"]:
@@ -313,6 +372,11 @@ def main(no_push: bool = False):
     df["VALUE"] = df["VALUE"].fillna(0.0)
     df = reorder_columns(df)
     log(f"Merged: {len(df)} rows, {len(df.columns)} columns")
+
+    # Decorate MRC_Zone with the legend emoji so the value is recognizable
+    # in raw CSVs / GitHub previews where background colors are stripped.
+    if "MRC_Zone" in df.columns:
+        df["MRC_Zone"] = df["MRC_Zone"].map(_decorate_mrc_zone_value)
 
     # ── 4. Write outputs ────────────────────────────────────────────────────────
     JOB_DIR.mkdir(parents=True, exist_ok=True)

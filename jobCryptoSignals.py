@@ -57,6 +57,50 @@ def git_has_changes(repo_dir: Path) -> bool:
     return out.strip() != ""
 
 
+# -----------------------------
+# MRC_Zone decoration (shared with jobStocksSignals)
+# -----------------------------
+# Prepending the legend emoji so the zone is still recognizable when the CSV /
+# HTML are viewed on GitHub (background colors get stripped there).
+_MRC_ZONE_EMOJI = {
+    "Strong_OB": "🔴",
+    "OB":        "🟠",
+    "Near_Mean": "🔵",
+    "OS":        "🟢",
+    "Strong_OS": "🟩",
+}
+_MRC_ZONE_BG = {
+    "Strong_OB": "#ff6b6b",
+    "OB":        "#ffd699",
+    "Near_Mean": "#a8c8e8",
+    "OS":        "#b8e0b8",
+    "Strong_OS": "#5fa86f",
+}
+_MRC_ZONE_FG = {
+    "Strong_OB": "#1a1a1a",
+    "OB":        "#1a1a1a",
+    "Near_Mean": "#1a1a1a",
+    "OS":        "#1a1a1a",
+    "Strong_OS": "#ffffff",
+}
+
+
+def _decorate_mrc_zone_value(val: object) -> str:
+    """Prepend the legend emoji to a raw zone label (e.g. 'Strong_OB' → '🔴 Strong_OB')."""
+    s = "" if val is None else str(val)
+    emoji = _MRC_ZONE_EMOJI.get(s, "")
+    return f"{emoji} {s}".strip() if emoji else s
+
+
+def _strip_mrc_zone_emoji(val: object) -> str:
+    """Recover the raw zone key from a possibly-decorated value (for color lookup)."""
+    s = "" if val is None else str(val)
+    for emoji in _MRC_ZONE_EMOJI.values():
+        if s.startswith(emoji + " "):
+            return s[len(emoji) + 1:]
+    return s
+
+
 def build_html_table(df: pd.DataFrame, title: str, updated_utc: str) -> str:
     # keep it readable on GitHub
     # We won't depend on external CSS.
@@ -90,15 +134,6 @@ def build_html_table(df: pd.DataFrame, title: str, updated_utc: str) -> str:
             df2[c] = pd.to_numeric(df2[c], errors="coerce").fillna(0.0).map(lambda v: f"{v:.2f}%")
         if c in ("Qty", "QTY"):
             df2[c] = pd.to_numeric(df2[c], errors="coerce").fillna(0.0).map(lambda v: f"{v:,.6f}".rstrip("0").rstrip("."))
-        # ── Mean Reversion Channel formatting ──
-        if c == "MRC_Dist_Pct":
-            df2[c] = pd.to_numeric(df2[c], errors="coerce").map(
-                lambda v: f"{v:+.2f}%" if pd.notna(v) else ""
-            )
-        if c in ("MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2"):
-            df2[c] = pd.to_numeric(df2[c], errors="coerce").map(
-                lambda v: f"{v:,.6f}".rstrip("0").rstrip(".") if pd.notna(v) else ""
-            )
 
     # add simple class for ACTION rows
     def row_class(r):
@@ -118,9 +153,17 @@ def build_html_table(df: pd.DataFrame, title: str, updated_utc: str) -> str:
         html.append(f"<tr{klass}>")
         for c in cols:
             v = r.get(c, "")
+            if c == "MRC_Zone":
+                key = _strip_mrc_zone_emoji(v)
+                bg = _MRC_ZONE_BG.get(key)
+                fg = _MRC_ZONE_FG.get(key)
+                if bg:
+                    style = f"background-color:{bg};color:{fg};font-weight:600;text-align:center;"
+                    html.append(f"<td style=\"{style}\">{v}</td>")
+                else:
+                    html.append(f"<td>{v}</td>")
             # right-align numbers a bit
-            if c in ("ALT USD Val", "USDC Value", "Total Val", "ALT%", "Qty", "QTY",
-                     "MRC_Dist_Pct", "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2"):
+            elif c in ("ALT USD Val", "USDC Value", "Total Val", "ALT%", "Qty", "QTY"):
                 html.append(f"<td class='num'>{v}</td>")
             else:
                 html.append(f"<td>{v}</td>")
@@ -194,25 +237,6 @@ def main():
 
     log(f"Complete crypto table built with {len(df_crypto)} rows.")
 
-    # ── Reorder: place MRC block right after "Total Val" ──
-    # MRC = Mean Reversion Channel (fareid's MRI Variant). 7 new columns:
-    #   MRC_Zone, MRC_Dist_Pct, MRC_R2, MRC_R1, MRC_Mean, MRC_S1, MRC_S2
-    # By default they land at the end of the dataframe — move them up so the
-    # crypto CSV/HTML reads:  ... | ALT% | USDC Value | Total Val | MRC_Zone | MRC_Dist_Pct | MRC_R2 ...
-    mrc_cols = ["MRC_Zone", "MRC_Dist_Pct", "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2"]
-    cols = list(df_crypto.columns)
-    if "Total Val" in cols and any(c in cols for c in mrc_cols):
-        # Pull MRC cols out of their current position
-        for c in mrc_cols:
-            if c in cols:
-                cols.remove(c)
-        # Re-insert right after Total Val (preserving the MRC order above)
-        idx = cols.index("Total Val") + 1
-        for c in reversed(mrc_cols):
-            if c in df_crypto.columns:
-                cols.insert(idx, c)
-        df_crypto = df_crypto[cols]
-
     # Totals (already computed in the DataFrame)
     alt_total = float(pd.to_numeric(df_crypto["ALT USD Val"], errors="coerce").fillna(0.0).sum())
     usdc_total = float(pd.to_numeric(df_crypto["USDC Value"], errors="coerce").fillna(0.0).sum())
@@ -256,6 +280,12 @@ def main():
 
     # Write outputs
     JOB_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Decorate MRC_Zone with the legend emoji so the value is recognizable
+    # in raw CSVs / GitHub previews where background colors are stripped.
+    if "MRC_Zone" in df_crypto.columns:
+        df_crypto["MRC_Zone"] = df_crypto["MRC_Zone"].map(_decorate_mrc_zone_value)
+
     df_crypto.to_csv(OUT_CSV, index=False)
 
     html = build_html_table(

@@ -182,6 +182,7 @@ def build_stocks_signals_table(
 
         # Calculate scoring and earnings if enabled
         score_30 = score_60 = score_90 = score_120 = score_weighted = np.nan
+        ret_30 = ret_60 = ret_90 = ret_120 = np.nan
         earnings_alert = ""
         if include_scoring:
             try:
@@ -191,6 +192,11 @@ def build_stocks_signals_table(
                 score_90  = score_data["Score_90"]
                 score_120 = score_data["Score_120"]
                 score_weighted = score_data["Score_Weighted"]
+                # % returns over each window — already computed inside calculate_all_scores
+                ret_30  = score_data.get("%RET30",  np.nan)
+                ret_60  = score_data.get("%RET60",  np.nan)
+                ret_90  = score_data.get("%RET90",  np.nan)
+                ret_120 = score_data.get("%RET120", np.nan)
                 earnings_alert = get_earnings_alert(t)
             except Exception as e:
                 print(f"Warning: Could not calculate score for {t}: {e}")
@@ -217,6 +223,11 @@ def build_stocks_signals_table(
             row["Score_90"]  = int(score_90)  if pd.notna(score_90)  else 0
             row["Score_120"] = int(score_120) if pd.notna(score_120) else 0
             row["Score_Weighted"] = int(score_weighted) if pd.notna(score_weighted) else 0
+            # % returns alongside the scores — keep as floats (NaN preserved for short histories)
+            row["%RET30"]  = float(ret_30)  if pd.notna(ret_30)  else np.nan
+            row["%RET60"]  = float(ret_60)  if pd.notna(ret_60)  else np.nan
+            row["%RET90"]  = float(ret_90)  if pd.notna(ret_90)  else np.nan
+            row["%RET120"] = float(ret_120) if pd.notna(ret_120) else np.nan
             row["Earnings_Alert"] = earnings_alert
 
         # Market_Cap always after signal block
@@ -256,7 +267,9 @@ def build_stocks_signals_table(
     if include_scoring:
         columns_order = [
             "Ticker", "Timeframe", "Bar Time", "Last Close", "Current Price",
-            "SIGNAL-Super-MOST-ADXR", "Supertrend", "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
+            "SIGNAL-Super-MOST-ADXR", "Supertrend",
+            "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
+            "%RET30", "%RET60", "%RET90", "%RET120",
             "Earnings_Alert", "Market_Cap_M",
              "Supertrend Signal", "RSI",
             "MOST MA", "MOST Line", "MOST Signal",

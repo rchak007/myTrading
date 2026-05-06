@@ -120,8 +120,9 @@ IO_FUND = [
 ]
 
 INVESTANSWERS = [
-    "AVGO","SATS","BABA","ALAB","NPPTF","PLTR","SE","MRVL","AMD","RIOT","CLSK","NVDA","MSTR"
+    "TSLA","NVDA","STRC","MSTR", "SATS", "MU", "AMD",   "AVGO", "BABA","ALAB", "MRVL"
 ]
+# Invest answers old - "NPPTF","PLTR","SE", ,"RIOT","CLSK
 
 # DESCRIPTION_STOCKS = ["
 # # SNA, O and CTVA - just momemntum 45 degree trades in scharls scwab 885 "MNST",
@@ -142,7 +143,7 @@ STOCKS_NOTES = [
     "AI Software GOOG META (& ADs) NET (& inference) PLTR RDDT",
     " AI Hardware AEHR",
     "AI Memory MU SNDK",
-    "⚛️ Quantum Computing QBTS, QUBT, RGTI, IONQ (preferred amont the 4)",
+    "⚛️ Quantum Computing QBTS, QUBT, RGTI, IONQ (preferred among the 4)",
     "☢️ Nuclear / Energy CEG, OKLO, SMR, LTBR, LEU, BWXT, ",
     "🌐 Crypto / Bitcoin Proxy IBIT, ETHA, HODL, ARKB, COIN, HOOD, MSTR, MSTX, ABTC GLXY STRC BMNR IREN, CLSK",
     "🔒 Cybersecurity CRWD, PANW",
@@ -157,20 +158,24 @@ STOCKS_NOTES = [
            "META 5%, MU 9%, NEE 5%, NVDA 5%, PLTR 2%, RDDT 4%, SNDK 8%",
     "INVESTAnswers 4/17/26 - BTC 6.7%, SOL 4.5%, AVGO 1.0%, IBIT 3.6%, SATS 1.5%, BABA 0.4%, ALAB 0.6%", 
     "    InvestAnswers NPPTF 0.4%, STRC 11.1%, PLTR 1.2%, SE 0.7%, MRVL 0.4%, AMD 0.4%, RIOT 0.1%, CLSK 0.7%, NVDA 5.5%, MSTR 10.8%",
-    "*********************  4/23/26 Sold 23 MSTX shares $827.75 @35.99, bought STRC $796.95, remaining",
-    "*********************  Sold 1 GE Vernova GEV share $1,124.04 @1,124.0646, and bought STRC $1,094.72  ",
-    " ********************  Bought 50 shares STRC @$99.4099 total amount $4,970.50 - Reserved for Quantum stocks - RGTI, IONQ QBTS",
-    " **** ***************  CHITRA  - Sold 2 MSFT 846.50 @ $423.24, ",
-    "*********************  SOLD META -2 shares @669.04 - total 1,338.05, Bought STRC qty 13 @99.515 total 1,293.70 Acct 922",
-    " *********************   Sell 4 ALAB @ Trailing stop 3.00 percent  since now in Orange trim zone",
-    "******************    AVAILABLE now - Bought 8 STRC @99.505 for $796.04 - we can sell"
 
 
+    "********  4/23/26 Sold 23 MSTX shares $827.75 @35.99, bought STRC $796.95, remaining - 5/4/26 wait till mean revert more happens curent price 40.16",
+    
+    " *****  Bought 50 shares STRC @$99.4099 total amount $4,970.50 - Reserved for Quantum stocks - RGTI, IONQ QBTS",
+    " *****                         5/4/26 - sold STRC 21	$99.9219 = $2,098.32, Bought IONQ 45	$46.4174	for $2,088.78	 ",
+    " *****                                   remaining STRC = $2,088.78 ",
+
+ 
+  
+ 
 ]
 
 history = [
 
+"*******  SOLD META -2 shares @669.04 - total 1,338.05, bought back 2 Meta @624.6594 in acct 885 for -$1,249.32 - Bought STRC qty 13 @99.515 total 1,293.70 Acct 922",
 "*********************  SOLD MSFT -2 shares @422.78 total 845.54, Bought 8 STRC @99.505 for $796.04  Account 171, again bought back 2 @421.43 total $842.86 ",
+" 5/4/26 ***********   IRDM sold 10 @$39.7307 acct 431 total $397.30; did not do STRC buyt and allocation yet - 5/4/26 - now sold all as its EXIT",
     
 
 ]
@@ -653,6 +658,16 @@ def main():
             
             df_stocks = df_stocks.merge(holdings, on="Ticker", how="left")
             st.write("✅ Merged holdings with signals")
+            st.caption(
+                "Legend — **MRC_Zone** (Mean Reversion Channel): "
+                "🔴 **Strong_OB** = at/above R2 (very stretched up) · "
+                "🟠 **OB** = Overbought (R1→R2) · "
+                "Above_Mean / Below_Mean = mild · "
+                "🔵 **Near_Mean** = fair value · "
+                "🟢 **OS** = Oversold (S1→S2) · "
+                "🟩 **Strong_OS** = at/below S2 (very stretched down). "
+                "OB = Overbought, OS = Oversold."
+            )
             
         except SchwabAuthError as e:
             st.error(f"Schwab auth failed: {e}")
@@ -680,8 +695,12 @@ def main():
             df_stocks["Market_Cap_M"] = pd.to_numeric(df_stocks["Market_Cap_M"], errors="coerce")
 
         # --- Reorder columns ---
-        # Desired order after SIGNAL: QTY, VALUE, Score_30/60/90/120/Weighted, Market_Cap_M, Earnings_Alert,
-        # then the Mean Reversion Channel block (MRC_Zone, MRC_Dist_Pct, R2/R1/Mean/S1/S2)
+        # Layout:
+        #   ... SIGNAL-Super-MOST-ADXR | MRC_Zone | QTY | VALUE | Score_30...Score_Weighted
+        #       | %RET30...%RET120 | Earnings_Alert | Market_Cap_M
+        #       | MRC_Dist_Pct | MRC_R2 | MRC_R1 | MRC_Mean | MRC_S1 | MRC_S2 | ...
+        # MRC_Zone is pulled forward (right after the main signal) for at-a-glance scanning.
+        # The numeric MRC band block stays grouped together after Market_Cap_M.
         cols = list(df_stocks.columns)
 
         # Pull out columns we want to place explicitly
@@ -690,23 +709,34 @@ def main():
             "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
             "%RET30", "%RET60", "%RET90", "%RET120",
             "Earnings_Alert", "Market_Cap_M",
-            # ── Mean Reversion Channel block (right after Market_Cap_M) ──
-            "MRC_Zone", "MRC_Dist_Pct",
+            # ── Mean Reversion Channel numeric block ──
+            # (MRC_Zone is pulled forward to sit next to SIGNAL-Super-MOST-ADXR; see below)
+            "MRC_Dist_Pct",
             "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2",
         ]
         for c in priority_cols:
             if c in cols:
                 cols.remove(c)
+        # Also pull MRC_Zone out — we'll place it separately, right after the signal column
+        if "MRC_Zone" in cols:
+            cols.remove("MRC_Zone")
 
         insert_after = "SIGNAL-Super-MOST-ADXR"
         if insert_after in cols:
             idx = cols.index(insert_after) + 1
+            # Insert MRC_Zone first so it lands immediately after the signal
+            if "MRC_Zone" in df_stocks.columns:
+                cols.insert(idx, "MRC_Zone")
+                idx += 1
+            # Then insert the rest of the priority cols
             for extra_col in reversed(priority_cols):
                 if extra_col in df_stocks.columns:
                     cols.insert(idx, extra_col)
         else:
-            cols = ["Ticker", "QTY", "VALUE"] + priority_cols + [
-                c for c in cols if c not in ("Ticker", "QTY", "VALUE") + tuple(priority_cols)
+            head = ["Ticker", "QTY", "VALUE"]
+            mrc_zone_block = ["MRC_Zone"] if "MRC_Zone" in df_stocks.columns else []
+            cols = head + mrc_zone_block + priority_cols + [
+                c for c in cols if c not in tuple(head) + tuple(mrc_zone_block) + tuple(priority_cols)
             ]
 
         # Move Timeframe and Bar Time to the end
@@ -724,7 +754,53 @@ def main():
             sort_order = st.radio("Sort order", ["Descending", "Ascending"], horizontal=True, key="stock_sort_order")
             df_stocks = df_stocks.sort_values(by=sort_by, ascending=(sort_order == "Ascending"), na_position="last")
 
-        st.dataframe(df_stocks, width="stretch")
+        # --- Style MRC_Zone with background colors + emoji prefix ---
+        # Soft pastels for the colored cells. We also prepend an emoji so the
+        # zone is still recognizable when CSVs/HTML are viewed somewhere that
+        # strips the styling (e.g. GitHub renders).
+        # Above_Mean / Below_Mean / N/A are intentionally left unstyled (and
+        # un-decorated) — only the actionable extremes get attention.
+        _MRC_ZONE_EMOJI = {
+            "Strong_OB": "🔴",
+            "OB":        "🟠",
+            "Near_Mean": "🔵",
+            "OS":        "🟢",
+            "Strong_OS": "🟩",
+        }
+        _MRC_ZONE_COLORS = {
+            "Strong_OB": "background-color: #ff6b6b; color: #1a1a1a;",  # red — at/above R2
+            "OB":        "background-color: #ffd699; color: #1a1a1a;",  # light orange — R1→R2
+            "Near_Mean": "background-color: #a8c8e8; color: #1a1a1a;",  # blue — fair value
+            "OS":        "background-color: #b8e0b8; color: #1a1a1a;",  # light green — S1→S2
+            "Strong_OS": "background-color: #5fa86f; color: #ffffff;",  # dark green — at/below S2
+        }
+
+        def _decorate_mrc_zone(val: object) -> str:
+            """Prepend the legend emoji to the zone label for display."""
+            s = str(val) if val is not None else ""
+            emoji = _MRC_ZONE_EMOJI.get(s, "")
+            return f"{emoji} {s}".strip() if emoji else s
+
+        def _zone_key_from_decorated(val: object) -> str:
+            """Strip the leading emoji to recover the raw zone key (for color lookup)."""
+            s = str(val) if val is not None else ""
+            for emoji in _MRC_ZONE_EMOJI.values():
+                if s.startswith(emoji + " "):
+                    return s[len(emoji) + 1:]
+            return s
+
+        def _color_mrc_zone(val):
+            return _MRC_ZONE_COLORS.get(_zone_key_from_decorated(val), "")
+
+        if "MRC_Zone" in df_stocks.columns:
+            # Decorate a *display copy* so the underlying df_stocks (used by the
+            # fund sub-tables below) stays clean and emoji isn't double-applied.
+            df_stocks_display = df_stocks.copy()
+            df_stocks_display["MRC_Zone"] = df_stocks_display["MRC_Zone"].map(_decorate_mrc_zone)
+            styled = df_stocks_display.style.applymap(_color_mrc_zone, subset=["MRC_Zone"])
+            st.dataframe(styled, width="stretch")
+        else:
+            st.dataframe(df_stocks, width="stretch")
 
         # -----------------------
         # IO Fund & InvestAnswers sub-tables
@@ -770,7 +846,14 @@ def main():
                         ascending=(sort_fund_order == "Ascending"),
                         na_position="last",
                     )
-                st.dataframe(df_fund, width="stretch")
+                # Apply same MRC_Zone coloring + emoji as the main table
+                if "MRC_Zone" in df_fund.columns:
+                    df_fund_display = df_fund.copy()
+                    df_fund_display["MRC_Zone"] = df_fund_display["MRC_Zone"].map(_decorate_mrc_zone)
+                    styled_fund = df_fund_display.style.applymap(_color_mrc_zone, subset=["MRC_Zone"])
+                    st.dataframe(styled_fund, width="stretch")
+                else:
+                    st.dataframe(df_fund, width="stretch")
 
                 # Note which tickers are crypto-only and not shown
                 crypto_only_in_list = [t for t in fund_list if t in _CRYPTO_ONLY]
@@ -955,8 +1038,43 @@ def main():
                 return "color: red; font-weight: 700;"
             return ""
 
-        styled = df_crypto.style.applymap(_style_action, subset=["ACTION"])
-        st.dataframe(styled, use_container_width=True)
+        # MRC_Zone styling for crypto — same emoji + background as the stocks table.
+        # Defined locally so this block is self-contained even though the same
+        # maps exist in the stocks branch above.
+        _CRYPTO_MRC_EMOJI = {
+            "Strong_OB": "🔴", "OB": "🟠",
+            "Near_Mean": "🔵",
+            "OS": "🟢", "Strong_OS": "🟩",
+        }
+        _CRYPTO_MRC_COLORS = {
+            "Strong_OB": "background-color: #ff6b6b; color: #1a1a1a;",
+            "OB":        "background-color: #ffd699; color: #1a1a1a;",
+            "Near_Mean": "background-color: #a8c8e8; color: #1a1a1a;",
+            "OS":        "background-color: #b8e0b8; color: #1a1a1a;",
+            "Strong_OS": "background-color: #5fa86f; color: #ffffff;",
+        }
+
+        def _decorate_mrc_zone_crypto(val):
+            s = str(val) if val is not None else ""
+            e = _CRYPTO_MRC_EMOJI.get(s, "")
+            return f"{e} {s}".strip() if e else s
+
+        def _color_mrc_zone_crypto(val):
+            s = str(val) if val is not None else ""
+            for e in _CRYPTO_MRC_EMOJI.values():
+                if s.startswith(e + " "):
+                    s = s[len(e) + 1:]
+                    break
+            return _CRYPTO_MRC_COLORS.get(s, "")
+
+        df_crypto_display = df_crypto.copy()
+        if "MRC_Zone" in df_crypto_display.columns:
+            df_crypto_display["MRC_Zone"] = df_crypto_display["MRC_Zone"].map(_decorate_mrc_zone_crypto)
+
+        styler = df_crypto_display.style.applymap(_style_action, subset=["ACTION"])
+        if "MRC_Zone" in df_crypto_display.columns:
+            styler = styler.applymap(_color_mrc_zone_crypto, subset=["MRC_Zone"])
+        st.dataframe(styler, use_container_width=True)
         
 
         # ---------------------------
