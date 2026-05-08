@@ -1024,24 +1024,6 @@ def log_trade(
     pst = ZoneInfo("America/Los_Angeles")
     ts  = datetime.now(pst).strftime("%Y-%m-%d %H:%M:%S")
 
-    # ── Compute USD values for both legs of the swap ──
-    # For BUY:  amount is in stablecoin (USDC/USDT). Token leg ≈ amount / price tokens, worth `amount` USD.
-    # For SELL: amount is in tokens. Stable leg ≈ amount * price USD.
-    # Stablecoins are pegged to $1, so stable_value_usd == stable units.
-    # token_value_usd and stable_value_usd should be approximately equal (it's a swap).
-    STABLE_CCYS = {"USDC", "USDT", "DAI", "USD"}
-    is_stable_amount = amount_ccy.upper() in STABLE_CCYS
-
-    if is_stable_amount:
-        # BUY: amount is stable spent; token received is worth ~ amount USD at current price
-        stable_value_usd = float(amount)
-        token_value_usd  = float(amount)
-    else:
-        # SELL: amount is tokens sold; stable received is worth ~ amount * price USD
-        token_value_usd  = float(amount) * float(price)
-        stable_value_usd = float(amount) * float(price)
-    total_value_usd = token_value_usd  # both legs are equal at swap price
-
     # ── Per-bot CSV ──
     path = _trade_log_path(bot_id)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -1051,15 +1033,12 @@ def log_trade(
         if not file_exists:
             f.write(
                 "timestamp,bot_name,blockchain,action,regime_from,regime_to,"
-                "price,amount,amount_ccy,"
-                "token_value_usd,stable_value_usd,total_value_usd,"
-                "tx_sig,dry_run\n"
+                "price,amount,amount_ccy,tx_sig,dry_run\n"
             )
         f.write(
             f"{ts},{bot_name},{blockchain},{action},"
             f"{regime_from},{regime_to},"
             f"{price:.4f},{amount:.6f},{amount_ccy},"
-            f"{token_value_usd:.2f},{stable_value_usd:.2f},{total_value_usd:.2f},"
             f"{tx_sig or ''},{dry_run}\n"
         )
 
@@ -1070,15 +1049,12 @@ def log_trade(
         if not master_exists:
             mf.write(
                 "timestamp,bot_id,bot_name,blockchain,action,regime_from,regime_to,"
-                "price,amount,amount_ccy,"
-                "token_value_usd,stable_value_usd,total_value_usd,"
-                "tx_sig,dry_run\n"
+                "price,amount,amount_ccy,tx_sig,dry_run\n"
             )
         mf.write(
             f"{ts},{bot_id},{bot_name},{blockchain},{action},"
             f"{regime_from},{regime_to},"
             f"{price:.4f},{amount:.6f},{amount_ccy},"
-            f"{token_value_usd:.2f},{stable_value_usd:.2f},{total_value_usd:.2f},"
             f"{tx_sig or ''},{dry_run}\n"
         )
 

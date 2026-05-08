@@ -110,14 +110,17 @@ STOCK_TICKERS = [
     "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU",
     "NBIS", "NBR", "NEE", "NET", "NOC", "NPK", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL", "PANW", "PL", "PLTR",
     "QBTS","QUBT","RCAT", "RDDT", "RGTI", "RIOT", "RKLB", "RTX",
-    "SATS", "SE", "SLV", "SOFI", "SPY", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC",
-    "TEM",  "TER","TSLA","TSM","UMAC", "UPXI","VRT", "WDC", "WTI", "XLE"  
+    "SATS", "SE", "SLV", "SOFI", "SPY", "SMCI", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC", "STX",
+    "TEM",  "TER", "TLN",  "TSLA","TSM","UMAC", "UPXI","VRT", "VST", "WDC", "WTI", "XLE"  
 ]
 
 
 IO_FUND = [
     "ALAB","AAOI","AEHR","BE","BTCUSD","COHR","GEV","GOOGL","LITE","LINKUSD","META","MU","NET","NVDA","PLTR","RDDT","SNDK"
 ]
+
+BETH_FUNDS = ["NVDA", "AVGO", "AMD", "ARM", "LITE", "AAOI", "SMCI", "BE", "CEG", "VST", "TLN", "MU", "WDC", "STX", "MRVL", "META", "GOOGL"]
+
 
 INVESTANSWERS = [
     "TSLA","NVDA","STRC","MSTR", "SATS", "MU", "AMD",   "AVGO", "BABA","ALAB", "MRVL"
@@ -816,6 +819,7 @@ def main():
 
         for label, fund_list in [
             ("📌 IO Fund", IO_FUND),
+            ("📌 Beth Funds", BETH_FUNDS),
             ("📌 InvestAnswers", INVESTANSWERS),
         ]:
             st.divider()
