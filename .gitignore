@@ -74,4 +74,6 @@ priv-CharlesScwabToken.md
 
 # Node.js (SUI swap helper)
 node_modules/
-package-lock.json
+package-lock.jsonasset_registry.json
+token_decimals.json
+nohup.out
