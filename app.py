@@ -62,6 +62,12 @@ TOKEN_PATHS = [
 ]
 USER_ID = "main"
 
+# When True, the app never touches the Supabase token DB.
+# Use the local tokens.json files only. Flip to False (or set env var
+# LOCAL_ONLY=0) only when deploying to a hosted environment where
+# the local filesystem is ephemeral (e.g. Streamlit Cloud).
+LOCAL_ONLY = os.getenv("LOCAL_ONLY", "1") not in ("0", "false", "False", "")
+
 STOCKS_CSV = OUTPUTS_DIR / "supertrend_stocks_1d.csv"
 CRYPTO_CSV = OUTPUTS_DIR / "supertrend_crypto_4h.csv"
 
@@ -100,7 +106,7 @@ PLACEHOLDER_FUTURE = True
 
 
 STOCK_TICKERS = [
-    "AAPL","AAOI","ABTC", "AEHR",  "ALAB", "AMAT", "AMD","AMZN","APH","APLD","APP","ARKB", "ARM" , "ASML", "ASTS", "AVAV", "AVGO",
+    "AAPL","AAOI","ABTC", "AEHR",  "ALAB", "AMAT", "AMD", "AMZN", "APH","APLD","APP","ARKB", "ARM" , "ASML", "ASTS", "AVAV", "AVGO",
     "BABA", "BE", "BKR", "BMNR", "BOTZ", "BWXT", 
     "CEG",  "CFG", "CIEN", "CLSK", "COIN","COHR","COPX", "CORZ", "CRCL", "CRDO","CRWV", "CRWD", "CTVA",
     "DPRO",
@@ -116,11 +122,11 @@ STOCK_TICKERS = [
 
 
 IO_FUND = [
-    "ALAB","AAOI","AEHR","BE","BTCUSD","COHR","GEV","GOOGL","LITE","LINKUSD","META","MU","NET","NVDA","PLTR","RDDT","SNDK"
+    "ALAB","AAOI", "AMD", "ARM", "BE",  "BTCUSD","COHR","GEV","GOOGL","LITE","LINKUSD","META","MU", "NEE", "NVDA","PLTR","RDDT","SNDK"
 ]
 
-BETH_FUNDS = ["NVDA", "AVGO", "AMD", "ARM", "LITE", "AAOI", "SMCI", "BE", "CEG", "VST", "TLN", "MU", "WDC", "STX", "MRVL", "META", "GOOGL"]
-
+BETH_FUNDS = ["NVDA", "AVGO", "AMD", "ARM", "TSM","MU", "SNDK", "LITE", "AAOI", "COHR", 
+                  "ALAB", "VRT", "DELL",  "META", "GOOGL", "RDDT", "PLTR", "NET",  "BE", "GEV", "NEE" ]
 
 INVESTANSWERS = [
     "TSLA","NVDA","STRC","MSTR", "SATS", "MU", "AMD",   "AVGO", "BABA","ALAB", "MRVL"
@@ -224,7 +230,6 @@ def _parse_iso_dt(s: str) -> datetime | None:
 
 
 def schwab_token_status(user_id: str, token_paths: list[Path]) -> dict:
-    db = load_tokens_db(user_id=user_id)
     now = datetime.now(timezone.utc)
 
     status = {
@@ -232,22 +237,30 @@ def schwab_token_status(user_id: str, token_paths: list[Path]) -> dict:
         "callback_url": st.secrets.get("callback_url", None) if hasattr(st, "secrets") else None,
         "db": None,
         "local_files": [],
+        "local_only": LOCAL_ONLY,
     }
 
-    # DB info
-    if db:
-        exp = _parse_iso_dt(db.get("expires_at"))
-        seconds_left = int((exp - now).total_seconds()) if exp else None
-        status["db"] = {
-            "has_access_token": bool(db.get("access_token")),
-            "has_refresh_token": bool(db.get("refresh_token")),
-            "expires_at": db.get("expires_at"),
-            "seconds_left": seconds_left,
-            "expired": (seconds_left is not None and seconds_left <= 0),
-            "updated_at": db.get("updated_at"),
-        }
+    # DB info -- skip in LOCAL_ONLY mode, and never let DB errors crash the page
+    if LOCAL_ONLY:
+        status["db"] = {"skipped": "LOCAL_ONLY mode"}
     else:
-        status["db"] = {"present": False}
+        try:
+            db = load_tokens_db(user_id=user_id)
+            if db:
+                exp = _parse_iso_dt(db.get("expires_at"))
+                seconds_left = int((exp - now).total_seconds()) if exp else None
+                status["db"] = {
+                    "has_access_token": bool(db.get("access_token")),
+                    "has_refresh_token": bool(db.get("refresh_token")),
+                    "expires_at": db.get("expires_at"),
+                    "seconds_left": seconds_left,
+                    "expired": (seconds_left is not None and seconds_left <= 0),
+                    "updated_at": db.get("updated_at"),
+                }
+            else:
+                status["db"] = {"present": False}
+        except Exception as e:
+            status["db"] = {"error": f"{type(e).__name__}: {e}"}
 
     # Local files info
     for p in token_paths:
@@ -272,10 +285,7 @@ def fetch_schwab_stock_holdings() -> pd.DataFrame:
     Aggregated across all accounts, equities only.
     """
     try:
-        # For local development: skip DB, use local tokens only
-        # Set local_only=True to bypass database token checks
-        LOCAL_ONLY = True  # Change to False when deploying to Streamlit Cloud
-        
+        # Uses module-level LOCAL_ONLY flag (set near top of file).
         client_wrapper = create_schwab_client(USER_ID, TOKEN_PATHS, local_only=LOCAL_ONLY)
         
         # Fetch positions (handles token refresh automatically)
@@ -366,12 +376,24 @@ def schwab_auth_panel():
     col1, col2 = st.sidebar.columns(2)
 
     if col1.button("📥 DB → Local"):
-        ok = sync_db_to_local_multi(user_id, token_paths)
-        st.sidebar.success(f"DB → Local sync: {ok}")
+        if LOCAL_ONLY:
+            st.sidebar.info("LOCAL_ONLY mode -- DB sync skipped.")
+        else:
+            try:
+                ok = sync_db_to_local_multi(user_id, token_paths)
+                st.sidebar.success(f"DB → Local sync: {ok}")
+            except Exception as e:
+                st.sidebar.error(f"DB sync failed: {e}")
 
     if col2.button("📤 Local → DB"):
-        sync_local_to_db_multi(user_id, token_paths)
-        st.sidebar.success("Local → DB sync done")
+        if LOCAL_ONLY:
+            st.sidebar.info("LOCAL_ONLY mode -- DB sync skipped.")
+        else:
+            try:
+                sync_local_to_db_multi(user_id, token_paths)
+                st.sidebar.success("Local → DB sync done")
+            except Exception as e:
+                st.sidebar.error(f"DB sync failed: {e}")
 
     st.sidebar.divider()
 
@@ -390,11 +412,14 @@ def schwab_auth_panel():
         st.sidebar.success("Local token files cleared.")
 
     if c2.button("🗑️ Clear DB tokens"):
-        try:
-            delete_tokens_db(user_id=user_id)
-            st.sidebar.success("DB tokens cleared.")
-        except Exception as e:
-            st.sidebar.error(f"DB delete failed: {e}")
+        if LOCAL_ONLY:
+            st.sidebar.info("LOCAL_ONLY mode -- skipped.")
+        else:
+            try:
+                delete_tokens_db(user_id=user_id)
+                st.sidebar.success("DB tokens cleared.")
+            except Exception as e:
+                st.sidebar.error(f"DB delete failed: {e}")
 
     if st.sidebar.button("🔥 Clear BOTH (DB + Local)", type="primary"):
         for p in token_paths:
@@ -402,11 +427,12 @@ def schwab_auth_panel():
                 p.unlink(missing_ok=True)
             except Exception as e:
                 st.sidebar.warning(f"Could not delete {p}: {e}")
-        try:
-            delete_tokens_db(user_id=user_id)
-        except Exception as e:
-            st.sidebar.error(f"DB delete failed: {e}")
-        st.sidebar.success("✅ Cleared DB + Local. Next Schwab call will require login.")
+        if not LOCAL_ONLY:
+            try:
+                delete_tokens_db(user_id=user_id)
+            except Exception as e:
+                st.sidebar.error(f"DB delete failed: {e}")
+        st.sidebar.success("✅ Cleared local tokens. Next Schwab call will require login.")
 
     st.sidebar.divider()
 
@@ -447,7 +473,11 @@ def schwab_auth_panel():
             # Clear tokens first
             for p in token_paths:
                 p.unlink(missing_ok=True)
-            delete_tokens_db(user_id=user_id)
+            if not LOCAL_ONLY:
+                try:
+                    delete_tokens_db(user_id=user_id)
+                except Exception as e:
+                    st.sidebar.warning(f"DB clear skipped: {e}")
             
             # Force OAuth flow
             client_wrapper = create_schwab_client(user_id, token_paths)
@@ -485,19 +515,27 @@ def main():
     with st.sidebar:
         st.subheader("🔐 Schwab Token (DB)")
 
-        t = load_tokens_db(USER_ID)
-        if t:
-            st.write("DB token expires:",
-                    datetime.fromtimestamp(t["expires_at"]).strftime("%Y-%m-%d %H:%M:%S"))
-            if st.button("⬇️ Sync DB → local (for schwabdev)"):
-                ok = sync_db_to_local_multi(USER_ID, TOKEN_PATHS)
-                st.success("Synced DB → local ✅" if ok else "No DB token found ❌")
-            if st.button("⬆️ Sync local → DB (after login/refresh)"):
-                ok = sync_local_to_db_multi(USER_ID, TOKEN_PATHS)
-                st.success("Synced local → DB ✅" if ok else "No valid local token ❌")
+        if LOCAL_ONLY:
+            st.caption("LOCAL_ONLY mode -- DB token panel disabled.")
         else:
-            st.warning("No token in DB yet.")
-            st.caption("After you login once, click 'Sync local → DB'.")
+            try:
+                t = load_tokens_db(USER_ID)
+            except Exception as e:
+                t = None
+                st.error(f"DB unreachable: {e}")
+
+            if t:
+                st.write("DB token expires:",
+                        datetime.fromtimestamp(t["expires_at"]).strftime("%Y-%m-%d %H:%M:%S"))
+                if st.button("⬇️ Sync DB → local (for schwabdev)"):
+                    ok = sync_db_to_local_multi(USER_ID, TOKEN_PATHS)
+                    st.success("Synced DB → local ✅" if ok else "No DB token found ❌")
+                if st.button("⬆️ Sync local → DB (after login/refresh)"):
+                    ok = sync_local_to_db_multi(USER_ID, TOKEN_PATHS)
+                    st.success("Synced local → DB ✅" if ok else "No valid local token ❌")
+            else:
+                st.warning("No token in DB yet.")
+                st.caption("After you login once, click 'Sync local → DB'.")
 
     with st.sidebar:
         st.subheader("🎛️ Macro Regime Override")
@@ -818,8 +856,8 @@ def main():
             return df[df["Ticker"].isin(mapped)].copy()
 
         for label, fund_list in [
+            ("📌 BETH Fund", BETH_FUNDS),
             ("📌 IO Fund", IO_FUND),
-            ("📌 Beth Funds", BETH_FUNDS),
             ("📌 InvestAnswers", INVESTANSWERS),
         ]:
             st.divider()
