@@ -39,23 +39,6 @@ OUT_README  = JOB_DIR / "README_stocks.md"
 OUT_META    = JOB_DIR / "meta_stocks.json"
 LOG_FILE    = JOB_DIR / "job_stocks.log"
 
-# Curated fund sub-table CSVs + macro snapshot
-OUT_IO_FUND_CSV       = JOB_DIR / "io_fund.csv"
-OUT_BETH_FUNDS_CSV    = JOB_DIR / "beth_funds.csv"
-OUT_INVESTANSWERS_CSV = JOB_DIR / "investanswers.csv"
-OUT_MACRO_CSV         = JOB_DIR / "macro.csv"
-
-# Mirrors app.py: GOOGL listed in IO_FUND maps to GOOG ticker, and the two
-# *USD entries are crypto-only — skipped when filtering against stocks df.
-_TICKER_ALIAS = {"GOOGL": "GOOG"}
-_CRYPTO_ONLY  = {"BTCUSD", "LINKUSD"}
-
-
-def _filter_fund_df(df: pd.DataFrame, fund_list: list[str]) -> pd.DataFrame:
-    """Filter merged stocks df to just the tickers in a curated fund list."""
-    mapped = [_TICKER_ALIAS.get(t, t) for t in fund_list if t not in _CRYPTO_ONLY]
-    return df[df["Ticker"].isin(mapped)].copy()
-
 
 # -----------------------------
 # Logging
@@ -338,9 +321,6 @@ def main(no_push: bool = False):
         assert spec and spec.loader
         spec.loader.exec_module(mod)
         STOCK_TICKERS = getattr(mod, "STOCK_TICKERS")
-        IO_FUND       = getattr(mod, "IO_FUND", [])
-        BETH_FUNDS    = getattr(mod, "BETH_FUNDS", [])
-        INVESTANSWERS = getattr(mod, "INVESTANSWERS", [])
     except Exception as e:
         raise RuntimeError(f"Could not load STOCK_TICKERS from myTrading/app.py: {e}")
 
@@ -445,44 +425,6 @@ Open **stocks_signals.html** in the repo for the formatted table.
     OUT_README.write_text(readme, encoding="utf-8")
     log("Outputs written: csv / html / readme / meta")
 
-    # ── 4b. Curated fund sub-table CSVs (filtered views of the merged df) ──────
-    for label, csv_path, fund_list in [
-        ("io_fund",       OUT_IO_FUND_CSV,       IO_FUND),
-        ("beth_funds",    OUT_BETH_FUNDS_CSV,    BETH_FUNDS),
-        ("investanswers", OUT_INVESTANSWERS_CSV, INVESTANSWERS),
-    ]:
-        if not fund_list:
-            log(f"⚠️  {label}: fund list empty in app.py — skipping")
-            continue
-        df_fund = _filter_fund_df(df, fund_list)
-        df_fund.to_csv(csv_path, index=False)
-        log(f"Wrote {label}.csv ({len(df_fund)} rows)")
-
-    # ── 4c. Macro snapshot CSV (single row) ───────────────────────────────────
-    try:
-        macro_row = {
-            "Updated_PST":     updated_pst,
-            "Macro_Regime":    macro_regime,
-            "Risk_Pct":        macro_info.get("risk_pct", 0),
-            "Reason":          macro_info.get("reason", ""),
-            "Overridden":      macro_info.get("overridden", False),
-            "VIX":             round(float(vix), 2) if pd.notna(vix) else None,
-            "SPY_Close":       round(float(spy_close), 2) if pd.notna(spy_close) else None,
-            "SPY_200MA":       round(float(spy_ma200), 2) if pd.notna(spy_ma200) else None,
-            "SPY_vs_200MA":    spy_status,
-            "Breadth_Pct":     round(float(breadth["pct"]), 1) if pd.notna(breadth["pct"]) else None,
-            "Breadth_Status":  breadth.get("status", ""),
-            "Breadth_Action":  breadth.get("action", ""),
-            "Tickers_Scanned": len(df_signals),
-            "Tickers_Held":    len(held),
-            "Total_Value":     round(total_val, 2),
-            "Exit_Signals":    ", ".join(meta["exit_signals"]) or "",
-        }
-        pd.DataFrame([macro_row]).to_csv(OUT_MACRO_CSV, index=False)
-        log(f"Wrote macro.csv ({len(macro_row)} fields)")
-    except Exception as e:
-        log(f"⚠️  Failed to write macro.csv: {e}")
-
     # ── 5. Git commit & push ────────────────────────────────────────────────────
     if no_push:
         log("--no-push flag set — skipping git commit/push.")
@@ -499,7 +441,7 @@ Open **stocks_signals.html** in the repo for the formatted table.
         return
 
     run_cmd(["git", "add", "-A"], cwd=JOB_DIR)
-    msg = f"Stocks snapshot: {updated_pst}"
+    msg = f"Daily stocks snapshot: {updated_pst}"
     code, out = run_cmd(["git", "commit", "-m", msg], cwd=JOB_DIR)
     if code != 0:
         log(f"git commit failed:\n{out}")
