@@ -1,7 +1,6 @@
 # data/stocks.py
 from __future__ import annotations
 
-import requests
 import numpy as np
 import pandas as pd
 import yfinance as yf
@@ -44,39 +43,26 @@ def fetch_market_cap(ticker: str) -> float:
 
 def fetch_current_price(ticker: str) -> float:
     """
-    Fetch the live/intraday price for a ticker using Yahoo's v7 quote endpoint
-    directly — same endpoint that powers the Yahoo Finance website's live ticker.
-
-    This bypasses yfinance's known 15-min delay on the 1m-bar download path.
-    For Nasdaq-listed stocks this returns real-time price; NYSE stocks may
-    still be ~15 min delayed (exchange licensing, not a code issue).
-
-    Falls back to fast_info → info.regularMarketPrice if the v7 call fails.
-    Returns np.nan on total failure.
+    Fetch the live/intraday price for a ticker.
+    Strategy (fastest → most reliable):
+      1. 1-minute bar download (period=1d, interval=1m) — most recent tick
+      2. fast_info.last_price  — near-real-time, usually accurate during market hours
+      3. info.regularMarketPrice — heavier call, last resort
+    Returns np.nan on failure.
     """
-    # 1. Yahoo v7 quote endpoint — freshest available free source
+    # 1. Latest 1m bar — gives the true current price during market hours
     try:
-        url = "https://query1.finance.yahoo.com/v7/finance/quote"
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        }
-        resp = requests.get(url, params={"symbols": ticker}, headers=headers, timeout=5)
-        if resp.status_code == 200:
-            data = resp.json()
-            results = data.get("quoteResponse", {}).get("result", [])
-            if results:
-                q = results[0]
-                price = q.get("regularMarketPrice")
-                if price and float(price) > 0:
-                    return round(float(price), 4)
+        df = yf.download(ticker, period="1d", interval="1m", progress=False)
+        if df is not None and not df.empty:
+            # price = float(df["Close"].iloc[-1])
+            val = df["Close"].iloc[-1]
+            price = float(val.iloc[0]) if hasattr(val, "iloc") else float(val)
+            if price > 0:
+                return round(price, 4)
     except Exception:
         pass
 
-    # 2. fast_info — fallback, near-real-time
+    # 2. fast_info — lightweight, near-real-time
     try:
         fi = yf.Ticker(ticker).fast_info
         price = getattr(fi, "last_price", None)
