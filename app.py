@@ -131,6 +131,8 @@ BETH_FUNDS = ["NVDA", "AVGO", "AMD", "ARM", "TSM","MU", "SNDK", "LITE", "AAOI", 
 INVESTANSWERS = [
     "TSLA","NVDA","STRC","MSTR", "SATS", "MU", "AMD",   "AVGO", "BABA","ALAB", "MRVL"
 ]
+
+CHITRA_TICKERS = [ "TSLA", "MSTR", "STRC", "GOOG", "AMAT", "MSFT", "TSM", "SATS", "CIEN", "IBIT" ]
 # Invest answers old - "NPPTF","PLTR","SE", ,"RIOT","CLSK
 
 # DESCRIPTION_STOCKS = ["
@@ -859,6 +861,7 @@ def main():
             ("📌 BETH Fund", BETH_FUNDS),
             ("📌 IO Fund", IO_FUND),
             ("📌 InvestAnswers", INVESTANSWERS),
+            ("📌 Chitra Stocks", CHITRA_TICKERS),
         ]:
             st.divider()
             st.subheader(label)

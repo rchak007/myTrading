@@ -44,6 +44,7 @@ OUT_IO_FUND_CSV       = JOB_DIR / "io_fund.csv"
 OUT_BETH_FUNDS_CSV    = JOB_DIR / "beth_funds.csv"
 OUT_INVESTANSWERS_CSV = JOB_DIR / "investanswers.csv"
 OUT_MACRO_CSV         = JOB_DIR / "macro.csv"
+OUT_CHITRA_CSV       = JOB_DIR / "chitra_tickers.csv"
 
 # Mirrors app.py: GOOGL listed in IO_FUND maps to GOOG ticker, and the two
 # *USD entries are crypto-only — skipped when filtering against stocks df.
@@ -341,6 +342,7 @@ def main(no_push: bool = False):
         IO_FUND       = getattr(mod, "IO_FUND", [])
         BETH_FUNDS    = getattr(mod, "BETH_FUNDS", [])
         INVESTANSWERS = getattr(mod, "INVESTANSWERS", [])
+        CHITRA_TICKERS = getattr(mod, "CHITRA_TICKERS", [])
     except Exception as e:
         raise RuntimeError(f"Could not load STOCK_TICKERS from myTrading/app.py: {e}")
 
@@ -450,6 +452,7 @@ Open **stocks_signals.html** in the repo for the formatted table.
         ("io_fund",       OUT_IO_FUND_CSV,       IO_FUND),
         ("beth_funds",    OUT_BETH_FUNDS_CSV,    BETH_FUNDS),
         ("investanswers", OUT_INVESTANSWERS_CSV, INVESTANSWERS),
+        ("chitra_tickers", OUT_CHITRA_CSV, CHITRA_TICKERS),
     ]:
         if not fund_list:
             log(f"⚠️  {label}: fund list empty in app.py — skipping")
