@@ -197,7 +197,7 @@ CRYPTO_TICKERS = [
     "AAVE-USD" , "ADA-USD" , "AIXBT-USD", "AKT-USD", "ANON35092-USD", "ASTER36341-USD", "AUKI-USD", "AURORA14803-USD", "blue-usd" , 
     "cetus-usd" ,"cookie31838-usd" ,"CRV-USD",
      "DBR31528-USD","DEEP33391-USD",  "DOGE-USD", "DRIFT31278-USD", "ELIZAOS-USD",  "elon-usd" ,"ENA-USD","ENS-USD",
-    "fluid-usd", "fluxb-usd","FAI34330-USD","GIZA36216-USD"  "griffain-USD",
+    "fluid-usd", "fluxb-usd","FAI34330-USD","GIZA36216-USD",  "griffain-USD",
     "HNT-USD", "IKA37454-USD", "JTO-USD", "JUP29210-USD", "KMNO-USD", "LFNTY-USD", 
     "MOBILE-USD",  "MON30495-USD", "navx-USD" , "NEAR-USD", "NOS-USD",  "ORCA-USD" , "ore32782-USD",
     "pippin-usd" , "PNK-USD", "PROVE-USD", "PYTH-USD","RAY-USD","RENDER-USD",
