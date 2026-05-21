@@ -49,20 +49,6 @@ BSC_CHAIN_ID = 56
 # Wrapped BNB
 WBNB_ADDRESS = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
 
-# 0x v2 represents a chain's NATIVE coin (native BNB here) with this sentinel
-# address rather than a contract. Used when token_contract is empty/None.
-NATIVE_SENTINEL = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE"
-
-
-def _is_native(addr) -> bool:
-    """True when the token address is empty/None (i.e. native BNB)."""
-    return (addr is None) or (str(addr).strip() == "")
-
-
-def _resolve_0x_token(addr) -> str:
-    """Native BNB -> 0x native sentinel; otherwise checksummed contract."""
-    return NATIVE_SENTINEL if _is_native(addr) else _checksum(addr)
-
 # USDT on BSC (the dominant stablecoin — most pairs route through USDT)
 BSC_USDT_ADDRESS = "0x55d398326f99059fF775485246999027B3197955"
 
@@ -307,16 +293,15 @@ def swap_via_0x(
     amount_raw = int(amount_in_human * (10 ** token_in_decimals))
     slippage   = slippage_bps / 10_000.0
 
-    # 0x API v2 uses ONE host for all chains; chain is set via chainId param.
-    # (The old per-chain subdomain https://bsc.api.0x.org was retired -> 404.)
-    base_url = "https://api.0x.org"
-    headers  = {"0x-api-key": api_key, "0x-version": "v2"}
+    # 0x API v2 uses chain-specific subdomains
+    base_url = "https://bsc.api.0x.org"
+    headers  = {"0x-api-key": api_key, "0x-version": "2"}
 
     # Step 1: Get quote
     params = {
         "chainId":     BSC_CHAIN_ID,
-        "sellToken":   _resolve_0x_token(token_in),
-        "buyToken":    _resolve_0x_token(token_out),
+        "sellToken":   _checksum(token_in),
+        "buyToken":    _checksum(token_out),
         "sellAmount":  str(amount_raw),
         "taker":       wallet,
         "slippageBps": slippage_bps,
@@ -333,29 +318,25 @@ def swap_via_0x(
     if "transaction" not in quote:
         raise RuntimeError(f"[bnb] 0x: no 'transaction' in quote: {quote}")
 
-    # Step 2: Approve — ONLY for ERC-20 sells. When selling native BNB the coin
-    # rides in tx 'value' (set below) and there is no token to approve.
-    if _is_native(token_in):
-        log.info("[bnb] native BNB sell — skipping ERC-20 approval")
-    else:
-        spender = None
-        issues  = quote.get("issues", {})
-        if isinstance(issues.get("allowance"), dict):
-            spender = issues["allowance"].get("spender")
-        if not spender:
-            spender = quote.get("transaction", {}).get("to")
-        if not spender:
-            raise RuntimeError("[bnb] 0x: could not determine spender")
+    # Step 2: Approve
+    spender = None
+    issues  = quote.get("issues", {})
+    if isinstance(issues.get("allowance"), dict):
+        spender = issues["allowance"].get("spender")
+    if not spender:
+        spender = quote.get("transaction", {}).get("to")
+    if not spender:
+        raise RuntimeError("[bnb] 0x: could not determine spender")
 
-        approval_hash = ensure_approval(
-            w3, account,
-            token_contract=_checksum(token_in),
-            spender=_checksum(spender),
-            amount_raw=amount_raw,
-            chain_id=BSC_CHAIN_ID,
-        )
-        if approval_hash:
-            time.sleep(3)
+    approval_hash = ensure_approval(
+        w3, account,
+        token_contract=_checksum(token_in),
+        spender=_checksum(spender),
+        amount_raw=amount_raw,
+        chain_id=BSC_CHAIN_ID,
+    )
+    if approval_hash:
+        time.sleep(3)
 
     # Step 3: Build and send tx
     tx_data   = quote["transaction"]
