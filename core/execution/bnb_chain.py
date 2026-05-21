@@ -325,7 +325,10 @@ def swap_via_0x(
     log.info("[bnb] 0x quote: %s→%s amount=%d slippage=%d bps",
              token_in[:10], token_out[:10], amount_raw, slippage_bps)
 
-    resp = requests.get(f"{base_url}/swap/permit2/quote", params=params,
+    # AllowanceHolder (NOT permit2): plain approve()+swap, no signature flow.
+    # permit2 requires signing quote.permit2.eip712 which this bot does not do,
+    # which caused on-chain reverts. AllowanceHolder matches our approve pattern.
+    resp = requests.get(f"{base_url}/swap/allowance-holder/quote", params=params,
                         headers=headers, timeout=30)
     resp.raise_for_status()
     quote = resp.json()
@@ -338,24 +341,23 @@ def swap_via_0x(
     if _is_native(token_in):
         log.info("[bnb] native BNB sell — skipping ERC-20 approval")
     else:
-        spender = None
-        issues  = quote.get("issues", {})
-        if isinstance(issues.get("allowance"), dict):
-            spender = issues["allowance"].get("spender")
-        if not spender:
-            spender = quote.get("transaction", {}).get("to")
-        if not spender:
-            raise RuntimeError("[bnb] 0x: could not determine spender")
-
-        approval_hash = ensure_approval(
-            w3, account,
-            token_contract=_checksum(token_in),
-            spender=_checksum(spender),
-            amount_raw=amount_raw,
-            chain_id=BSC_CHAIN_ID,
-        )
-        if approval_hash:
-            time.sleep(3)
+        # AllowanceHolder: if issues.allowance is null -> already approved, skip.
+        # Otherwise approve issues.allowance.spender (the AllowanceHolder contract).
+        # Do NOT fall back to transaction.to (that is the Settler — never approve it).
+        allowance = quote.get("issues", {}).get("allowance")
+        if not isinstance(allowance, dict) or not allowance.get("spender"):
+            log.info("[bnb] 0x: no allowance needed (already approved)")
+        else:
+            spender = allowance["spender"]
+            approval_hash = ensure_approval(
+                w3, account,
+                token_contract=_checksum(token_in),
+                spender=_checksum(spender),
+                amount_raw=amount_raw,
+                chain_id=BSC_CHAIN_ID,
+            )
+            if approval_hash:
+                time.sleep(3)
 
     # Step 3: Build and send tx
     tx_data   = quote["transaction"]
