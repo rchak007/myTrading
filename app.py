@@ -109,7 +109,7 @@ STOCK_TICKERS = [
     "AAPL","AAOI","ABTC", "AEHR",  "ALAB", "AMAT", "AMD", "AMZN", "APH","APLD","APP","ARKB", "ARM" , "ASML", "ASTS", "AVAV", "AVGO",
     "BABA", "BE", "BKR", "BMNR", "BOTZ", "BWXT", 
     "CEG",  "CFG", "CIEN", "CLSK", "COIN","COHR","COPX", "CORZ", "CRCL", "CRDO","CRWV", "CRWD", "CTVA",
-    "DPRO",
+    "DELL", "DPRO",
     "ETHA", "FIG", "GEV", "GLD", "GLXY", "GOOG",
     "HIMS", "HODL","HOOD","IBIT","IDR","INOD","INVA", "IONQ", "IRDM",  "IREN", "KTOS",
     "LEU","LITE", "LMT", "LRCX","LTBR", "LUNR",
@@ -122,11 +122,11 @@ STOCK_TICKERS = [
 
 
 IO_FUND = [
-    "ALAB","AAOI", "AMD", "ARM", "BE",  "BTCUSD","COHR","GEV","GOOGL","LITE","LINKUSD","META","MU", "NEE", "NVDA","PLTR","RDDT","SNDK"
+    "ALAB","AAOI", "AMD", "ARM", "BE",  "BTCUSD","COHR","GEV","GOOG","LITE","LINKUSD","META","MU", "NEE", "NVDA","PLTR","RDDT","SNDK"
 ]
 
 BETH_FUNDS = ["NVDA", "AVGO", "AMD", "ARM", "TSM","MU", "SNDK", "LITE", "AAOI", "COHR", 
-                  "ALAB", "VRT", "DELL",  "META", "GOOGL", "RDDT", "PLTR", "NET",  "BE", "GEV", "NEE" ]
+                  "ALAB", "VRT", "DELL",  "META", "GOOG", "RDDT", "PLTR", "NET",  "BE", "GEV", "NEE" ]
 
 INVESTANSWERS = [
     "TSLA","NVDA","STRC","MSTR", "SATS", "MU", "AMD",   "AVGO", "BABA","ALAB", "MRVL"
