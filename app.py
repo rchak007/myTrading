@@ -132,7 +132,7 @@ INVESTANSWERS = [
     "TSLA","NVDA","STRC","MSTR", "SATS", "MU", "AMD",   "AVGO", "BABA","ALAB", "MRVL"
 ]
 
-CHITRA_TICKERS = [ "TSLA", "MSTR", "STRC", "GOOG", "AMAT", "MSFT", "TSM", "SATS", "CIEN", "IBIT" ]
+CHITRA_TICKERS = [ "TSLA", "MSTR", "STRC", "GOOG", "PLTR", "LITE", "MSFT", "TSM", "SATS", "CIEN", "IBIT", "CBRS" ]
 # Invest answers old - "NPPTF","PLTR","SE", ,"RIOT","CLSK
 
 # DESCRIPTION_STOCKS = ["
