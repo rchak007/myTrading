@@ -45,7 +45,6 @@ OUT_BETH_FUNDS_CSV    = JOB_DIR / "beth_funds.csv"
 OUT_INVESTANSWERS_CSV = JOB_DIR / "investanswers.csv"
 OUT_MACRO_CSV         = JOB_DIR / "macro.csv"
 OUT_CHITRA_CSV       = JOB_DIR / "chitra_tickers.csv"
-OUT_STOCKS_NOTES_CSV  = JOB_DIR / "stocks_notes.csv"
 
 # Mirrors app.py: GOOGL listed in IO_FUND maps to GOOG ticker, and the two
 # *USD entries are crypto-only — skipped when filtering against stocks df.
@@ -344,7 +343,6 @@ def main(no_push: bool = False):
         BETH_FUNDS    = getattr(mod, "BETH_FUNDS", [])
         INVESTANSWERS = getattr(mod, "INVESTANSWERS", [])
         CHITRA_TICKERS = getattr(mod, "CHITRA_TICKERS", [])
-        STOCKS_NOTES  = getattr(mod, "STOCKS_NOTES", [])
     except Exception as e:
         raise RuntimeError(f"Could not load STOCK_TICKERS from myTrading/app.py: {e}")
 
@@ -487,15 +485,6 @@ Open **stocks_signals.html** in the repo for the formatted table.
         log(f"Wrote macro.csv ({len(macro_row)} fields)")
     except Exception as e:
         log(f"⚠️  Failed to write macro.csv: {e}")
-
-    # ── 4d. Stocks notes CSV (one note per line) ──────────────────────────────
-    try:
-        notes = [str(n).strip() for n in STOCKS_NOTES if str(n).strip()]
-        # Single "Note" column → one note per row; pandas quotes any embedded commas.
-        pd.DataFrame({"Note": notes}).to_csv(OUT_STOCKS_NOTES_CSV, index=False)
-        log(f"Wrote stocks_notes.csv ({len(notes)} notes)")
-    except Exception as e:
-        log(f"⚠️  Failed to write stocks_notes.csv: {e}")
 
     # ── 5. Git commit & push ────────────────────────────────────────────────────
     if no_push:

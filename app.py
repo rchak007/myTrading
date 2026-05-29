@@ -113,10 +113,10 @@ STOCK_TICKERS = [
     "ETHA", "FIG", "GEV", "GLD", "GLXY", "GOOG",
     "HIMS", "HODL","HOOD","IBIT","IDR","INOD","INVA", "IONQ", "IRDM",  "IREN", "KTOS",
     "LEU","LITE", "LMT", "LRCX","LTBR", "LUNR",
-    "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU",
+    "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX","MU", "MXL",
     "NBIS", "NBR", "NEE", "NET", "NOC", "NPK", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL", "PANW", "PL", "PLTR",
     "QBTS","QUBT","RCAT", "RDDT", "RGTI", "RIOT", "RKLB", "RTX",
-    "SATS", "SE", "SLV", "SOFI", "SPY", "SMCI", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC", "STX",
+    "SATS", "SE", "SIMO", "SITM", "SLV", "SOFI", "SPY", "SMCI", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC", "STX",
     "TEM",  "TER", "TLN",  "TSLA","TSM","UMAC", "UPXI","VRT", "VST", "WDC", "WTI", "XLE"  
 ]
 
@@ -167,6 +167,7 @@ STOCKS_NOTES = [
     "Oil and gas - BKR,"
     "IO-FUND 4/24/26 - ALAB 7%, AAOI 8%,  AEHR 6%, BE 11%, BTCUSD 2%, COHR 7%, GEV 8%, GOOGL 4%, LITE 7%, LINKUSD 1%  ",
            "META 5%, MU 9%, NEE 5%, NVDA 5%, PLTR 2%, RDDT 4%, SNDK 8%",
+           "Knox momentum - SIMO SITM MXL ",
     "INVESTAnswers 4/17/26 - BTC 6.7%, SOL 4.5%, AVGO 1.0%, IBIT 3.6%, SATS 1.5%, BABA 0.4%, ALAB 0.6%", 
     "    InvestAnswers NPPTF 0.4%, STRC 11.1%, PLTR 1.2%, SE 0.7%, MRVL 0.4%, AMD 0.4%, RIOT 0.1%, CLSK 0.7%, NVDA 5.5%, MSTR 10.8%",
 
