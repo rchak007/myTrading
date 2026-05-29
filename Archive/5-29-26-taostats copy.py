@@ -149,75 +149,6 @@ class TaostatsAPI:
             params["timestamp_end"] = timestamp_end
         return self._get("/api/dtao/tao_flow/v1", params)
 
-    def pool_history(
-        self,
-        netuid: int,
-        frequency: str = "by_hour",
-        timestamp_start: int | None = None,
-        timestamp_end: int | None = None,
-        limit: int = 200,
-        page: int = 1,
-        order: str = "timestamp_asc",
-    ) -> dict:
-        """
-        GET /api/dtao/pool/history/v1
-        Historical subnet pool snapshots. frequency: by_block | by_hour | by_day.
-        Each row returns: timestamp, block_number, price (in TAO), market_cap,
-        liquidity, total_tao, total_alpha, alpha_in_pool, alpha_staked, root_prop.
-        """
-        params = {
-            "netuid": netuid,
-            "frequency": frequency,
-            "limit": limit,
-            "page": page,
-            "order": order,
-        }
-        if timestamp_start is not None:
-            params["timestamp_start"] = timestamp_start
-        if timestamp_end is not None:
-            params["timestamp_end"] = timestamp_end
-        return self._get("/api/dtao/pool/history/v1", params)
-
-    def pool_history_all(
-        self,
-        netuid: int,
-        frequency: str = "by_hour",
-        lookback_days: int = 45,
-        max_pages: int = 20,
-    ) -> list[dict]:
-        """
-        Auto-paginate pool history for the last `lookback_days` days.
-        Returns a flat list of data rows.
-        """
-        now = int(time.time())
-        start = now - lookback_days * 86400
-
-        all_rows: list[dict] = []
-        page = 1
-        while page <= max_pages:
-            result = self.pool_history(
-                netuid=netuid,
-                frequency=frequency,
-                timestamp_start=start,
-                timestamp_end=now,
-                limit=200,
-                page=page,
-                order="timestamp_asc",
-            )
-            rows = result.get("data", []) or []
-            if not rows:
-                break
-            all_rows.extend(rows)
-
-            pagination = result.get("pagination", {}) or {}
-            next_page = pagination.get("next_page")
-            if not next_page:
-                break
-            page = int(next_page)
-            time.sleep(RATE_LIMIT_DELAY)
-
-        return all_rows
-
     def subnet_info(self, netuid: int = None) -> dict:
         """GET /api/subnet/latest/v1 — subnet parameters, emissions, net flows."""
         params = {}
@@ -502,85 +433,6 @@ def load_collected_ohlcv(netuid: int, interval: str = "4h") -> pd.DataFrame | No
     # For proper OHLCV, set High/Low from multiple snapshots within the bar
     # If only 1 snapshot per bar, H=L=C (same as 7-day preview)
     print(f"📊 SN{netuid}: {len(ohlcv)} bars loaded from {len(df)} snapshots ({interval})")
-    return ohlcv
-
-
-# ═══════════════════════════════════════════════════════════════════
-# Fetch 4H OHLCV from taostats /pool/history (the real deal)
-# ═══════════════════════════════════════════════════════════════════
-def fetch_bittensor_4h_df(
-    netuid: int,
-    lookback_days: int = 45,
-    api: "TaostatsAPI | None" = None,
-) -> "pd.DataFrame | None":
-    """
-    Fetch hourly price history from taostats /pool/history/v1 and resample to 4H OHLCV.
-
-    Returns a DataFrame with columns [Open, High, Low, Close, Volume] — same shape
-    as crypto.fetch_crypto_4h_df() so it slots directly into apply_indicators().
-
-    Volume is set to 0.0 (history endpoint doesn't return per-bar volume). The
-    primary signal_super_most_adxr does NOT use volume, so this is fine.
-
-    With lookback_days=45 we get ~45*24 = 1080 hourly rows → ~270 4H bars,
-    comfortably above the 240-bar warmup threshold.
-    """
-    if api is None:
-        api = TaostatsAPI()
-
-    try:
-        rows = api.pool_history_all(
-            netuid=netuid,
-            frequency="by_hour",
-            lookback_days=lookback_days,
-        )
-    except Exception as e:
-        print(f"❌ SN{netuid}: pool_history failed — {e}")
-        return None
-
-    if not rows:
-        print(f"⚠️  SN{netuid}: No history rows returned")
-        return None
-
-    # Build hourly DataFrame
-    parsed = []
-    for r in rows:
-        try:
-            ts = pd.to_datetime(r["timestamp"])
-            price = float(r["price"])
-            if price <= 0:
-                continue
-            parsed.append({"timestamp": ts, "price": price})
-        except (KeyError, ValueError, TypeError):
-            continue
-
-    if not parsed:
-        print(f"⚠️  SN{netuid}: No parseable rows out of {len(rows)} returned")
-        return None
-
-    df = pd.DataFrame(parsed).set_index("timestamp").sort_index()
-    # Deduplicate any overlapping timestamps (keep last)
-    df = df[~df.index.duplicated(keep="last")]
-
-    try:
-        df.index = df.index.tz_localize(None)
-    except (TypeError, AttributeError):
-        pass
-
-    # Resample 1H prices → 4H OHLCV
-    # Open=first price, High=max, Low=min, Close=last — real intra-bar candles
-    grouped = df["price"].resample("4h")
-    ohlcv = pd.DataFrame({
-        "Open":   grouped.first(),
-        "High":   grouped.max(),
-        "Low":    grouped.min(),
-        "Close":  grouped.last(),
-        "Volume": 0.0,
-    }).dropna()
-
-    if not ohlcv.empty:
-        print(f"✅ SN{netuid}: {len(ohlcv)} 4H bars from {len(df)} hourly snapshots "
-              f"({df.index[0]} → {df.index[-1]})")
     return ohlcv
 
 
@@ -904,10 +756,6 @@ Examples:
   # Run signals from collected data
   python3 taostats.py --signals --netuids 4 64
 
-  # NEW: Fetch hourly history from API → resample to 4H → run signals (no waiting)
-  python3 taostats.py --history 4
-  python3 taostats.py --history 62 --lookback 60
-
 Cron example (every 4 hours):
   0 */4 * * * cd /path/to/project && python3 taostats.py --collect >> taostats_collect.log 2>&1
 """,
@@ -918,17 +766,13 @@ Cron example (every 4 hours):
     parser.add_argument("--pool", type=int, metavar="NETUID", help="Show detailed pool info for one subnet")
     parser.add_argument("--collect", action="store_true", help="Collect price snapshot to build OHLCV history")
     parser.add_argument("--signals", action="store_true", help="Run signals from collected OHLCV data")
-    parser.add_argument("--history", type=int, metavar="NETUID",
-                        help="Fetch hourly history from API, resample to 4H, and run signals (no waiting for --collect)")
-    parser.add_argument("--lookback", type=int, default=45,
-                        help="History lookback in days for --history (default: 45)")
     parser.add_argument("--netuids", nargs="+", type=int, help="Specific subnet netuids to target")
     parser.add_argument("--interval", default="4h", choices=["1h", "4h", "1d"], help="Signal interval (default: 4h)")
     parser.add_argument("--balance", metavar="COLDKEY", help="Show your stake balances (provide coldkey SS58)")
 
     args = parser.parse_args()
 
-    if not any([args.validate, args.scan, args.pool, args.collect, args.signals, args.balance, args.history is not None]):
+    if not any([args.validate, args.scan, args.pool, args.collect, args.signals, args.balance]):
         parser.print_help()
         sys.exit(0)
 
@@ -972,56 +816,6 @@ Cron example (every 4 hours):
 
     if args.collect:
         collect_price_snapshot(api, args.netuids)
-        return
-
-    if args.history is not None:
-        netuid = args.history
-        print("=" * 90)
-        print(f"🧪 BITTENSOR SUBNET HISTORY TEST — SN{netuid}")
-        print(f"   Lookback: {args.lookback} days | {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}")
-        print("=" * 90)
-
-        df_4h = fetch_bittensor_4h_df(netuid, lookback_days=args.lookback, api=api)
-        if df_4h is None or df_4h.empty:
-            print("❌ Failed to build 4H OHLCV")
-            return
-
-        print(f"\n📊 4H OHLCV (last 10 bars):")
-        print(df_4h.tail(10).to_string())
-        print(f"\n   Total bars: {len(df_4h)}")
-        print(f"   Period:     {df_4h.index[0]} → {df_4h.index[-1]}")
-
-        if not HAS_CORE:
-            print("\n⚠️  core.indicators not importable — only showing raw OHLCV (no signals)")
-            print("   Run from project root or set PYTHONPATH to enable signal computation.")
-            return
-
-        if len(df_4h) < 50:
-            print(f"\n⚠️  Only {len(df_4h)} bars — need ≥50 for signals. Try --lookback 60 or more.")
-            return
-
-        params = _get_indicator_params()
-        try:
-            df_ind = apply_indicators(df_4h, **params)
-            last = df_ind.iloc[-1]
-            st_sig = str(last.get("Supertrend_Signal", "SELL"))
-            most_sig = str(last.get("MOST_Signal", "SELL"))
-            adxr_state = str(last.get("ADXR_State", "FLAT"))
-            final = signal_super_most_adxr(st_sig, most_sig, adxr_state)
-
-            emoji = {"BUY": "🟢", "HOLD": "🟡", "EXIT": "🔴", "STANDDOWN": "⚪"}.get(final, "❓")
-            print(f"\n{emoji} SN{netuid} SIGNAL: {final}")
-            print(f"   {'Close':.<20s} {float(last['Close']):.8f}")
-            print(f"   {'Supertrend':.<20s} {float(last['Supertrend']):.8f}  ({st_sig})")
-            print(f"   {'RSI':.<20s} {float(last['RSI']):.2f}")
-            print(f"   {'MOST MA':.<20s} {float(last['MOST_MA']):.6f}")
-            print(f"   {'MOST Line':.<20s} {float(last['MOST_Line']):.6f}  ({most_sig})")
-            print(f"   {'ADXR State':.<20s} {adxr_state}")
-            print(f"   {'Bars used':.<20s} {len(df_ind)}")
-        except Exception as e:
-            print(f"❌ Indicator/signal computation failed: {e}")
-            import traceback
-            traceback.print_exc()
         return
 
     if args.signals:
