@@ -18,8 +18,6 @@
 
 from __future__ import annotations
 
-from archive_outputs import archive_if_new_month
-ARCHIVE_ROOT = os.getenv("BOT_ARCHIVE_ROOT", os.path.expanduser("~/github/noGitJobTradingArchive"))
 
 import json
 import os
@@ -156,6 +154,11 @@ SOLANA_CHAINS = {"solana"}
 HYPERLIQUID_CHAINS = {"hyperliquid"}
 BNB_CHAINS = {"bnb"}
 SUI_CHAINS = {"sui"}
+
+
+
+from archive_outputs import archive_if_new_month
+ARCHIVE_ROOT = os.getenv("BOT_ARCHIVE_ROOT", os.path.expanduser("~/github/noGitJobTradingArchive"))
 
 
 # ═══════════════════════════════════════════════════════════════════
