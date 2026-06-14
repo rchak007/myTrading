@@ -175,7 +175,8 @@ def build_html_table(df: pd.DataFrame, title: str, updated_utc: str) -> str:
     return "\n".join(html)
 
 
-def main():
+# def main():
+def main(no_push: bool = False):    
     # Make sure we can import myTrading modules
     if str(MYTRADING_DIR) not in sys.path:
         sys.path.insert(0, str(MYTRADING_DIR))
@@ -315,6 +316,10 @@ Open **crypto_signals.html** in the repo for the formatted table.
 
     log("Outputs written: csv/html/readme/meta")
 
+    if no_push:
+        log("--no-push set — outputs written; gitpush.py will commit/push.")
+        return
+
     # Git commit & push if changed
     code, _ = run_cmd(["git", "rev-parse", "--is-inside-work-tree"], cwd=JOB_DIR)
     if code != 0:
@@ -340,9 +345,20 @@ Open **crypto_signals.html** in the repo for the formatted table.
     log("Pushed to GitHub ✅")
 
 
+# if __name__ == "__main__":
+#     try:
+#         main()
+#     except Exception as e:
+#         log(f"FATAL: {repr(e)}")
+#         raise
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--no-push", action="store_true",
+                        help="Write outputs only; let gitpush.py handle git.")
+    args = parser.parse_args()
     try:
-        main()
+        main(no_push=args.no_push)
     except Exception as e:
         log(f"FATAL: {repr(e)}")
         raise
