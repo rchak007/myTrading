@@ -18,6 +18,9 @@
 
 from __future__ import annotations
 
+from archive_outputs import archive_if_new_month
+ARCHIVE_ROOT = os.getenv("BOT_ARCHIVE_ROOT", os.path.expanduser("~/github/noGitJobTradingArchive"))
+
 import json
 import os
 import time
@@ -1530,6 +1533,18 @@ def main():
     log.info("=" * 60)
 
     while True:
+
+        try:
+            archive_if_new_month(
+                mirror_dirs=[d for d in {ERROR_LOG_MIRROR_DIR, TRADE_LOG_MIRROR_DIR, HEARTBEAT_MIRROR_DIR} if d],
+                primary_dirs=[d for d in {ERROR_LOG_DIR, TRADE_LOG_DIR, HEARTBEAT_LOG_DIR} if d],
+                archive_root=ARCHIVE_ROOT,
+                logger=log,
+            )
+        except Exception as e:
+            log.warning("[archive] step skipped due to error (trading continues): %s", e)
+
+
         for bot in bots:
             try:
                 key    = (bot.wallet_env, bot.asset.blockchain)
