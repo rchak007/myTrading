@@ -36,7 +36,7 @@ Thumbs.db
 # =========================
 # Generated outputs
 # =========================
-outputs/
+
 reports/
 cache/
 caches/
@@ -46,6 +46,7 @@ transactions_cache/
 # =========================
 # Data files ONLY (not code)
 # =========================
+!/outputs/*hh*.csv
 *.csv
 *.parquet
 *.json
