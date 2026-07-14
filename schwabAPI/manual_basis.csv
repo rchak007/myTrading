@@ -1,0 +1,4 @@
+# Cost basis for shares transferred IN from another broker (ACATS).
+# Schwab reports cost=0 for these, so their P&L is wrong until you fill this in.
+# Look it up in your OLD broker statement. Delete rows you cannot find.
+symbol,cost_per_share
