@@ -47,6 +47,9 @@ transactions_cache/
 # Data files ONLY (not code)
 # =========================
 !/outputs/*hh*.csv
+!/schwabAPI/*
+!/schwabAPI/*.csv
+!/schwabAPI/corporate_actions.json
 *.csv
 *.parquet
 *.json
