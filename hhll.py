@@ -53,6 +53,14 @@ DEFAULT_PERIOD = 2          # ZigZag Period (user default; TradingView default i
 DEFAULT_ENGINE = "window"   # "window" = TV replica | "bos" = rizzy-style hybrid
 SCAN_PERIOD = "420d"        # yfinance history window (matches 45_Signal convention)
 
+# HHLL structure columns exported for merging into the signals tables
+# (jobStocksSignals.py / jobCryptoSignals.py). Order here is the display order.
+HHLL_MERGE_COLS = [
+    "Regime", "Structure", "Last_Label", "Last_Label_Price",
+    "Prev_Label", "Prev_Label_Price", "Nearest_Support", "Nearest_Resistance",
+    "Bars_Since_Flip", "Active_Supports", "Active_Resistances",
+]
+
 
 # ═══════════════════════════════════════════════════════════════════
 # Data structures
@@ -284,6 +292,115 @@ def summarize(df: pd.DataFrame, res: HHLLResult) -> dict:
         "Active_Supports": len([lv for lv in active if lv.kind == "S"]),
         "Active_Resistances": len([lv for lv in active if lv.kind == "R"]),
     }
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Callable API — compute HHLL in-process and fold it into a signals table
+# (imported by jobStocksSignals.py / jobCryptoSignals.py — no CSV involved)
+# ═══════════════════════════════════════════════════════════════════
+
+def compute_hhll_table(tickers: "list[str]",
+                       prd: int = DEFAULT_PERIOD,
+                       engine: str = DEFAULT_ENGINE,
+                       verbose: bool = False,
+                       log_fn=None) -> pd.DataFrame:
+    """
+    Compute HHLL structure rows for a list of tickers, in-process.
+
+    Fetches daily bars (yfinance), runs the pivot/regime engine, and summarizes
+    one row per ticker. Returns a DataFrame with 'Ticker' + HHLL_MERGE_COLS
+    (plus 'Close'). Tickers that fail to fetch/compute are skipped silently
+    (or logged if verbose). No files are read or written.
+
+    This is the same work `scan()` does for the CLI, minus the CSV write and the
+    'List' tag column — factored out so the cron jobs can call it directly.
+    """
+    emit = log_fn or (print if verbose else (lambda *_: None))
+    rows: list[dict] = []
+    total = len(tickers)
+    for i, tk in enumerate(tickers, 1):
+        dfd = fetch_daily(tk)
+        if dfd is None:
+            emit(f"  [{i:>3}/{total}] {tk:<14} — no data, skipped")
+            continue
+        try:
+            res = compute_hhll(dfd, prd=prd, engine=engine)
+            rows.append({"Ticker": tk, **summarize(dfd, res)})
+        except Exception as e:
+            emit(f"  [{i:>3}/{total}] {tk:<14} — compute failed ({e})")
+    return pd.DataFrame(rows)
+
+
+def merge_hhll_columns(df: pd.DataFrame,
+                       hhll_df: pd.DataFrame,
+                       after: str = "VALUE") -> "tuple[pd.DataFrame, str]":
+    """
+    Left-merge a precomputed HHLL table (from compute_hhll_table) onto a signals
+    DataFrame, keyed on 'Ticker', positioning the HHLL block immediately after
+    the `after` column.
+
+    Parameters
+    ----------
+    df       : signals table (must contain a 'Ticker' column).
+    hhll_df  : output of compute_hhll_table (Ticker + HHLL columns).
+    after    : column to insert the HHLL block right after. If absent from df,
+               the block is appended at the end.
+
+    Returns
+    -------
+    (df_out, message) : merged DataFrame + short status string for logging.
+                        If df has no 'Ticker', or hhll_df is empty, df is returned
+                        unchanged with an explanatory message — the job never breaks.
+    """
+    if "Ticker" not in df.columns:
+        return df, "HHLL merge skipped: signals table has no 'Ticker' column."
+    if hhll_df is None or hhll_df.empty or "Ticker" not in hhll_df.columns:
+        return df, "HHLL merge skipped: HHLL table is empty."
+
+    keep = ["Ticker"] + [c for c in HHLL_MERGE_COLS if c in hhll_df.columns]
+    hh = hhll_df[keep].drop_duplicates(subset="Ticker", keep="last")
+
+    # Let the HHLL columns own their requested names: drop any pre-existing
+    # same-named columns from the signals table before merging.
+    overlap = [c for c in HHLL_MERGE_COLS if c in df.columns]
+    if overlap:
+        df = df.drop(columns=overlap)
+
+    merged = df.merge(hh, on="Ticker", how="left")
+
+    # Reposition the HHLL block right after `after` (or append if `after` absent).
+    hh_cols = [c for c in HHLL_MERGE_COLS if c in merged.columns]
+    base = [c for c in merged.columns if c not in hh_cols]
+    idx = base.index(after) + 1 if after in base else len(base)
+    new_order = base[:idx] + hh_cols + base[idx:]
+
+    matched = int(merged[hh_cols[0]].notna().sum()) if hh_cols else 0
+    anchor = after if after in base else f"end ('{after}' not found)"
+    return (merged[new_order],
+            f"HHLL merged: {len(hh_cols)} cols, {matched}/{len(merged)} tickers "
+            f"matched, inserted after {anchor}.")
+
+
+def attach_hhll_columns(df: pd.DataFrame,
+                        tickers: "list[str]",
+                        after: str = "VALUE",
+                        prd: int = DEFAULT_PERIOD,
+                        engine: str = DEFAULT_ENGINE,
+                        verbose: bool = False,
+                        log_fn=None) -> "tuple[pd.DataFrame, str]":
+    """
+    One-call convenience: compute HHLL for `tickers` and merge it into `df`.
+
+    This is what the cron jobs import:
+
+        from hhll import attach_hhll_columns
+        df, msg = attach_hhll_columns(df, STOCK_TICKERS, after="VALUE", log_fn=log)
+
+    No CSV is read or written — everything happens in-process.
+    """
+    hhll_df = compute_hhll_table(tickers, prd=prd, engine=engine,
+                                 verbose=verbose, log_fn=log_fn)
+    return merge_hhll_columns(df, hhll_df, after=after)
 
 
 # ═══════════════════════════════════════════════════════════════════

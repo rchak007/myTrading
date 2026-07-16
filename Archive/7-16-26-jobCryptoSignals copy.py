@@ -238,15 +238,6 @@ def main(no_push: bool = False):
 
     log(f"Complete crypto table built with {len(df_crypto)} rows.")
 
-    # Compute HHLL structure in-process & fold in (right after the Total Val column)
-    try:
-        from hhll import attach_hhll_columns
-        log("Computing HHLL structure...")
-        df_crypto, hhll_msg = attach_hhll_columns(df_crypto, CRYPTO_TICKERS, after="Total Val", log_fn=log)
-        log(hhll_msg)
-    except Exception as e:
-        log(f"⚠️  HHLL merge failed (continuing without it): {e}")
-
     # Totals (already computed in the DataFrame)
     alt_total = float(pd.to_numeric(df_crypto["ALT USD Val"], errors="coerce").fillna(0.0).sum())
     usdc_total = float(pd.to_numeric(df_crypto["USDC Value"], errors="coerce").fillna(0.0).sum())
