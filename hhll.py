@@ -47,7 +47,7 @@ import numpy as np
 import pandas as pd
 
 APP_DIR = Path(__file__).resolve().parent
-OUT_DIR = APP_DIR / "outputs"
+OUT_DIR = APP_DIR / "../jobMyTrading/outputs/hhll"
 
 DEFAULT_PERIOD = 2          # ZigZag Period (user default; TradingView default is 10)
 DEFAULT_ENGINE = "window"   # "window" = TV replica | "bos" = rizzy-style hybrid
