@@ -89,7 +89,7 @@ def main() -> None:
         return
 
     for attempt in range(1, MAX_TRIES + 1):
-        code, out = run(["git", "pull", "--rebase", "origin", "main"])
+        code, out = run(["git", "pull", "--rebase", "--autostash", "origin", "main"])
         if code != 0:
             log(f"pull --rebase failed (try {attempt}):\n{out}")
             run(["git", "rebase", "--abort"])
