@@ -39,6 +39,25 @@ OUT_README  = JOB_DIR / "README_stocks.md"
 OUT_META    = JOB_DIR / "meta_stocks.json"
 LOG_FILE    = JOB_DIR / "job_stocks.log"
 
+# Curated fund sub-table CSVs + macro snapshot
+OUT_IO_FUND_CSV       = JOB_DIR / "io_fund.csv"
+OUT_BETH_FUNDS_CSV    = JOB_DIR / "beth_funds.csv"
+OUT_INVESTANSWERS_CSV = JOB_DIR / "investanswers.csv"
+OUT_MACRO_CSV         = JOB_DIR / "macro.csv"
+OUT_CHITRA_CSV       = JOB_DIR / "chitra_tickers.csv"
+OUT_STOCKS_NOTES_CSV  = JOB_DIR / "stocks_notes.csv"
+
+# Mirrors app.py: GOOGL listed in IO_FUND maps to GOOG ticker, and the two
+# *USD entries are crypto-only — skipped when filtering against stocks df.
+_TICKER_ALIAS = {"GOOGL": "GOOG"}
+_CRYPTO_ONLY  = {"BTCUSD", "LINKUSD"}
+
+
+def _filter_fund_df(df: pd.DataFrame, fund_list: list[str]) -> pd.DataFrame:
+    """Filter merged stocks df to just the tickers in a curated fund list."""
+    mapped = [_TICKER_ALIAS.get(t, t) for t in fund_list if t not in _CRYPTO_ONLY]
+    return df[df["Ticker"].isin(mapped)].copy()
+
 
 # -----------------------------
 # Logging
@@ -74,6 +93,50 @@ def git_has_changes(repo_dir: Path) -> bool:
     if code != 0:
         raise RuntimeError(f"git status failed:\n{out}")
     return out.strip() != ""
+
+
+# -----------------------------
+# MRC_Zone decoration (shared)
+# -----------------------------
+# Prepending the legend emoji so the zone is still recognizable when the CSV /
+# HTML are viewed on GitHub (background colors get stripped there).
+_MRC_ZONE_EMOJI = {
+    "Strong_OB": "🔴",
+    "OB":        "🟠",
+    "Near_Mean": "🔵",
+    "OS":        "🟢",
+    "Strong_OS": "🟩",
+}
+_MRC_ZONE_BG = {
+    "Strong_OB": "#ff6b6b",
+    "OB":        "#ffd699",
+    "Near_Mean": "#a8c8e8",
+    "OS":        "#b8e0b8",
+    "Strong_OS": "#5fa86f",
+}
+_MRC_ZONE_FG = {
+    "Strong_OB": "#1a1a1a",
+    "OB":        "#1a1a1a",
+    "Near_Mean": "#1a1a1a",
+    "OS":        "#1a1a1a",
+    "Strong_OS": "#ffffff",
+}
+
+
+def _decorate_mrc_zone_value(val: object) -> str:
+    """Prepend the legend emoji to a raw zone label (e.g. 'Strong_OB' → '🔴 Strong_OB')."""
+    s = "" if val is None else str(val)
+    emoji = _MRC_ZONE_EMOJI.get(s, "")
+    return f"{emoji} {s}".strip() if emoji else s
+
+
+def _strip_mrc_zone_emoji(val: object) -> str:
+    """Recover the raw zone key from a possibly-decorated value (for color lookup)."""
+    s = "" if val is None else str(val)
+    for emoji in _MRC_ZONE_EMOJI.values():
+        if s.startswith(emoji + " "):
+            return s[len(emoji) + 1:]
+    return s
 
 
 # -----------------------------
@@ -129,8 +192,19 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
         html.append(f"<tr{row_cls}>")
         for c in cols:
             v = row.get(c, "")
-            td_cls = " class='num'" if c in num_cols else ""
-            html.append(f"<td{td_cls}>{v}</td>")
+            if c == "MRC_Zone":
+                # Pull raw zone key (cell may already be decorated with emoji) and color it.
+                key = _strip_mrc_zone_emoji(v)
+                bg = _MRC_ZONE_BG.get(key)
+                fg = _MRC_ZONE_FG.get(key)
+                if bg:
+                    style = f"background-color:{bg};color:{fg};font-weight:600;text-align:center;"
+                    html.append(f"<td style=\"{style}\">{v}</td>")
+                else:
+                    html.append(f"<td>{v}</td>")
+            else:
+                td_cls = " class='num'" if c in num_cols else ""
+                html.append(f"<td{td_cls}>{v}</td>")
         html.append("</tr>")
 
     html.append("</tbody></table>")
@@ -201,21 +275,40 @@ def fetch_schwab_holdings(app_mod) -> pd.DataFrame:
 # -----------------------------
 def reorder_columns(df: pd.DataFrame) -> pd.DataFrame:
     cols = list(df.columns)
-    priority_cols = ["QTY", "VALUE", "Score_30", "Score_60", "Score_90", "Score_120",
-                     "Score_Weighted", "Earnings_Alert", "Market_Cap_M"]
+
+    # Block that should sit right after SIGNAL-Super-MOST-ADXR | MRC_Zone
+    # (mirrors app.py priority_cols layout exactly).
+    priority_cols = [
+        "QTY", "VALUE",
+        "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
+        "%RET30", "%RET60", "%RET90", "%RET120",
+        "Earnings_Alert", "Market_Cap_M",
+        # Numeric MRC band block — MRC_Zone is placed separately, right after the signal.
+        "MRC_Dist_Pct",
+        "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2",
+    ]
     for c in priority_cols:
         if c in cols:
             cols.remove(c)
+    # Pull MRC_Zone out — placed separately so it lands immediately after the signal.
+    if "MRC_Zone" in cols:
+        cols.remove("MRC_Zone")
 
     insert_after = "SIGNAL-Super-MOST-ADXR"
     if insert_after in cols:
         idx = cols.index(insert_after) + 1
+        # Insert MRC_Zone first so it sits right next to the signal column
+        if "MRC_Zone" in df.columns:
+            cols.insert(idx, "MRC_Zone")
+            idx += 1
         for extra_col in reversed(priority_cols):
             if extra_col in df.columns:
                 cols.insert(idx, extra_col)
     else:
-        cols = ["Ticker", "QTY", "VALUE"] + priority_cols + [
-            c for c in cols if c not in ("Ticker", "QTY", "VALUE") + tuple(priority_cols)
+        head = ["Ticker", "QTY", "VALUE"]
+        mrc_zone_block = ["MRC_Zone"] if "MRC_Zone" in df.columns else []
+        cols = head + mrc_zone_block + priority_cols + [
+            c for c in cols if c not in tuple(head) + tuple(mrc_zone_block) + tuple(priority_cols)
         ]
 
     for move_col in ["Timeframe", "Bar Time"]:
@@ -247,6 +340,11 @@ def main(no_push: bool = False):
         assert spec and spec.loader
         spec.loader.exec_module(mod)
         STOCK_TICKERS = getattr(mod, "STOCK_TICKERS")
+        IO_FUND       = getattr(mod, "IO_FUND", [])
+        BETH_FUNDS    = getattr(mod, "BETH_FUNDS", [])
+        INVESTANSWERS = getattr(mod, "INVESTANSWERS", [])
+        CHITRA_TICKERS = getattr(mod, "CHITRA_TICKERS", [])
+        STOCKS_NOTES  = getattr(mod, "STOCKS_NOTES", [])
     except Exception as e:
         raise RuntimeError(f"Could not load STOCK_TICKERS from myTrading/app.py: {e}")
 
@@ -299,14 +397,10 @@ def main(no_push: bool = False):
     df = reorder_columns(df)
     log(f"Merged: {len(df)} rows, {len(df.columns)} columns")
 
-    # ── 3b. Compute HHLL structure in-process & fold in (right after VALUE) ─────
-    try:
-        from hhll import attach_hhll_columns
-        log("Computing HHLL structure...")
-        df, hhll_msg = attach_hhll_columns(df, STOCK_TICKERS, after="VALUE", log_fn=log)
-        log(hhll_msg)
-    except Exception as e:
-        log(f"⚠️  HHLL merge failed (continuing without it): {e}")
+    # Decorate MRC_Zone with the legend emoji so the value is recognizable
+    # in raw CSVs / GitHub previews where background colors are stripped.
+    if "MRC_Zone" in df.columns:
+        df["MRC_Zone"] = df["MRC_Zone"].map(_decorate_mrc_zone_value)
 
     # ── 4. Write outputs ────────────────────────────────────────────────────────
     JOB_DIR.mkdir(parents=True, exist_ok=True)
@@ -355,6 +449,54 @@ Open **stocks_signals.html** in the repo for the formatted table.
     OUT_README.write_text(readme, encoding="utf-8")
     log("Outputs written: csv / html / readme / meta")
 
+    # ── 4b. Curated fund sub-table CSVs (filtered views of the merged df) ──────
+    for label, csv_path, fund_list in [
+        ("io_fund",       OUT_IO_FUND_CSV,       IO_FUND),
+        ("beth_funds",    OUT_BETH_FUNDS_CSV,    BETH_FUNDS),
+        ("investanswers", OUT_INVESTANSWERS_CSV, INVESTANSWERS),
+        ("chitra_tickers", OUT_CHITRA_CSV, CHITRA_TICKERS),
+    ]:
+        if not fund_list:
+            log(f"⚠️  {label}: fund list empty in app.py — skipping")
+            continue
+        df_fund = _filter_fund_df(df, fund_list)
+        df_fund.to_csv(csv_path, index=False)
+        log(f"Wrote {label}.csv ({len(df_fund)} rows)")
+
+    # ── 4c. Macro snapshot CSV (single row) ───────────────────────────────────
+    try:
+        macro_row = {
+            "Updated_PST":     updated_pst,
+            "Macro_Regime":    macro_regime,
+            "Risk_Pct":        macro_info.get("risk_pct", 0),
+            "Reason":          macro_info.get("reason", ""),
+            "Overridden":      macro_info.get("overridden", False),
+            "VIX":             round(float(vix), 2) if pd.notna(vix) else None,
+            "SPY_Close":       round(float(spy_close), 2) if pd.notna(spy_close) else None,
+            "SPY_200MA":       round(float(spy_ma200), 2) if pd.notna(spy_ma200) else None,
+            "SPY_vs_200MA":    spy_status,
+            "Breadth_Pct":     round(float(breadth["pct"]), 1) if pd.notna(breadth["pct"]) else None,
+            "Breadth_Status":  breadth.get("status", ""),
+            "Breadth_Action":  breadth.get("action", ""),
+            "Tickers_Scanned": len(df_signals),
+            "Tickers_Held":    len(held),
+            "Total_Value":     round(total_val, 2),
+            "Exit_Signals":    ", ".join(meta["exit_signals"]) or "",
+        }
+        pd.DataFrame([macro_row]).to_csv(OUT_MACRO_CSV, index=False)
+        log(f"Wrote macro.csv ({len(macro_row)} fields)")
+    except Exception as e:
+        log(f"⚠️  Failed to write macro.csv: {e}")
+
+    # ── 4d. Stocks notes CSV (one note per line) ──────────────────────────────
+    try:
+        notes = [str(n).strip() for n in STOCKS_NOTES if str(n).strip()]
+        # Single "Note" column → one note per row; pandas quotes any embedded commas.
+        pd.DataFrame({"Note": notes}).to_csv(OUT_STOCKS_NOTES_CSV, index=False)
+        log(f"Wrote stocks_notes.csv ({len(notes)} notes)")
+    except Exception as e:
+        log(f"⚠️  Failed to write stocks_notes.csv: {e}")
+
     # ── 5. Git commit & push ────────────────────────────────────────────────────
     if no_push:
         log("--no-push flag set — skipping git commit/push.")
@@ -371,7 +513,7 @@ Open **stocks_signals.html** in the repo for the formatted table.
         return
 
     run_cmd(["git", "add", "-A"], cwd=JOB_DIR)
-    msg = f"Daily stocks snapshot: {updated_pst}"
+    msg = f"Stocks snapshot: {updated_pst}"
     code, out = run_cmd(["git", "commit", "-m", msg], cwd=JOB_DIR)
     if code != 0:
         log(f"git commit failed:\n{out}")

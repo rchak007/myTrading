@@ -135,19 +135,6 @@ Examples:
         print("No tickers passed all filters. Exiting.")
         return
 
-    # --- Attach HHLL structure columns (in-process, right after Ticker) ---
-    # Computed only for the tickers that passed (the rows actually in df_all).
-    # top/mylist are filtered from df_all below, so they inherit these columns.
-    try:
-        from hhll import attach_hhll_columns
-        print("Computing HHLL structure...")
-        df_all, hhll_msg = attach_hhll_columns(
-            df_all, df_all["Ticker"].tolist(), after="Ticker"
-        )
-        print(f"   {hhll_msg}")
-    except Exception as e:
-        print(f"   ⚠️  HHLL merge failed (continuing without it): {e}")
-
     # --- Save files ---
     outputs_dir = APP_DIR / "outputs"
     outputs_dir.mkdir(exist_ok=True)
