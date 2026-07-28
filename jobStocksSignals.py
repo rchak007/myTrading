@@ -39,7 +39,20 @@ OUT_README  = JOB_DIR / "README_stocks.md"
 OUT_META    = JOB_DIR / "meta_stocks.json"
 LOG_FILE    = JOB_DIR / "job_stocks.log"
 
+TOKEN_PATHS = [
+    MYTRADING_DIR / "tokens.json",
+    MYTRADING_DIR / "data" / "schwab" / "tokens.json",
+]
+SCHWAB_USER_ID = "main"
 
+OUT_ORDERS_CSV  = JOB_DIR / "stocks_orders.csv"
+OUT_ORDERS_HTML = JOB_DIR / "stocks_orders.html"
+
+
+def get_schwab_client():
+    """Single source of truth for Schwab client creation. Used by holdings + orders."""
+    from data.schwab.schwab_helper import create_schwab_client
+    return create_schwab_client(SCHWAB_USER_ID, TOKEN_PATHS, local_only=True)
 # -----------------------------
 # Logging
 # -----------------------------
@@ -145,19 +158,21 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
 def fetch_schwab_holdings(app_mod) -> pd.DataFrame:
     """
     Pure-Python equivalent of app.py's fetch_schwab_stock_holdings().
-    Reuses create_schwab_client / SchwabAuthError from app_mod's already-resolved imports.
+    Client creation is centralized in get_schwab_client().
     """
-    from data.schwab.schwab_helper import create_schwab_client, SchwabAuthError
+    from data.schwab.schwab_helper import SchwabAuthError
+    # TOKEN_PATHS = [
+    #     MYTRADING_DIR / "tokens.json",
+    #     MYTRADING_DIR / "data" / "schwab" / "tokens.json",
+    # ]
+    # USER_ID = "main"
 
-    TOKEN_PATHS = [
-        MYTRADING_DIR / "tokens.json",
-        MYTRADING_DIR / "data" / "schwab" / "tokens.json",
-    ]
-    USER_ID = "main"
-
+    # try:
+    #     client_wrapper = create_schwab_client(USER_ID, TOKEN_PATHS, local_only=True)
+    #     data = client_wrapper.fetch_positions()
     try:
-        client_wrapper = create_schwab_client(USER_ID, TOKEN_PATHS, local_only=True)
-        data = client_wrapper.fetch_positions()
+        client_wrapper = get_schwab_client()
+        data = client_wrapper.fetch_positions()    
 
         rows = []
         for acct in data:
