@@ -49,15 +49,27 @@ ORDER_COLS = [
 # ─────────────────────────────────────────────────────────────────────
 def _raw_client(client_wrapper):
     """
-    schwab_helper's wrapper exposes fetch_positions() but not orders.
-    Dig out the underlying schwabdev Client.
+    schwab_helper's SchwabClient wrapper exposes fetch_positions() but not orders.
+    Reach the underlying schwabdev Client. The wrapper provides get_client();
+    fall back to probing common attribute names for other wrapper versions.
     """
     if hasattr(client_wrapper, "account_linked"):
         return client_wrapper
-    for attr in ("client", "_client", "schwab", "_schwab", "raw", "c"):
+
+    # Preferred: explicit accessor method. Trust whatever it returns —
+    # the wrapper is explicitly handing us its underlying client.
+    getter = getattr(client_wrapper, "get_client", None)
+    if callable(getter):
+        c = getter()
+        if c is not None:
+            return c
+
+    # Fallback: attribute probing (older/other wrapper shapes)
+    for attr in ("_client", "client", "schwab", "_schwab", "raw", "c"):
         c = getattr(client_wrapper, attr, None)
         if c is not None and hasattr(c, "account_linked"):
             return c
+
     attrs = [a for a in dir(client_wrapper) if not a.startswith("__")][:25]
     raise RuntimeError(
         f"No raw schwabdev client on {type(client_wrapper).__name__}; attrs={attrs}"
@@ -118,6 +130,11 @@ def fetch_schwab_orders(client_wrapper, days_back: int = 90, log=print) -> list:
         if data is None:
             log("account_orders_all unavailable — per-account fallback")
             data = _call_orders_per_account(client, start, end)
+
+        if data is None or (isinstance(data, list) and len(data) == 0):
+            order_methods = [m for m in dir(client)
+                             if "order" in m.lower() and not m.startswith("__")]
+            log(f"    (client order-related methods: {order_methods})")
 
         if not isinstance(data, list):
             log(f"⚠️  Unexpected orders payload: {type(data).__name__}")

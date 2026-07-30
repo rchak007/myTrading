@@ -161,18 +161,10 @@ def fetch_schwab_holdings(app_mod) -> pd.DataFrame:
     Client creation is centralized in get_schwab_client().
     """
     from data.schwab.schwab_helper import SchwabAuthError
-    # TOKEN_PATHS = [
-    #     MYTRADING_DIR / "tokens.json",
-    #     MYTRADING_DIR / "data" / "schwab" / "tokens.json",
-    # ]
-    # USER_ID = "main"
 
-    # try:
-    #     client_wrapper = create_schwab_client(USER_ID, TOKEN_PATHS, local_only=True)
-    #     data = client_wrapper.fetch_positions()
     try:
         client_wrapper = get_schwab_client()
-        data = client_wrapper.fetch_positions()    
+        data = client_wrapper.fetch_positions()
 
         rows = []
         for acct in data:
