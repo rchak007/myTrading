@@ -148,29 +148,6 @@ Examples:
     except Exception as e:
         print(f"   ⚠️  HHLL merge failed (continuing without it): {e}")
 
-    # --- Attach ATH distance (% below all-time high), placed after Price ---
-    # df_all feeds full/top/mylist below, so all three inherit this column.
-    try:
-        from ath import attach_ath_columns
-        print("Computing ATH distance...")
-        df_all, ath_msg = attach_ath_columns(
-            df_all, df_all["Ticker"].tolist(), after=["Price", "Current Price"]
-        )
-        print(f"   {ath_msg}")
-    except Exception as e:
-        print(f"   ⚠️  ATH merge failed (continuing without it): {e}")
-
-    # --- Decorate MRC_Zone with legend emoji (consistent with stocks/crypto CSVs) ---
-    if "MRC_Zone" in df_all.columns:
-        _MRC_ZONE_EMOJI = {
-            "Strong_OB": "🔴", "OB": "🟠", "Near_Mean": "🔵",
-            "OS": "🟢", "Strong_OS": "🟩",
-        }
-        df_all["MRC_Zone"] = df_all["MRC_Zone"].map(
-            lambda v: f"{_MRC_ZONE_EMOJI.get(str(v), '')} {v}".strip()
-            if _MRC_ZONE_EMOJI.get(str(v)) else v
-        )
-
     # --- Save files ---
     outputs_dir = APP_DIR / "outputs"
     outputs_dir.mkdir(exist_ok=True)

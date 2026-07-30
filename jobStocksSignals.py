@@ -48,6 +48,63 @@ SCHWAB_USER_ID = "main"
 OUT_ORDERS_CSV  = JOB_DIR / "stocks_orders.csv"
 OUT_ORDERS_HTML = JOB_DIR / "stocks_orders.html"
 
+# Curated fund sub-table CSVs + macro snapshot + notes
+OUT_IO_FUND_CSV       = JOB_DIR / "io_fund.csv"
+OUT_BETH_FUNDS_CSV    = JOB_DIR / "beth_funds.csv"
+OUT_INVESTANSWERS_CSV = JOB_DIR / "investanswers.csv"
+OUT_CHITRA_CSV        = JOB_DIR / "chitra_tickers.csv"
+OUT_MACRO_CSV         = JOB_DIR / "macro.csv"
+OUT_STOCKS_NOTES_CSV  = JOB_DIR / "stocks_notes.csv"
+
+# Mirrors app.py: GOOGL listed in a fund maps to the GOOG ticker, and the
+# *USD entries are crypto-only — skipped when filtering against the stocks df.
+_TICKER_ALIAS = {"GOOGL": "GOOG"}
+_CRYPTO_ONLY  = {"BTCUSD", "LINKUSD"}
+
+
+def _filter_fund_df(df: pd.DataFrame, fund_list: list[str]) -> pd.DataFrame:
+    """Filter the merged stocks df down to just the tickers in a curated fund list."""
+    mapped = [_TICKER_ALIAS.get(t, t) for t in fund_list if t not in _CRYPTO_ONLY]
+    return df[df["Ticker"].isin(mapped)].copy()
+
+
+# -----------------------------
+# MRC_Zone decoration + coloring  (mirrors app.py exactly)
+# -----------------------------
+# Emoji is prepended into the CSV value so the zone survives GitHub/CSV previews
+# where the HTML background color is stripped. Only the actionable extremes get
+# styled; Above_Mean / Below_Mean / N/A are left plain.
+_MRC_ZONE_EMOJI = {
+    "Strong_OB": "🔴",
+    "OB":        "🟠",
+    "Near_Mean": "🔵",
+    "OS":        "🟢",
+    "Strong_OS": "🟩",
+}
+_MRC_ZONE_BG = {
+    "Strong_OB": ("#ff6b6b", "#1a1a1a"),   # red — at/above R2
+    "OB":        ("#ffd699", "#1a1a1a"),   # light orange — R1→R2
+    "Near_Mean": ("#a8c8e8", "#1a1a1a"),   # blue — fair value
+    "OS":        ("#b8e0b8", "#1a1a1a"),   # light green — S1→S2
+    "Strong_OS": ("#5fa86f", "#ffffff"),   # dark green — at/below S2
+}
+
+
+def _decorate_mrc_zone(val: object) -> str:
+    """Prepend the legend emoji to a raw zone label (e.g. 'Strong_OB' → '🔴 Strong_OB')."""
+    s = "" if val is None else str(val)
+    emoji = _MRC_ZONE_EMOJI.get(s, "")
+    return f"{emoji} {s}".strip() if emoji else s
+
+
+def _zone_key_from_decorated(val: object) -> str:
+    """Recover the raw zone key from a possibly-decorated value (for color lookup)."""
+    s = "" if val is None else str(val)
+    for emoji in _MRC_ZONE_EMOJI.values():
+        if s.startswith(emoji + " "):
+            return s[len(emoji) + 1:]
+    return s
+
 
 def get_schwab_client():
     """Single source of truth for Schwab client creation. Used by holdings + orders."""
@@ -101,7 +158,7 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
             df2[c] = pd.to_numeric(df2[c], errors="coerce").fillna(0.0).map(lambda v: f"${v:,.2f}")
         elif c == "QTY":
             df2[c] = pd.to_numeric(df2[c], errors="coerce").fillna(0.0).map(lambda v: f"{v:,.2f}")
-        elif c in ("%RET30", "%RET60", "%RET90", "%RET120"):
+        elif c in ("%RET30", "%RET60", "%RET90", "%RET120", "ATH_Dist_Pct"):
             df2[c] = pd.to_numeric(df2[c], errors="coerce").map(
                 lambda v: f"{v:+.2f}%" if pd.notna(v) else ""
             )
@@ -134,7 +191,9 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
 
     num_cols = {"VALUE", "QTY", "%RET30", "%RET60", "%RET90", "%RET120",
                 "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
-                "Supertrend", "Last Close", "Current Price"}
+                "Supertrend", "Last Close", "Current Price",
+                "ATH", "ATH_Dist_Pct",
+                "MRC_Dist_Pct", "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2"}
 
     for _, row in df2.iterrows():
         sig = str(row.get("SIGNAL-Super-MOST-ADXR", ""))
@@ -142,8 +201,18 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
         html.append(f"<tr{row_cls}>")
         for c in cols:
             v = row.get(c, "")
-            td_cls = " class='num'" if c in num_cols else ""
-            html.append(f"<td{td_cls}>{v}</td>")
+            if c == "MRC_Zone":
+                key = _zone_key_from_decorated(v)
+                colors = _MRC_ZONE_BG.get(key)
+                if colors:
+                    bg, fg = colors
+                    style = f"background-color:{bg};color:{fg};font-weight:600;text-align:center;"
+                    html.append(f"<td style=\"{style}\">{v}</td>")
+                else:
+                    html.append(f"<td>{v}</td>")
+            else:
+                td_cls = " class='num'" if c in num_cols else ""
+                html.append(f"<td{td_cls}>{v}</td>")
         html.append("</tr>")
 
     html.append("</tbody></table>")
@@ -207,22 +276,47 @@ def fetch_schwab_holdings(app_mod) -> pd.DataFrame:
 # Column reorder  (mirrors app.py logic exactly)
 # -----------------------------
 def reorder_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Layout (mirrors app.py):
+      ... SIGNAL-Super-MOST-ADXR | MRC_Zone | QTY | VALUE | Score_30...Score_Weighted
+          | %RET30...%RET120 | Earnings_Alert | Market_Cap_M
+          | MRC_Dist_Pct | MRC_R2 | MRC_R1 | MRC_Mean | MRC_S1 | MRC_S2 | ...
+    MRC_Zone is pulled forward (right after the signal) for at-a-glance scanning;
+    the numeric MRC band block stays grouped after Market_Cap_M.
+    """
     cols = list(df.columns)
-    priority_cols = ["QTY", "VALUE", "Score_30", "Score_60", "Score_90", "Score_120",
-                     "Score_Weighted", "Earnings_Alert", "Market_Cap_M"]
+
+    priority_cols = [
+        "QTY", "VALUE",
+        "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
+        "%RET30", "%RET60", "%RET90", "%RET120",
+        "Earnings_Alert", "Market_Cap_M",
+        # ── Mean Reversion Channel numeric block (MRC_Zone placed separately) ──
+        "MRC_Dist_Pct",
+        "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2",
+    ]
     for c in priority_cols:
         if c in cols:
             cols.remove(c)
+    # Pull MRC_Zone out — placed separately, right after the signal column.
+    if "MRC_Zone" in cols:
+        cols.remove("MRC_Zone")
 
     insert_after = "SIGNAL-Super-MOST-ADXR"
     if insert_after in cols:
         idx = cols.index(insert_after) + 1
+        # MRC_Zone lands immediately after the signal
+        if "MRC_Zone" in df.columns:
+            cols.insert(idx, "MRC_Zone")
+            idx += 1
         for extra_col in reversed(priority_cols):
             if extra_col in df.columns:
                 cols.insert(idx, extra_col)
     else:
-        cols = ["Ticker", "QTY", "VALUE"] + priority_cols + [
-            c for c in cols if c not in ("Ticker", "QTY", "VALUE") + tuple(priority_cols)
+        head = ["Ticker", "QTY", "VALUE"]
+        mrc_zone_block = ["MRC_Zone"] if "MRC_Zone" in df.columns else []
+        cols = head + mrc_zone_block + priority_cols + [
+            c for c in cols if c not in tuple(head) + tuple(mrc_zone_block) + tuple(priority_cols)
         ]
 
     for move_col in ["Timeframe", "Bar Time"]:
@@ -257,6 +351,14 @@ def main(no_push: bool = False):
     except Exception as e:
         raise RuntimeError(f"Could not load STOCK_TICKERS from myTrading/app.py: {e}")
 
+    # Curated fund lists (display filters over STOCK_TICKERS) + notes, from app.py.
+    # getattr defaults keep the job alive if a list is renamed/removed upstream.
+    IO_FUND        = getattr(mod, "IO_FUND", [])
+    BETH_FUNDS     = getattr(mod, "BETH_FUNDS", [])
+    INVESTANSWERS  = getattr(mod, "INVESTANSWERS", [])
+    CHITRA_TICKERS = getattr(mod, "CHITRA_TICKERS", [])
+    STOCKS_NOTES   = getattr(mod, "STOCKS_NOTES", [])
+
     pacific     = pytz.timezone("America/Los_Angeles")
     updated_pst = datetime.now(pacific).strftime("%Y-%m-%d %H:%M:%S %Z")
 
@@ -275,6 +377,12 @@ def main(no_push: bool = False):
 
     # ── 1b. Compute macro regime & add columns ─────────────────────────────────
     log("Computing macro regime...")
+    # Defaults so macro.csv can always be written even if the fetch below fails.
+    vix        = float("nan")
+    spy_close  = float("nan")
+    spy_ma200  = float("nan")
+    spy_status = "UNKNOWN"
+    breadth    = {"pct": float("nan"), "status": "", "action": ""}
     try:
         vix = fetch_vix_value()
         spy_close, spy_ma200, spy_status = fetch_spy_vs_200ma()
@@ -314,6 +422,22 @@ def main(no_push: bool = False):
         log(hhll_msg)
     except Exception as e:
         log(f"⚠️  HHLL merge failed (continuing without it): {e}")
+
+    # ── 3c. Compute ATH distance (% below all-time high) & fold in after price ──
+    try:
+        from ath import attach_ath_columns
+        log("Computing ATH distance...")
+        df, ath_msg = attach_ath_columns(
+            df, STOCK_TICKERS, after=["Current Price", "Last Close"], log_fn=log
+        )
+        log(ath_msg)
+    except Exception as e:
+        log(f"⚠️  ATH merge failed (continuing without it): {e}")
+
+    # ── 3d. Decorate MRC_Zone with legend emoji (survives CSV / GitHub previews) ─
+    # Done on the real df so the fund sub-tables (filtered below) inherit it.
+    if "MRC_Zone" in df.columns:
+        df["MRC_Zone"] = df["MRC_Zone"].map(_decorate_mrc_zone)
 
     # ── 4. Write outputs ────────────────────────────────────────────────────────
     JOB_DIR.mkdir(parents=True, exist_ok=True)
@@ -360,7 +484,57 @@ Open **stocks_signals.html** in the repo for the formatted table.
 (Generated daily from Raspberry Pi — weekdays ~6 AM PST.)
 """
     OUT_README.write_text(readme, encoding="utf-8")
-    log("Outputs written: csv / html / readme / meta")
+
+    # ── 4b. Curated fund sub-table CSVs (filtered views of the merged df) ──────
+    # Operates on `df`, which already carries HHLL columns from step 3b, so the
+    # fund views inherit HHLL automatically.
+    for label, csv_path, fund_list in [
+        ("io_fund",        OUT_IO_FUND_CSV,       IO_FUND),
+        ("beth_funds",     OUT_BETH_FUNDS_CSV,    BETH_FUNDS),
+        ("investanswers",  OUT_INVESTANSWERS_CSV, INVESTANSWERS),
+        ("chitra_tickers", OUT_CHITRA_CSV,        CHITRA_TICKERS),
+    ]:
+        if not fund_list:
+            log(f"⚠️  {label}: fund list empty in app.py — skipping")
+            continue
+        df_fund = _filter_fund_df(df, fund_list)
+        df_fund.to_csv(csv_path, index=False)
+        log(f"Wrote {label}.csv ({len(df_fund)} rows)")
+
+    # ── 4c. Macro snapshot CSV (single row) ───────────────────────────────────
+    try:
+        macro_row = {
+            "Updated_PST":     updated_pst,
+            "Macro_Regime":    macro_regime,
+            "Risk_Pct":        macro_info.get("risk_pct", 0),
+            "Reason":          macro_info.get("reason", ""),
+            "Overridden":      macro_info.get("overridden", False),
+            "VIX":             round(float(vix), 2) if pd.notna(vix) else None,
+            "SPY_Close":       round(float(spy_close), 2) if pd.notna(spy_close) else None,
+            "SPY_200MA":       round(float(spy_ma200), 2) if pd.notna(spy_ma200) else None,
+            "SPY_vs_200MA":    spy_status,
+            "Breadth_Pct":     round(float(breadth["pct"]), 1) if pd.notna(breadth["pct"]) else None,
+            "Breadth_Status":  breadth.get("status", ""),
+            "Breadth_Action":  breadth.get("action", ""),
+            "Tickers_Scanned": len(df_signals),
+            "Tickers_Held":    len(held),
+            "Total_Value":     round(total_val, 2),
+            "Exit_Signals":    ", ".join(meta["exit_signals"]) or "",
+        }
+        pd.DataFrame([macro_row]).to_csv(OUT_MACRO_CSV, index=False)
+        log(f"Wrote macro.csv ({len(macro_row)} fields)")
+    except Exception as e:
+        log(f"⚠️  Failed to write macro.csv: {e}")
+
+    # ── 4d. Stocks notes CSV (one note per line) ──────────────────────────────
+    try:
+        notes = [str(n).strip() for n in STOCKS_NOTES if str(n).strip()]
+        pd.DataFrame({"Note": notes}).to_csv(OUT_STOCKS_NOTES_CSV, index=False)
+        log(f"Wrote stocks_notes.csv ({len(notes)} notes)")
+    except Exception as e:
+        log(f"⚠️  Failed to write stocks_notes.csv: {e}")
+
+    log("Outputs written: csv / html / readme / meta / funds / macro / notes")
 
     # ── 5. Git commit & push ────────────────────────────────────────────────────
     if no_push:
