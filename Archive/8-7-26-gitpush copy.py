@@ -1,57 +1,30 @@
 #!/usr/bin/env python3
 """
-Standalone git pusher. Handles BOTH output repos:
+Standalone git pusher for the jobMyTrading repo.
 
-    gitpush.py           -> jobMyTrading  (default, back-compatible)
-    gitpush.py job       -> jobMyTrading  (signal CSVs, macro, funds)
-    gitpush.py bots      -> botsMyTrading (bot trades, heartbeats, errors)
-
-Each target is pushed by its OWN cron line under its OWN flock, so the
-high-churn bot repo can never block or conflict with the signal repo.
-Run each under the flock its writers use, so a commit can never catch a
-half-written file:
-
-    job  -> /tmp/jobmytrading.lock   (shared with the signal jobs)
-    bots -> /tmp/botsmytrading.lock  (bots are the only writer)
+Runs every 5 minutes from cron, under the SAME flock the signal jobs use
+(/tmp/jobmytrading.lock) so it can never commit a half-written file. This is
+the SINGLE git writer in the system now — the signal jobs only write files.
 
 It self-heals a stale .git/index.lock, rebases on the remote before pushing,
 and retries transient push failures. The log lives OUTSIDE the repo on purpose
 so that logging never itself creates a change that needs pushing.
 """
 import subprocess
-import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-TARGETS = {
-    "job": {
-        "repo":      Path.home() / "github" / "jobMyTrading",
-        "log":       Path.home() / "gitpush.log",
-        "fail_mark": Path.home() / ".jobmytrading_push_failed",
-    },
-    "bots": {
-        "repo":      Path.home() / "github" / "botsMyTrading",
-        "log":       Path.home() / "gitpush_bots.log",
-        "fail_mark": Path.home() / ".botsmytrading_push_failed",
-    },
-}
-
-TARGET    = sys.argv[1] if len(sys.argv) > 1 else "job"
-if TARGET not in TARGETS:
-    raise SystemExit(f"unknown target {TARGET!r}; expected one of {list(TARGETS)}")
-
-_cfg      = TARGETS[TARGET]
-REPO      = _cfg["repo"]
-LOG_FILE  = _cfg["log"]                 # outside the repo
-FAIL_MARK = _cfg["fail_mark"]           # visibility marker
+REPO      = Path.home() / "github" / "jobMyTrading"
+LOG_FILE  = Path.home() / "gitpush.log"                 # outside the repo
+FAIL_MARK = Path.home() / ".jobmytrading_push_failed"   # visibility marker
 LOCK      = REPO / ".git" / "index.lock"
 MAX_TRIES = 2
 
 
 def log(msg: str) -> None:
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    line = f"[{ts}] [{TARGET}] {msg}"
+    line = f"[{ts}] {msg}"
     print(line)
     try:
         with LOG_FILE.open("a") as f:
@@ -96,7 +69,7 @@ def has_changes() -> bool:
 
 def main() -> None:
     if not (REPO / ".git").exists():
-        log(f"{REPO} is not a git repo — aborting.")
+        log("jobMyTrading is not a git repo — aborting.")
         return
 
     clear_stale_lock()
@@ -116,7 +89,7 @@ def main() -> None:
         return
 
     for attempt in range(1, MAX_TRIES + 1):
-        code, out = run(["git", "pull", "--rebase", "origin", "main"])
+        code, out = run(["git", "pull", "--rebase", "--autostash", "origin", "main"])
         if code != 0:
             log(f"pull --rebase failed (try {attempt}):\n{out}")
             run(["git", "rebase", "--abort"])
