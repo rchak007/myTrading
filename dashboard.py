@@ -2,11 +2,11 @@
 # jobMyTrading — CSV Viewer + Todo Viewer
 # ---------------------------------------------------------------------
 # Two modes (sidebar toggle):
-#   📊 Trading CSVs  — the original generic CSV browser.
-#                      Reads CSVs off THIS repo on disk. The identifier
-#                      column (Ticker/Symbol/Asset) is pinned left and a
-#                      few columns are widened so wide tables stay usable
-#                      on mobile — see PIN_COLS / WIDE_COLS below.
+#   📊 Trading CSVs  — the generic CSV browser. Reads CSVs off THIS repo
+#                      on disk. Any CSV carrying a Ticker column gets a
+#                      selectable table: pick a row and a modal opens with
+#                      every matching row from the myTrading Google Sheet
+#                      (see gsheet_notes.py).
 #   🌳 Todos         — read-only tree view of the three OpenClaw agent
 #                      JSONs, which live in a SEPARATE private repo
 #                      (rchak007/todo-data) written by the Pi2 watcher.
@@ -36,6 +36,14 @@ import numpy as np
 import pandas as pd
 import requests
 import streamlit as st
+
+# Per-ticker trade-journal popup, backed by the myTrading Google Sheet.
+# Optional: if gsheet_notes.py is absent (or gspread / creds are not
+# configured) the CSV viewer falls back to plain tables, unchanged.
+try:
+    import gsheet_notes
+except Exception:
+    gsheet_notes = None
 
 PST = ZoneInfo("America/Los_Angeles")
 
@@ -243,36 +251,6 @@ DEFAULT_STACK = [
 ]
 
 
-# Columns pinned to the left edge so they stay visible while scrolling
-# sideways. Only the first one PRESENT in a given CSV is pinned — macro.csv
-# has no Ticker, crypto files may use Symbol/Asset instead.
-PIN_COLS = ("Ticker", "Symbol", "Asset")
-
-# Columns that get squeezed unreadably narrow, especially on mobile where
-# you can't drag the divider. "small" | "medium" | "large".
-WIDE_COLS = {
-    "VALUE": "large",
-    "QTY": "medium",
-    "Reason": "large",
-}
-
-
-def build_column_config(cols) -> dict:
-    """Pin the identifier column and widen the ones that squeeze on mobile."""
-    cfg = {}
-    pinned_already = False
-    for c in cols:
-        kw = {}
-        if not pinned_already and c in PIN_COLS:
-            kw["pinned"] = True
-            pinned_already = True
-        if c in WIDE_COLS:
-            kw["width"] = WIDE_COLS[c]
-        if kw:
-            cfg[c] = st.column_config.Column(c, **kw)
-    return cfg
-
-
 def render_csv_block(label: str, df: pd.DataFrame, mtime: str, key_prefix: str):
     """Render one CSV's full interactive block."""
     c1, c2, c3 = st.columns([4, 2, 2])
@@ -290,17 +268,36 @@ def render_csv_block(label: str, df: pd.DataFrame, mtime: str, key_prefix: str):
     view = df[shown_cols] if shown_cols else df
     view = filter_dataframe(view, key_prefix=key_prefix)
     view = sort_dataframe(view, key_prefix=key_prefix)
-    try:
-        st.dataframe(
-            view,
-            use_container_width=True,
-            height=480,
-            hide_index=True,
-            column_config=build_column_config(view.columns),
+
+    # Ticker-bearing CSVs get a selectable table wired to the journal
+    # popup. macro.csv has no ticker column, so it renders as before.
+    ticker_col = gsheet_notes.find_ticker_col(view) if gsheet_notes else None
+    use_popup = ticker_col is not None and gsheet_notes.available()
+
+    if use_popup:
+        ev = st.dataframe(
+            view, use_container_width=True, height=480,
+            key=f"{key_prefix}_tbl",
+            on_select="rerun", selection_mode="single-row",
         )
-    except TypeError:
-        # Streamlit predates pinned= (needs >= 1.43) — degrade, don't crash.
+        picked = list(ev.selection.rows) if ev and ev.selection else []
+        if picked:
+            tk = str(view.iloc[picked[0]][ticker_col])
+            # The selection survives the rerun that closes the dialog, so
+            # only auto-open when the pick actually changed; otherwise
+            # offer a button to reopen the same ticker.
+            seen_key = f"{key_prefix}_seen"
+            if st.session_state.get(seen_key) != (tk, picked[0]):
+                st.session_state[seen_key] = (tk, picked[0])
+                gsheet_notes.show_ticker_notes(tk)
+            elif st.button(f"📓 Journal for {tk.upper()}",
+                           key=f"{key_prefix}_reopen"):
+                gsheet_notes.show_ticker_notes(tk)
+        else:
+            st.caption("Select a row to open its trade journal.")
+    else:
         st.dataframe(view, use_container_width=True, height=480)
+
     st.download_button(
         "📥 Download current view as CSV",
         data=view.to_csv(index=False).encode("utf-8"),
@@ -611,6 +608,16 @@ mode = st.sidebar.radio(
     key="app_mode",
 )
 st.sidebar.caption(f"Repo root:\n`{REPO_ROOT}`")
+
+# Quick visibility into whether the journal popup is live — saves a
+# round of guessing when secrets are missing on a fresh deploy.
+if gsheet_notes is None:
+    st.sidebar.caption("📓 Journal: module not found")
+elif gsheet_notes.available():
+    st.sidebar.caption(f"📓 Journal: on · tab `{gsheet_notes.tab_name()}`")
+else:
+    st.sidebar.caption("📓 Journal: off · check gsheets secrets")
+
 st.sidebar.divider()
 
 if mode == "📊 Trading CSVs":
