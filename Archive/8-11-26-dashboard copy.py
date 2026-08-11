@@ -251,41 +251,6 @@ DEFAULT_STACK = [
 ]
 
 
-def build_column_config(view: pd.DataFrame) -> dict:
-    """
-    Pin the Ticker column and give the money/quantity columns enough room
-    for ~10 digits plus decimals. Built defensively: older Streamlit builds
-    that lack `pinned=` fall back to an unpinned column rather than crashing
-    the whole table.
-    """
-    cfg: dict = {}
-    money_cols = {"VALUE", "EST_VALUE", "LIMIT_PRICE", "STOP_PRICE",
-                  "CURRENT PRICE", "LAST CLOSE", "SUPERTREND"}
-    qty_cols   = {"QTY", "FILLED_QTY", "REMAINING_QTY"}
-
-    for col in view.columns:
-        cu = str(col).strip().upper()
-        try:
-            if cu == "TICKER":
-                try:
-                    cfg[col] = st.column_config.TextColumn(
-                        col, pinned=True, width="small",
-                    )
-                except TypeError:          # Streamlit < 1.39: no pinned kwarg
-                    cfg[col] = st.column_config.TextColumn(col, width="small")
-            elif cu in money_cols:
-                cfg[col] = st.column_config.NumberColumn(
-                    col, format="%.2f", width="medium",
-                )
-            elif cu in qty_cols:
-                cfg[col] = st.column_config.NumberColumn(
-                    col, format="%.4f", width="medium",
-                )
-        except Exception:
-            continue                       # never let styling break the table
-    return cfg
-
-
 def render_csv_block(label: str, df: pd.DataFrame, mtime: str, key_prefix: str):
     """Render one CSV's full interactive block."""
     c1, c2, c3 = st.columns([4, 2, 2])
@@ -313,7 +278,6 @@ def render_csv_block(label: str, df: pd.DataFrame, mtime: str, key_prefix: str):
         ev = st.dataframe(
             view, use_container_width=True, height=480,
             key=f"{key_prefix}_tbl",
-            column_config=build_column_config(view),
             on_select="rerun", selection_mode="single-row",
         )
         picked = list(ev.selection.rows) if ev and ev.selection else []
@@ -332,10 +296,7 @@ def render_csv_block(label: str, df: pd.DataFrame, mtime: str, key_prefix: str):
         else:
             st.caption("Select a row to open its trade journal.")
     else:
-        st.dataframe(
-            view, use_container_width=True, height=480,
-            column_config=build_column_config(view),
-        )
+        st.dataframe(view, use_container_width=True, height=480)
 
     st.download_button(
         "📥 Download current view as CSV",

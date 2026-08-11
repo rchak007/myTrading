@@ -446,23 +446,6 @@ def main(no_push: bool = False):
     html = build_html_table(df, title="Stock Signals + Schwab Holdings", updated_pst=updated_pst)
     OUT_HTML.write_text(html, encoding="utf-8")
 
-    # ── 4b. Open Schwab orders → separate CSV/HTML (non-fatal) ──────────────────
-    #   ALL open orders across accounts, not just STOCK_TICKERS.
-    try:
-        from stocks_orders import build_orders_table, write_orders_outputs
-        schwab = get_schwab_client()
-        df_orders = build_orders_table(
-            schwab, STOCK_TICKERS,
-            days_back=90, open_only=True, restrict_to_tickers=False, log=log,
-        )
-        write_orders_outputs(
-            df_orders, updated_pst,
-            out_csv=OUT_ORDERS_CSV, out_html=OUT_ORDERS_HTML,
-            html_builder=build_html_table, log=log,
-        )
-    except Exception as e:
-        log(f"⚠️  Orders step failed (non-fatal): {e}")
-
     # Summary stats
     held      = df[df["VALUE"] > 0]
     exits     = df[df.get("SIGNAL-Super-MOST-ADXR", pd.Series(dtype=str)).str.contains("EXIT", na=False)]
