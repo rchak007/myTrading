@@ -163,9 +163,30 @@ def rows_for(sheet: pd.DataFrame, ticker: str) -> pd.DataFrame:
 # The popup
 # ---------------------------------------------------------------------
 @st.dialog("📓 Trade journal", width="large")
-def show_ticker_notes(ticker: str) -> None:
+def show_ticker_notes(ticker: str, extra=None) -> None:
+    """
+    Journal rows for one ticker.
+
+    extra — optional callable taking the ticker. Rendered after the journal
+    section. Injected by the caller (dashboard.render_open_orders) so this
+    module never imports dashboard; that would be a circular import.
+    It runs even when the sheet is unreadable or has no rows for the
+    ticker, since an unjournaled ticker can still have live orders.
+    """
     st.subheader(str(ticker).upper())
 
+    _render_journal(ticker)
+
+    if extra is not None:
+        st.divider()
+        try:
+            extra(ticker)
+        except Exception as e:
+            st.warning(f"Could not load open orders: {e}")
+
+
+def _render_journal(ticker: str) -> None:
+    """Journal half of the popup. Returns early; never ends the dialog."""
     try:
         sheet = load_sheet(sheet_id(), tab_name())
     except Exception as e:

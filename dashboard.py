@@ -243,6 +243,7 @@ def sort_dataframe(df: pd.DataFrame, key_prefix: str) -> pd.DataFrame:
 DEFAULT_STACK = [
     "macro.csv",
     "stocks_signals.csv",
+    "stocks_orders.csv",
     "beth_funds.csv",
     "io_fund.csv",
     "investanswers.csv",
@@ -325,10 +326,10 @@ def render_csv_block(label: str, df: pd.DataFrame, mtime: str, key_prefix: str):
             seen_key = f"{key_prefix}_seen"
             if st.session_state.get(seen_key) != (tk, picked[0]):
                 st.session_state[seen_key] = (tk, picked[0])
-                gsheet_notes.show_ticker_notes(tk)
+                gsheet_notes.show_ticker_notes(tk, extra=render_open_orders)
             elif st.button(f"📓 Journal for {tk.upper()}",
                            key=f"{key_prefix}_reopen"):
-                gsheet_notes.show_ticker_notes(tk)
+                gsheet_notes.show_ticker_notes(tk, extra=render_open_orders)
         else:
             st.caption("Select a row to open its trade journal.")
     else:
@@ -344,6 +345,55 @@ def render_csv_block(label: str, df: pd.DataFrame, mtime: str, key_prefix: str):
         mime="text/csv",
         key=f"{key_prefix}_dl",
     )
+
+
+ORDERS_CSV_NAME = "stocks_orders.csv"
+
+
+def load_open_orders(ticker: str) -> pd.DataFrame:
+    """
+    Open Schwab orders for one ticker, read from stocks_orders.csv.
+    Reuses the cached load_csv_path loader. Returns an empty frame if the
+    file is absent (job hasn't run yet) or the ticker has no open orders.
+    """
+    path = REPO_ROOT / ORDERS_CSV_NAME
+    if not path.exists():
+        return pd.DataFrame()
+    try:
+        df = load_csv_path(str(path), path.stat().st_mtime)
+    except Exception:
+        return pd.DataFrame()
+    if df.empty or "Ticker" not in df.columns:
+        return pd.DataFrame()
+    return df[df["Ticker"].astype(str).str.upper() == str(ticker).strip().upper()]
+
+
+def render_open_orders(ticker: str) -> None:
+    """
+    Render this ticker's open orders. Safe to call from inside a dialog:
+    it only writes Streamlit output, never opens one.
+    """
+    orders = load_open_orders(ticker)
+    st.markdown("#### 📋 Open orders")
+
+    if orders.empty:
+        st.caption("No open orders for this ticker.")
+        return
+
+    cols = [c for c in ["Side", "Order_Type", "Status", "QTY", "Limit_Price",
+                        "Stop_Price", "Est_Value", "Duration", "Entered_Time",
+                        "Account"] if c in orders.columns]
+    st.dataframe(
+        orders[cols] if cols else orders,
+        use_container_width=True, hide_index=True,
+        column_config=build_column_config(orders),
+    )
+
+    path = REPO_ROOT / ORDERS_CSV_NAME
+    try:
+        st.caption(f"{len(orders)} open order(s) · as of {fmt_mtime(path)}")
+    except Exception:
+        st.caption(f"{len(orders)} open order(s)")
 
 
 def render_csv_mode():
