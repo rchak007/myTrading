@@ -236,6 +236,9 @@ if __name__ == "__main__":
     job  = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(job)
 
+    from dotenv import load_dotenv 
+    load_dotenv(job.MYTRADING_DIR / ".env")
+
     client = job.get_schwab_client()
 
     if args.raw:
