@@ -451,6 +451,7 @@ def main(no_push: bool = False):
 
     # ── 4b. Open Schwab orders → separate CSV/HTML (non-fatal) ──────────────────
     #   ALL open orders across accounts, not just STOCK_TICKERS.
+    df_orders = None 
     try:
         from stocks_orders import build_orders_table, write_orders_outputs
         schwab = get_schwab_client()
@@ -470,7 +471,7 @@ def main(no_push: bool = False):
 # ── 4c. Cash & cash investments per account → cash.csv/html (non-fatal) ─────
     try:
         from stocks_cash import build_cash_table, write_cash_outputs
-        df_cash = build_cash_table(get_schwab_client(), mask=True, log=log)
+        df_cash = build_cash_table(get_schwab_client(), df_orders, mask=True, log=log)
         write_cash_outputs(
             df_cash, updated_pst,
             out_csv=OUT_CASH_CSV, out_html=OUT_CASH_HTML,

@@ -22,17 +22,32 @@ Standalone (resolves the above by loading jobStocksSignals.py):
     python3 stocks_cash.py              # masked accounts, writes cash.csv/html
     python3 stocks_cash.py --full       # full account numbers, print only
     python3 stocks_cash.py --raw        # dump the raw balances dict per account
+    python3 stocks_cash.py --no-orders  # balances only, skip the orders fetch
 
 MASKING: Account is written as the last 3 digits only (e.g. "...922"), which
 matches the Acct column in the myTrading Google Sheet. jobMyTrading is a
 GitHub repo — full account numbers should not land in it.
 
-CAVEATS to verify once against the Schwab web page:
+COLUMNS (deliberately minimal):
+    Account | Nickname | Cash | Cash_In_Open_Orders | Cash_After_Open_Orders
+    plus a TOTAL row.
+
+  Cash                   = currentBalances.cashBalance + moneyMarketFund
+  Cash_In_Open_Orders    = est. cost of OPEN **BUY** legs in that account.
+                           Sells are ignored — they add cash on fill, they do
+                           not reserve it.
+  Cash_After_Open_Orders = Cash - Cash_In_Open_Orders. This is what is really
+                           spendable without borrowing on margin.
+
+Open orders are NOT re-fetched here — the caller passes the DataFrame that
+stocks_orders.build_orders_table() already produced (one Schwab orders call
+per run, not two). Accounts are joined on the last 3 digits.
+
+CAVEATS:
   * Only accounts linked to your Schwab developer app come back. Workplace
     PCRA/custodial accounts often are not linked and will simply be absent.
-  * Cash_Total = Cash + MoneyMarket. If your sweep is already inside
-    cashBalance, that double-counts — check one account against the web UI
-    and, if so, drop MoneyMarket from the sum in _row_from_balances().
+  * Verified on account ...885: moneyMarketFund is 0.00 and cashBalance alone
+    matches the web UI, so the sum does not double-count the sweep.
 """
 from __future__ import annotations
 
@@ -50,14 +65,16 @@ ACCOUNT_LABELS = {
 }
 
 CASH_COLS = [
-    "Account", "Nickname", "Type",
-    "Cash", "MoneyMarket", "Cash_Total",
-    "Available_To_Trade", "Available_To_Withdraw", "Buying_Power",
-    "Long_Market_Value", "Account_Value",
+    "Account", "Nickname",
+    "Cash", "Cash_In_Open_Orders", "Cash_After_Open_Orders",
 ]
 
 # Numeric columns that are summed into the TOTAL row.
-_SUM_COLS = [c for c in CASH_COLS if c not in ("Account", "Nickname", "Type")]
+_SUM_COLS = [c for c in CASH_COLS if c not in ("Account", "Nickname")]
+
+# Join key between the cash table and stocks_orders: last 3 digits of the
+# account number. Works whether or not the account is masked for output.
+_KEY = "_acct_key"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -136,12 +153,13 @@ def _row_from_balances(sa: dict, *, mask: bool = True) -> dict:
     """One row per securitiesAccount. Missing fields stay None, not 0."""
     cur  = sa.get("currentBalances") or {}
     init = sa.get("initialBalances") or {}
-    proj = sa.get("projectedBalances") or {}
 
     acct_raw = str(sa.get("accountNumber") or "")
     last3    = acct_raw[-3:] if len(acct_raw) >= 3 else acct_raw
 
-    cash = _pick(cur, init, "cashBalance", "totalCash", "cashAvailableForTrading")
+    # initialBalances is a start-of-day snapshot and carries stale/zeroed
+    # fields on margin accounts — currentBalances is the authority.
+    cash = _pick(cur, init, "cashBalance", "totalCash")
     mmkt = _pick(cur, init, "moneyMarketFund", "bankSweep", "savings")
 
     total = None
@@ -149,25 +167,77 @@ def _row_from_balances(sa: dict, *, mask: bool = True) -> dict:
         total = round((cash or 0.0) + (mmkt or 0.0), 2)
 
     return {
+        _KEY:       last3,
         "Account":  _mask(acct_raw) if mask else acct_raw,
         "Nickname": ACCOUNT_LABELS.get(last3, ""),
-        "Type":     str(sa.get("type") or ""),
-        "Cash":                  cash,
-        "MoneyMarket":           mmkt,
-        "Cash_Total":            total,
-        "Available_To_Trade":    _pick(cur, proj, "cashAvailableForTrading", "availableFunds"),
-        "Available_To_Withdraw": _pick(cur, proj, "cashAvailableForWithdrawal", "availableFundsNonMarginableTrade"),
-        "Buying_Power":          _pick(cur, proj, "buyingPower"),
-        "Long_Market_Value":     _pick(cur, init, "longMarketValue"),
-        "Account_Value":         _pick(cur, init, "liquidationValue", "accountValue", "equity"),
+        "Cash":     total,
+        # filled in by build_cash_table() once orders are known
+        "Cash_In_Open_Orders":    None,
+        "Cash_After_Open_Orders": None,
     }
 
 
-def build_cash_table(client_wrapper, *, mask: bool = True, log=print) -> pd.DataFrame:
+# ─────────────────────────────────────────────────────────────────────
+# Open BUY orders → cash reserved per account
+# ─────────────────────────────────────────────────────────────────────
+def open_buy_cash_by_account(orders_df, log=print) -> dict[str, float]:
     """
-    DataFrame of cash balances, one row per linked account, plus a TOTAL row.
+    {last3: reserved_cash} from the orders table stocks_orders already built.
+
+    Only BUY-side legs count — BUY, BUY_TO_OPEN and BUY_TO_COVER all reduce
+    spendable cash on fill. SELL legs are ignored on purpose.
+    """
+    if orders_df is None or getattr(orders_df, "empty", True):
+        return {}
+
+    df = orders_df.copy()
+    if "Account" not in df.columns or "Side" not in df.columns:
+        log("⚠️  Orders table missing Account/Side — cash reservation skipped")
+        return {}
+
+    # Defensive: the caller normally passes an already open-only table.
+    if "Status" in df.columns:
+        from stocks_orders import OPEN_STATUSES
+        df = df[df["Status"].astype(str).str.upper().isin(OPEN_STATUSES)]
+
+    side = df["Side"].astype(str).str.upper().str.strip()
+    df = df[side.str.startswith("BUY")]
+    if df.empty:
+        return {}
+
+    qty = pd.to_numeric(df.get("Remaining_QTY"), errors="coerce")
+    qty = qty.where(qty.fillna(0) > 0, pd.to_numeric(df.get("QTY"), errors="coerce"))
+
+    px = pd.to_numeric(df.get("Limit_Price"), errors="coerce")
+    px = px.where(px.fillna(0) > 0, pd.to_numeric(df.get("Stop_Price"), errors="coerce"))
+
+    mult = pd.Series(1.0, index=df.index)
+    if "Asset_Type" in df.columns:
+        mult = mult.mask(df["Asset_Type"].astype(str).str.upper() == "OPTION", 100.0)
+
+    # Prefer a freshly computed qty x price (respects partial fills); fall back
+    # to the Est_Value stocks_orders already worked out.
+    val = qty * px * mult
+    if "Est_Value" in df.columns:
+        val = val.fillna(pd.to_numeric(df["Est_Value"], errors="coerce"))
+    val = val.fillna(0.0)
+
+    keys = df["Account"].map(lambda a: str(a).strip()[-3:])
+    out = {k: round(float(v), 2) for k, v in val.groupby(keys).sum().items()}
+    log(f"Open BUY orders reserving cash in {len(out)} account(s): "
+        f"${sum(out.values()):,.2f}")
+    return out
+
+
+def build_cash_table(client_wrapper, orders_df=None, *, mask: bool = True, log=print) -> pd.DataFrame:
+    """
+    Cash per linked account, net of open BUY orders, plus a TOTAL row.
 
     client_wrapper — from jobStocksSignals.get_schwab_client() (reused, not rebuilt)
+    orders_df      — the frame stocks_orders.build_orders_table() already built.
+                     Pass it in so Schwab's orders endpoint is hit once per run.
+                     If None, Cash_In_Open_Orders is 0 and Cash_After_Open_Orders
+                     equals Cash.
     mask           — write "...922" instead of the full account number
     """
     rows = []
@@ -183,21 +253,32 @@ def build_cash_table(client_wrapper, *, mask: bool = True, log=print) -> pd.Data
         log("No account balances returned.")
         return pd.DataFrame(columns=CASH_COLS)
 
-    df = pd.DataFrame(rows)[CASH_COLS]
-    df = df.sort_values("Account", kind="mergesort").reset_index(drop=True)
+    reserved = open_buy_cash_by_account(orders_df, log)
+
+    for r in rows:
+        held = float(reserved.pop(r[_KEY], 0.0))
+        cash = r["Cash"]
+        r["Cash_In_Open_Orders"]    = round(held, 2)
+        r["Cash_After_Open_Orders"] = None if cash is None else round(cash - held, 2)
+
+    # Orders in an account Schwab didn't return balances for — would silently
+    # vanish from the totals, so say so rather than swallow it.
+    for k, v in reserved.items():
+        log(f"⚠️  ${v:,.2f} of open BUY orders in account ...{k} — no balance row")
+
+    df = pd.DataFrame(rows).sort_values("Account", kind="mergesort")
+    df = df.drop(columns=[_KEY])[CASH_COLS].reset_index(drop=True)
 
     total = {c: None for c in CASH_COLS}
-    total.update({"Account": "TOTAL", "Nickname": "", "Type": ""})
+    total.update({"Account": "TOTAL", "Nickname": ""})
     for c in _SUM_COLS:
         s = pd.to_numeric(df[c], errors="coerce")
         total[c] = round(float(s.sum()), 2) if s.notna().any() else None
     df = pd.concat([df, pd.DataFrame([total])], ignore_index=True)
 
-    cash_total = total.get("Cash_Total")
-    if cash_total is None:
-        log(f"Cash table: {len(df) - 1} accounts (no cash fields returned)")
-    else:
-        log(f"Cash table: {len(df) - 1} accounts, total cash ${cash_total:,.2f}")
+    log(f"Cash table: {len(df) - 1} accounts · cash ${total['Cash'] or 0:,.2f} · "
+        f"in open buys ${total['Cash_In_Open_Orders'] or 0:,.2f} · "
+        f"available ${total['Cash_After_Open_Orders'] or 0:,.2f}")
     return df
 
 
@@ -208,7 +289,7 @@ def write_cash_outputs(df, updated_pst, *, out_csv, out_html, html_builder, log=
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_csv, index=False)
     out_html.write_text(
-        html_builder(df, "Schwab Cash & Cash Investments", updated_pst), encoding="utf-8"
+        html_builder(df, "Schwab Cash (net of open BUY orders)", updated_pst), encoding="utf-8"
     )
     log(f"Cash outputs written: {out_csv.name} / {out_html.name}")
 
@@ -226,6 +307,7 @@ if __name__ == "__main__":
     ap.add_argument("--full", action="store_true", help="unmasked account numbers (implies --no-write)")
     ap.add_argument("--raw", action="store_true", help="dump raw balances dicts and exit")
     ap.add_argument("--no-write", action="store_true", help="print only, no CSV/HTML")
+    ap.add_argument("--no-orders", action="store_true", help="skip the open-orders fetch")
     args = ap.parse_args()
 
     here = Path(__file__).resolve().parent
@@ -248,7 +330,20 @@ if __name__ == "__main__":
             print(json.dumps({k: v for k, v in sa.items() if "Balances" in k}, indent=2))
         sys.exit(0)
 
-    d = build_cash_table(client, mask=not args.full, log=job.log)
+    # Same orders table the job builds — fetched here only because this CLI
+    # runs outside the job, and only when we actually need it.
+    orders = None
+    if not args.no_orders:
+        try:
+            from stocks_orders import build_orders_table
+            orders = build_orders_table(
+                client, None,
+                days_back=90, open_only=True, restrict_to_tickers=False, log=job.log,
+            )
+        except Exception as e:
+            job.log(f"⚠️  Could not load open orders: {e}")
+
+    d = build_cash_table(client, orders, mask=not args.full, log=job.log)
     print(d.to_string(index=False) if not d.empty else "(no accounts)")
 
     if not args.no_write and not args.full:
