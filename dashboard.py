@@ -244,6 +244,7 @@ DEFAULT_STACK = [
     "macro.csv",
     "stocks_signals.csv",
     "stocks_orders.csv",
+    "cash.csv",
     "beth_funds.csv",
     "io_fund.csv",
     "investanswers.csv",

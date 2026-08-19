@@ -31,7 +31,11 @@ DEFAULT_CREDS_PATH = os.getenv("GSHEET_CREDS", "/etc/myTrading/gsheets.json")
 
 # Columns surfaced in the popup's compact table, in order. Anything in the
 # sheet not listed here still shows up in the per-row detail below it.
-TABLE_COLS = ("Date", "Acct", "Action", "REASON", "Qty", "Price", "Value")
+# TABLE_COLS = ("Date", "Acct", "Action", "REASON", "Qty", "Price", "Value")
+
+# was: ("Date", "Acct", "Action", "REASON", "Qty", "Price", "Value")
+TABLE_COLS = ("Date", "Acct", "Action", "DollarCommitment",
+              "Qty", "Price", "Value", "REASON")
 
 
 # ---------------------------------------------------------------------
