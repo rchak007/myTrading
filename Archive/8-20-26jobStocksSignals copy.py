@@ -165,6 +165,9 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
             df2[c] = pd.to_numeric(df2[c], errors="coerce").map(
                 lambda v: f"{v:+.2f}%" if pd.notna(v) else ""
             )
+        elif c == "SELL_ORDER" and str(v).strip():
+                        bg = "#ffe0e0" if "NO_SELL" in str(v) else "#e0f5e0"
+                        html.append(f"<td style=\"background-color:{bg};text-align:center;font-weight:600;\">{v}</td>")            
 
     cols = list(df2.columns)
 
@@ -213,12 +216,6 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
                     html.append(f"<td style=\"{style}\">{v}</td>")
                 else:
                     html.append(f"<td>{v}</td>")
-            elif c == "SELL_ORDER" and str(v).strip():
-                bg = "#ffe0e0" if "NO_SELL" in str(v) else "#e0f5e0"
-                html.append(
-                    f"<td style=\"background-color:{bg};text-align:center;"
-                    f"font-weight:600;\">{v}</td>"
-                )
             else:
                 td_cls = " class='num'" if c in num_cols else ""
                 html.append(f"<td{td_cls}>{v}</td>")
@@ -419,7 +416,6 @@ def main(no_push: bool = False):
         log("⛔ Holdings fetch returned nothing — aborting before write so the "
             "last good stocks_signals.csv is preserved.")
         return
-
     # ── 3. Merge ────────────────────────────────────────────────────────────────
     df = df_signals.merge(df_holdings, on="Ticker", how="left")
     df["QTY"]   = df["QTY"].fillna(0)
@@ -452,7 +448,10 @@ def main(no_push: bool = False):
     if "MRC_Zone" in df.columns:
         df["MRC_Zone"] = df["MRC_Zone"].map(_decorate_mrc_zone)
 
-    # ── 3e. Open Schwab orders — must precede the signals write (SELL_ORDER) ───
+
+
+
+# ── 3e. Open Schwab orders — must precede the signals write (SELL_ORDER) ───
     #   ALL open orders across accounts, not just STOCK_TICKERS.
     df_orders = pd.DataFrame()
     try:
@@ -488,7 +487,28 @@ def main(no_push: bool = False):
     html = build_html_table(df, title="Stock Signals + Schwab Holdings", updated_pst=updated_pst)
     OUT_HTML.write_text(html, encoding="utf-8")
 
-    # ── 4c. Cash & cash investments per account → cash.csv/html (non-fatal) ─────
+
+
+    # ── 4b. Open Schwab orders → separate CSV/HTML (non-fatal) ──────────────────
+    #   ALL open orders across accounts, not just STOCK_TICKERS.
+    df_orders = None 
+    try:
+        from stocks_orders import build_orders_table, write_orders_outputs
+        schwab = get_schwab_client()
+        df_orders = build_orders_table(
+            schwab, STOCK_TICKERS,
+            days_back=90, open_only=True, restrict_to_tickers=False, log=log,
+        )
+        write_orders_outputs(
+            df_orders, updated_pst,
+            out_csv=OUT_ORDERS_CSV, out_html=OUT_ORDERS_HTML,
+            html_builder=build_html_table, log=log,
+        )
+    except Exception as e:
+        log(f"⚠️  Orders step failed (non-fatal): {e}")
+
+
+# ── 4c. Cash & cash investments per account → cash.csv/html (non-fatal) ─────
     try:
         from stocks_cash import build_cash_table, write_cash_outputs
         df_cash = build_cash_table(get_schwab_client(), df_orders, mask=True, log=log)
