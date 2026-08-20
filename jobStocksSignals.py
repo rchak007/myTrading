@@ -165,6 +165,9 @@ def build_html_table(df: pd.DataFrame, title: str, updated_pst: str) -> str:
             df2[c] = pd.to_numeric(df2[c], errors="coerce").map(
                 lambda v: f"{v:+.2f}%" if pd.notna(v) else ""
             )
+        elif c == "SELL_ORDER" and str(v).strip():
+                        bg = "#ffe0e0" if "NO_SELL" in str(v) else "#e0f5e0"
+                        html.append(f"<td style=\"background-color:{bg};text-align:center;font-weight:600;\">{v}</td>")            
 
     cols = list(df2.columns)
 
@@ -442,12 +445,46 @@ def main(no_push: bool = False):
     if "MRC_Zone" in df.columns:
         df["MRC_Zone"] = df["MRC_Zone"].map(_decorate_mrc_zone)
 
+
+
+
+# ── 3e. Open Schwab orders — must precede the signals write (SELL_ORDER) ───
+    #   ALL open orders across accounts, not just STOCK_TICKERS.
+    df_orders = pd.DataFrame()
+    try:
+        from stocks_orders import build_orders_table, write_orders_outputs
+        schwab = get_schwab_client()
+        df_orders = build_orders_table(
+            schwab, STOCK_TICKERS,
+            days_back=90, open_only=True, restrict_to_tickers=False, log=log,
+        )
+        write_orders_outputs(
+            df_orders, updated_pst,
+            out_csv=OUT_ORDERS_CSV, out_html=OUT_ORDERS_HTML,
+            html_builder=build_html_table, log=log,
+        )
+    except Exception as e:
+        log(f"⚠️  Orders step failed (non-fatal): {e}")
+
+    # ── 3f. SELL_ORDER protection flag (inserted right after Current Price) ────
+    try:
+        from sell_guard import attach_sell_order_column
+        df, sell_msg = attach_sell_order_column(
+            df, df_orders, after="Current Price", log_fn=log
+        )
+        log(sell_msg)
+    except Exception as e:
+        log(f"⚠️  SELL_ORDER merge failed (continuing without it): {e}")
+
+
     # ── 4. Write outputs ────────────────────────────────────────────────────────
     JOB_DIR.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUT_CSV, index=False)
 
     html = build_html_table(df, title="Stock Signals + Schwab Holdings", updated_pst=updated_pst)
     OUT_HTML.write_text(html, encoding="utf-8")
+
+
 
     # ── 4b. Open Schwab orders → separate CSV/HTML (non-fatal) ──────────────────
     #   ALL open orders across accounts, not just STOCK_TICKERS.
