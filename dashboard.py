@@ -47,6 +47,12 @@ except Exception:
 
 PST = ZoneInfo("America/Los_Angeles")
 
+# Stocks data freshness thresholds (hours).
+# 24h  → yellow: a weekday run was probably missed (or it's a weekend).
+# 72h  → red: past a normal Fri→Mon gap, something is actually broken.
+WARN_HOURS  = 24
+STALE_HOURS = 72
+
 # ---------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------
@@ -396,10 +402,47 @@ def render_open_orders(ticker: str) -> None:
     except Exception:
         st.caption(f"{len(orders)} open order(s)")
 
+def render_freshness_banner():
+    """
+    macro.csv's Updated_PST is stamped only on a SUCCESSFUL stocks run.
+    If jobStocksSignals.py bails early (expired Schwab token, network error)
+    it writes nothing, so this timestamp stops moving — which is precisely
+    the silent failure we want surfaced.
+    """
+    path = REPO_ROOT / "macro.csv"
+    if not path.exists():
+        st.warning("⚠️ macro.csv not found — cannot verify stocks data freshness.")
+        return
+
+    try:
+        stamp = str(pd.read_csv(path).iloc[0]["Updated_PST"])
+        ts = datetime.strptime(stamp[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=PST)
+    except Exception as e:
+        st.warning(f"⚠️ Could not read Updated_PST from macro.csv: {e}")
+        return
+
+    age_h = (datetime.now(PST) - ts).total_seconds() / 3600.0
+
+    if age_h > STALE_HOURS:
+        st.error(
+            f"🛑 STALE — stocks data is {age_h / 24:.1f} days old. "
+            f"Last successful run: {stamp}. "
+            "The job is failing silently — check job_stocks.log on the Pi."
+        )
+    elif age_h > WARN_HOURS:
+        st.warning(
+            f"⚠️ Stocks data is {age_h:.1f}h old (last run {stamp}). "
+            "Normal over a weekend — otherwise a run was missed."
+        )        
+    else:
+        st.caption(f"✅ Stocks data current — last run {stamp} ({age_h:.1f}h ago).")
+
+
 
 def render_csv_mode():
     """The original CSV viewer, driven from the sidebar."""
     st.title("📊 jobMyTrading CSV Viewer")
+    render_freshness_banner()
 
     source = st.sidebar.radio(
         "Source", ["Repo files", "Upload a CSV"], horizontal=False, key="csv_source",
