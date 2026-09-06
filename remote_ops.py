@@ -52,7 +52,8 @@ STATE_FILE = STATE_DIR / "remote_ops.state"
 AUDIT_LOG = STATE_DIR / "remote_ops_audit.log"
 OUTPUT_DIR = STATE_DIR / "remote_ops_out"
 
-CREDS_PATH = os.getenv("GSHEET_CREDS", "/etc/myTrading/gsheets.json")
+CREDS_PATH = os.getenv("REMOTE_OPS_CREDS",
+                       os.getenv("GSHEET_CREDS", "/etc/myTrading/gsheets.json"))
 
 # Full read/write scope. gsheet_notes.py uses spreadsheets.readonly and
 # must keep using it — this module is the only writer.
