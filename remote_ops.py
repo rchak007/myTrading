@@ -138,12 +138,60 @@ VERBS = {
                                "--no-pager", "--output=short-iso"]], 60, False),
 }
 
+# Verbs handled in-process rather than via subprocess. They may take a
+# free-form argument because nothing here reaches a shell or an argv.
+#   verb -> needs_arg
+PY_VERBS = {
+    "token_status": False,
+    "auth_url":     False,
+    "auth_code":    True,
+}
+
+
+def run_pyverb(verb: str, arg: str) -> tuple[int, str]:
+    import schwab_auth
+
+    if verb == "token_status":
+        return 0, json.dumps(schwab_auth.status(), indent=2)
+
+    if verb == "auth_url":
+        return 0, (
+            "Open this on your phone, sign in, approve.\n"
+            "The redirect to 127.0.0.1 WILL fail to load — that is expected.\n"
+            "Copy the entire address bar, then add a row:\n"
+            "    A: auth_code    B: <the whole pasted URL>\n\n"
+            + schwab_auth.authorize_url()
+        )
+
+    if verb == "auth_code":
+        try:
+            return 0, schwab_auth.install(arg)
+        except Exception as e:
+            return 1, f"{type(e).__name__}: {e}"
+
+    return 2, f"unhandled python verb {verb!r}"
+
 
 # ---------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------
 def now_str() -> str:
     return datetime.now().astimezone().strftime(TS_FMT)
+
+
+def safe_arg(verb: str, arg: str) -> str:
+    """What may be written to the audit log in place of the raw argument.
+
+    Subprocess verbs take a KEY into a fixed dict, so logging them verbatim
+    is safe and useful. In-process verbs are the only ones that accept a
+    free-form string, so an argument to any of them may carry a secret —
+    an OAuth redirect URL today, something else tomorrow. Redact by that
+    rule, not by verb name, so a future PY_VERBS entry is covered the day
+    it is added rather than the day someone remembers to update this.
+    """
+    if arg and PY_VERBS.get(verb):
+        return "(redacted)"
+    return arg
 
 
 def ensure_dirs() -> None:
@@ -197,6 +245,11 @@ def shrink(text: str, spill_path: Path) -> str:
 # Execution
 # ---------------------------------------------------------------------
 def run_verb(verb: str, arg: str) -> tuple[int, str]:
+    if verb in PY_VERBS:
+        if PY_VERBS[verb] and not arg:
+            return 2, f"verb '{verb}' requires an argument in column B"
+        return run_pyverb(verb, arg)
+
     builder, timeout, needs_arg = VERBS[verb]
 
     if needs_arg and not arg:
@@ -271,6 +324,22 @@ def write_back(ws, row: int, values: dict) -> None:
             time.sleep(2 ** attempt)
 
 
+def nudge(ws) -> int:
+    """Append an auth_url result row when the refresh token is aging out."""
+    import schwab_auth
+    st = schwab_auth.status()
+    if st.get("state") not in ("RENEW_NOW", "EXPIRED", "MISSING", "UNKNOWN"):
+        return 0
+    ws.append_row(
+        ["", "", f"ACTION: {st['state']}", now_str(), now_str(), now_str(), 0, "-",
+         f"Schwab refresh token: {st.get('days_left', '?')} days left.\n"
+         f"Tap to re-authorize, then add an auth_code row.\n\n"
+         + schwab_auth.authorize_url(), HOST],
+        value_input_option="RAW")
+    audit(event="nudge", state=st.get("state"), days_left=st.get("days_left"))
+    return 1
+
+
 # ---------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------
@@ -282,6 +351,8 @@ def main() -> int:
                     help="on cold start, actually run the pending backlog")
     ap.add_argument("--verbs", action="store_true", help="print the allowlist and exit")
     ap.add_argument("--init", action="store_true", help="write the header row and exit")
+    ap.add_argument("--nudge", action="store_true",
+                    help="append a re-auth prompt row if the refresh token is aging out")
     ap.add_argument("--reset-cursor", type=int, metavar="ROW",
                     help="force the cursor to ROW (rows at or below it are ignored)")
     args = ap.parse_args()
@@ -290,6 +361,8 @@ def main() -> int:
         for name, (_, timeout, needs) in sorted(VERBS.items()):
             note = " <arg required>" if needs else ""
             print(f"{name:<12} timeout={timeout}s{note}")
+        for name, needs in sorted(PY_VERBS.items()):
+            print(f"{name:<12} in-process{' <arg required>' if needs else ''}")
         print(f"\nlog keys: {', '.join(sorted(LOGS))}")
         print(f"dir keys: {', '.join(sorted(DIRS))}")
         return 0
@@ -305,6 +378,10 @@ def main() -> int:
     if args.init:
         ws.update(values=[HEADER], range_name="A1:J1")
         print("header written to row 1")
+        return 0
+
+    if args.nudge:
+        print("nudge row appended" if nudge(ws) else "token healthy; no nudge")
         return 0
 
     rows = ws.get_all_values()
@@ -339,19 +416,20 @@ def main() -> int:
             break                                    # cursor NOT advanced
 
         if args.dry_run:
-            verdict = "WOULD RUN" if verb in VERBS else "WOULD REJECT"
-            print(f"row {r}: {verdict}  {verb} {arg}".rstrip())
+            known = verb in VERBS or verb in PY_VERBS
+            verdict = "WOULD RUN" if known else "WOULD REJECT"
+            print(f"row {r}: {verdict}  {verb} {safe_arg(verb, arg)}".rstrip())
             executed += 1
             continue
 
         queued = now_str()
 
-        if verb not in VERBS:
+        if verb not in VERBS and verb not in PY_VERBS:
             write_back(ws, r, {
                 "Status": "REJECTED", "QueuedAt": queued, "StartedAt": queued,
                 "FinishedAt": queued, "Secs": 0, "Exit": "-",
                 "Output": f"'{verb}' is not in the allowlist. Valid: "
-                          f"{', '.join(sorted(VERBS))}",
+                          f"{', '.join(sorted(set(VERBS) | set(PY_VERBS)))}",
                 "Host": HOST,
             })
             audit(event="rejected", row=r, verb=verb, args=arg)
@@ -365,7 +443,7 @@ def main() -> int:
         started = now_str()
         write_back(ws, r, {"Status": "RUNNING", "QueuedAt": queued,
                            "StartedAt": started, "Host": HOST})
-        audit(event="start", row=r, verb=verb, args=arg)
+        audit(event="start", row=r, verb=verb, args=safe_arg(verb, arg))
 
         t0 = time.monotonic()
         rc, output = run_verb(verb, arg)
@@ -382,7 +460,16 @@ def main() -> int:
             "Output": shrink(output, path),
             "Host": HOST,
         })
-        audit(event="done", row=r, verb=verb, args=arg, exit=rc,
+
+        # The authorization code is single-use and short-lived, but leaving
+        # it sitting in a spreadsheet cell is pointless risk.
+        if verb == "auth_code":
+            try:
+                ws.update(values=[["(consumed)"]], range_name=f"B{r}")
+            except Exception as e:
+                audit(event="redact_failed", row=r, error=str(e))
+
+        audit(event="done", row=r, verb=verb, args=safe_arg(verb, arg), exit=rc,
               secs=secs, spill=str(path))
 
         write_cursor(r)
