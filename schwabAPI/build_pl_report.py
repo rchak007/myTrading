@@ -91,6 +91,12 @@ def main() -> int:
         logger.error("No transactions. Nothing to do.")
         return 1
     logger.info("Cached transactions: %d", len(cache))
+    # Five type filters were dropped as invalid by the current API (see
+    # txn_cache.ALL_TYPES). This histogram is how you confirm splits, mergers
+    # and ACATS transfers still arrived, folded into RECEIVE_AND_DELIVER.
+    if "type" in cache.columns:
+        for t, n in cache["type"].value_counts().items():
+            logger.info("   %-24s %d", t, n)
 
     # ---------------------------------------------------------------- ledger
     ledger = txn_parser.parse_ledger(cache, hash_to_acct)

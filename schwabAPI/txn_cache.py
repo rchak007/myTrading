@@ -34,13 +34,21 @@ from schwab_client import CACHE_DIR, COLD_START, OVERLAP_DAYS
 
 logger = logging.getLogger(__name__)
 
-# Every type we care about. Schwab is loose about this filter and will return
-# adjacent types (e.g. RECEIVE_AND_DELIVER) anyway -- that's fine, we want them.
+# Types the CURRENT Schwab API accepts, measured with probe_schwab_api.py.
+# Re-run that probe if these ever start 400ing again.
+#
+# Dropped as invalid enum values by the current API:
+#     CORPORATE_ACTION, SECURITY_TRANSFER, FEE, TAX, ADJUSTMENT
+#
+# That is less of a loss than it looks. Schwab now books splits, mergers and
+# ACATS transfers under RECEIVE_AND_DELIVER, and per-trade fees ride inside a
+# TRADE's transferItems (txn_parser._fees_of reads them there), not as
+# standalone FEE rows. Still: after a cold start, confirm splits and transfers
+# actually appear before trusting the P&L -- see the type histogram in the
+# run log.
 ALL_TYPES = [
     "TRADE",
     "DIVIDEND_OR_INTEREST",
-    "CORPORATE_ACTION",
-    "SECURITY_TRANSFER",
     "RECEIVE_AND_DELIVER",
     "ACH_RECEIPT",
     "ACH_DISBURSEMENT",
@@ -49,12 +57,13 @@ ALL_TYPES = [
     "ELECTRONIC_FUND",
     "WIRE_IN",
     "WIRE_OUT",
-    "FEE",
-    "TAX",
-    "ADJUSTMENT",
     "JOURNAL",
     "MEMORANDUM",
 ]
+
+# The endpoint's signature is `types: str`. Passing the list url-encodes into
+# something Schwab rejects, so join it once here and reuse.
+TYPES_PARAM = ",".join(ALL_TYPES)
 
 CSV_COLS = [
     "account_hash",
@@ -79,7 +88,8 @@ except Exception:  # pragma: no cover
 
 
 def get_linked_accounts(client) -> List[Dict]:
-    resp = client.account_linked()
+    # renamed from account_linked() in current schwabdev
+    resp = client.linked_accounts()
     accounts = []
     for a in resp.json():
         if not isinstance(a, dict):
@@ -106,7 +116,7 @@ def _fetch_chunk(client, account_hash: str, start: date, end: date) -> List[Dict
     max_tries, backoff, last_err = 6, 2, None
     for attempt in range(1, max_tries + 1):
         try:
-            resp = client.transactions(account_hash, start_str, end_str, ALL_TYPES)
+            resp = client.transactions(account_hash, start_str, end_str, TYPES_PARAM)
             if resp.status_code != 200:
                 logger.error(
                     "HTTP %s hash=%s %s..%s body=%s",
