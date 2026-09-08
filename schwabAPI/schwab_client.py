@@ -107,7 +107,7 @@ def make_client():
             "they all share this DB — then re-run."
         )
 
-    # Positional args only: current schwabdev has no `tokens_file` parameter.
+    # `tokens_db`, not `tokens_file` — the old keyword no longer exists.
     return schwabdev.Client(
         app_key,
         app_secret,
