@@ -1,433 +1,320 @@
-# Historical P&L Tracking System for Schwab Accounts
+# Historical P&L — per-ticker, all Schwab accounts
 
-## Overview
+Answers one question: **for every stock I have ever traded, what did I actually make or lose?**
 
-This system calculates **per-ticker profit & loss** across all your Schwab brokerage accounts, including:
+Realized P&L (FIFO), unrealized P&L, dividends and fees, per ticker, aggregated
+across **all** linked Schwab accounts — and broken out per account.
 
-- ✅ **Realized P&L** - Gains/losses from closed positions (sells)
-- ✅ **Unrealized P&L** - Current market value vs. cost basis
-- ✅ **Dividend Income** - Total dividends received per ticker
-- ✅ **Grand Total P&L** - Aggregated across all accounts and tickers
-
-### Key Features
-
-🚀 **Smart Caching** - Historical transactions are cached locally. Only NEW transactions are fetched on subsequent runs, avoiding API rate limits.
-
-📊 **Per-Ticker Analysis** - Know exactly which stocks/ETFs are your winners and losers.
-
-🏦 **Multi-Account Support** - Aggregates across all your Schwab accounts automatically.
-
-💾 **Exports to CSV** - Detailed reports saved for further analysis.
+> **This runs on Pi 1 only.** Pi 1 owns `tokens.json`. Pi 2 is for editing code.
+> Everything below assumes an SSH session on Pi 1.
 
 ---
 
-## Installation
+## 1. State of play
 
-### 1. Copy the enhanced files to your schwabAPI directory
-
-```bash
-# Navigate to your schwabAPI directory
-cd /path/to/myTrading/schwabAPI
-
-# Copy these files (Claude will provide them):
-# - analytics_core_enhanced.py
-# - historical_pl_report_enhanced.py
-# - manage_cache.py
-```
-
-### 2. Verify dependencies
-
-Your existing setup should already have:
-- `schwabdev` (Schwab API client)
-- `pandas`
-- `python-dotenv`
-
-If not:
-```bash
-pip install schwabdev pandas python-dotenv
-```
-
-### 3. Verify .env file
-
-Ensure your `.env` file contains:
-```
-app_key=YOUR_SCHWAB_APP_KEY
-app_secret=YOUR_SCHWAB_APP_SECRET
-callback_url=https://127.0.0.1
-```
+| | |
+|---|---|
+| Pipeline | **Complete and working** — 5 modules, committed 2026-07-13 (`627f0f5`) |
+| Has it run? | **Yes, at least once, on Pi 1.** `corporate_actions.json` is seeded with mergers found in the real history |
+| Cache on Pi 2 | None — and there never will be. Wrong box. |
+| Wired to cron? | **No.** Standalone, run by hand |
+| Left half-done | `manual_basis.csv` is still empty, and 7 CUSIPs in `corporate_actions.json` are unconfirmed. See §7 |
 
 ---
 
-## Quick Start
+## 2. How it works
 
-### First Run (Historical Data Collection)
-
-```bash
-python historical_pl_report_enhanced.py
+```
+schwab_client.py     credentials, shared tokens.json, cache/report paths
+      │
+      ▼
+txn_cache.py         fetch transactions → cache to disk   ← the incremental part
+      │
+      ▼
+txn_parser.py        raw Schwab JSON → flat ledger, one row per security leg
+      │
+      ▼
+pl_engine.py         FIFO lot tracking → realized P&L, open lots, anomalies
+      │
+      ▼
+build_pl_report.py   + live prices → CSVs and XLSX          ← THE ENTRY POINT
 ```
 
-**What happens:**
-1. Fetches ALL transactions from 2022-01-01 to today
-2. Caches them to `data/transactions/`
-3. Calculates per-ticker P&L
-4. Saves reports to CSV files
+### 2.1 Download once, then only the delta
 
-**Expected output:**
-```
-================================================================================
-COMPREHENSIVE HISTORICAL P&L REPORT (Per-Ticker Analysis)
-================================================================================
+This is the behaviour you asked for, and it is already implemented.
 
-Analyzing transactions from 2022-01-01 through today...
-Using smart caching - only new transactions will be fetched.
+**Cold start** (no cache): pulls everything from `SCHWAB_START_DATE`, default
+**2019-01-01**, to today, for every linked account. Walks the range in 365-day
+chunks (the Schwab maximum), halving the window on timeout rather than giving
+up, with exponential backoff on errors.
 
-[INFO] Found 3 linked accounts
-[INFO] Processing account 1234567...
-[INFO] Fetching new transactions for <hash> from 2022-01-01 to 2025-02-02
-[INFO] Fetched 150 tx for hash=<hash> from 2022-01-01 to 2022-03-01
-...
-
-================================================================================
-GRAND TOTAL (All Accounts, All Tickers)
-================================================================================
-Total Cost Basis:      $125,450.00
-Total Market Value:    $142,380.00
-Total Unrealized P&L:  $12,230.00
-Total Realized P&L:    $3,200.00
-Total Dividends:       $1,500.00
---------------------------------------------------------------------------------
-GRAND TOTAL P&L:       $16,930.00
-GRAND TOTAL RETURN:    13.49%
-================================================================================
-
-PER-TICKER P&L (Aggregated Across All Accounts)
-================================================================================
-Symbol    Qty   Avg Price  Cost Basis  Market Value  Unrealized P&L  ...
-AAPL    100.00     145.23    14,523.00     18,250.00       3,727.00  ...
-SPY      50.00     412.50    20,625.00     23,100.00       2,475.00  ...
-TSLA     25.00     198.40     4,960.00      6,125.00       1,165.00  ...
-...
-```
-
-### Subsequent Runs (Incremental Updates)
-
-```bash
-python historical_pl_report_enhanced.py
-```
-
-**What happens:**
-1. Checks cached data
-2. Only fetches NEW transactions since last run
-3. Updates P&L calculations
-4. Saves updated reports
-
-**Much faster!** Only queries for new data.
-
----
-
-## Configuration
-
-### Change Historical Start Date
-
-Edit `historical_pl_report_enhanced.py`:
-
-```python
-# Line ~40
-start_date = "2020-01-01"  # Change this to your desired start date
-```
-
-### Change Transaction Types
-
-Edit `analytics_core_enhanced.py` if you want to include/exclude specific transaction types:
-
-```python
-# Line ~92-118
-types_list = [
-    "TRADE",                    # Buy/sell transactions
-    "DIVIDEND_OR_INTEREST",     # Dividend payments
-    "CORPORATE_ACTION",         # Stock splits, mergers, etc.
-    # ... add/remove as needed
-]
-```
-
----
-
-## Cache Management
-
-### View Cache Status
-
-```bash
-python manage_cache.py list
-```
-
-Output:
-```
-================================================================================
-CACHED TRANSACTION FILES
-================================================================================
-
-Found 3 transaction cache files:
-
-  Account Hash: 4BAEBA8E79943...
-  Cache File:   4BAEBA8E79943....csv
-  Size:         245.3 KB
-  Last Date:    2025-02-02
-
-  ...
-```
-
-### Clear All Cache (Start Fresh)
-
-```bash
-python manage_cache.py clear-all
-```
-
-⚠️ **WARNING:** This deletes ALL cached transactions. You'll need to re-fetch historical data on next run.
-
-### Clear Cache for Specific Account
-
-```bash
-python manage_cache.py clear <account_hash>
-```
-
-### Interactive Mode
-
-```bash
-python manage_cache.py
-```
-
-Provides a menu-driven interface for cache management.
-
----
-
-## Output Files
-
-All reports are saved to:
-
-### 1. `data/per_ticker_pl.csv`
-
-Per-ticker P&L aggregated across all accounts:
-
-| symbol | qty_current | avg_price | cost_basis | market_value | unrealized_pl | realized_pl | dividends | total_pl | total_pl_pct |
-|--------|------------|-----------|------------|--------------|---------------|-------------|-----------|----------|--------------|
-| AAPL   | 100.00     | 145.23    | 14,523.00  | 18,250.00    | 3,727.00      | 500.00      | 120.00    | 4,347.00 | 29.93        |
-
-### 2. `data/per_account_ticker_pl.csv`
-
-Per-account, per-ticker breakdown:
-
-| account_number | symbol | qty_current | cost_basis | market_value | total_pl |
-|----------------|--------|------------|------------|--------------|----------|
-| 1234567        | AAPL   | 50.00      | 7,261.50   | 9,125.00     | 1,863.50 |
-| 1234567        | SPY    | 30.00      | 12,375.00  | 13,860.00    | 1,485.00 |
-
-### 3. `data/pl_summary.json`
-
-Summary statistics in JSON format:
+**The watermark**: after each account syncs, `<account_hash>.state.json` records
 
 ```json
-{
-  "total_cost_basis": 125450.0,
-  "total_market_value": 142380.0,
-  "total_unrealized_pl": 12230.0,
-  "total_realized_pl": 3200.0,
-  "total_dividends": 1500.0,
-  "grand_total_pl": 16930.0,
-  "grand_total_pl_pct": 13.49
-}
+{ "last_date": "2026-09-05", "count": 4812 }
+```
+
+**Incremental runs** resume at **`last_date − 10 days`**, not `last_date + 1`.
+That overlap is deliberate: Schwab back-dates and corrects already-settled
+activity, so resuming exactly where you stopped silently loses those
+corrections. Re-fetched rows are de-duplicated on `activityId`, **keeping the
+last copy**, so a correction overwrites the original.
+
+Cache layout, one pair per account, in `schwabAPI/data/transactions/`:
+
+```
+<hash>.csv          full raw dump, one row per transaction (raw_json preserved)
+<hash>.state.json   {"last_date": "YYYY-MM-DD", "count": N}
+```
+
+Both are gitignored (`schwabAPI/.gitignore:49`). Transaction history never
+enters the repo.
+
+### 2.2 P&L method
+
+**Household-level FIFO.** All accounts collapse into one ledger per symbol, so
+shares journalled between your own Schwab accounts cancel out instead of looking
+like a sale and a repurchase. Every transaction row still records which account
+it happened in.
+
+Handled explicitly:
+
+- **Long and short** positions (a sold-to-open covered call has `qty < 0`)
+- **Option expiry** — closes the lot at zero, realizing the full premium
+- **Splits** — share count changes, **total basis preserved**
+- **Reverse splits and re-registrations** — Schwab books a re-registration as
+  `-50 / +50 / +50 / -50` across four transactions on one day. Applied one at a
+  time these momentarily drive the position to zero and destroy the cost basis,
+  so they are **netted per day** before being applied
+- **Mergers / ticker changes** — via `symbol_map` in `corporate_actions.json`
+- **ACATS transfers in** — Schwab reports cost `0`. Uses `manual_basis.csv` if
+  you supply a price, otherwise flags the ticker `UNKNOWN_BASIS`
+
+```
+Total P&L = realized + unrealized + dividends
+Return %  = total P&L / open cost basis × 100
 ```
 
 ---
 
-## Understanding the Calculations
+## 3. Files
 
-### Cost Basis Tracking (FIFO)
+**Current — these are the pipeline:**
 
-The system uses **FIFO (First In, First Out)** for calculating realized gains:
+| File | Role |
+|---|---|
+| `build_pl_report.py` | **Entry point.** Run this. |
+| `schwab_client.py` | Credentials, paths, `COLD_START`, `OVERLAP_DAYS` |
+| `txn_cache.py` | Fetch + cache + watermark + de-dupe |
+| `txn_parser.py` | Raw JSON → ledger |
+| `pl_engine.py` | FIFO lots, realized P&L, anomalies |
+| `manage_cache.py` | Cache inspection and surgery |
+| `corporate_actions.json` | Ticker remaps (merger/rename) |
+| `manual_basis.csv` | Your cost basis for ACATS transfer-ins |
+| `portfolio_snapshot.py` | Positions snapshot (separate tool) |
 
-**Example:**
-```
-1. Buy 100 AAPL @ $150 = $15,000 cost basis
-2. Buy 50 AAPL @ $160  = $8,000 cost basis
-3. Sell 80 AAPL @ $170
+**Superseded — do not use, kept for reference:**
+`analytics_core.py`, `analytics_core_enhanced.py`, `historical_pl_report.py`,
+`OLD-historical_pl_report_fixed.py`, `account_pl.py`,
+`2-3-26-analytics_core copy.py`, `1-2-26-portfolio_snapshot copy.py`.
 
-Realized P&L calculation:
-- Sell 80 shares (FIFO: first 80 from the 100 bought at $150)
-- Realized: (170 - 150) * 80 = $1,600
-- Remaining position: 20 @ $150 + 50 @ $160
-```
-
-### Unrealized P&L
-
-```
-Current Market Value - Cost Basis of Holdings
-```
-
-### Total P&L
-
-```
-Total P&L = Realized P&L + Unrealized P&L + Dividends
-```
-
-### Return %
-
-```
-Return % = (Total P&L / Cost Basis) * 100
-```
+> An earlier version of this README told you to run
+> `historical_pl_report_enhanced.py`. **That file does not exist.** It was
+> superseded by `build_pl_report.py`. If you are reading an old copy, stop.
 
 ---
 
-## Troubleshooting
+## 4. Running it on Pi 1
 
-### Issue: "No trading data found"
+Every command below must be run **from inside `schwabAPI/`** — the modules use
+plain imports (`import txn_cache`), and `manage_cache.py` looks for the cache at
+the *relative* path `data/transactions`. Run it from anywhere else and it will
+tell you the cache does not exist even when it is perfectly healthy.
 
-**Causes:**
-1. No trades in the date range
-2. Cache is corrupted
-3. API authentication failed
-
-**Solutions:**
 ```bash
-# Clear cache and try again
-python manage_cache.py clear-all
-python historical_pl_report_enhanced.py
-
-# Check .env file has correct credentials
-cat .env
+cd ~/github/myTrading/schwabAPI
+PY=~/github/myTrading/.venv/bin/python     # fall back to python3 if absent
 ```
 
-### Issue: "HTTP 429 - Rate Limit"
+### Prerequisites
 
-**Solution:** The caching system should prevent this, but if it happens:
+1. `~/github/myTrading/.env` has `app_key`, `app_secret`, `callback_url`
+2. `~/github/myTrading/tokens.json` exists and is **fresh** — Schwab refresh
+   tokens die after 7 days. Re-auth from your phone with the `auth_url` /
+   `auth_code` verbs (see `Documentation/remoteOpsGuide-9-7-26.md`)
+3. There must be exactly **one** `tokens.json`, in the repo root.
+   `schwabAPI/` must never grow its own — the code warns loudly if it does
+
+### Check the cache before anything else
 
 ```bash
-# Wait 15-30 minutes, then run again
-# The cache will pick up where it left off
-python historical_pl_report_enhanced.py
+$PY manage_cache.py list
 ```
 
-### Issue: Missing transactions
+Shows each account's row count, file size, and `last_date`. This is your
+"is the cache good?" check. What you want to see: one `.csv` **and** one
+`.state.json` per account, `last_date` within a few days of today, counts in the
+thousands. See §6 for reading the output.
 
-**Solution:** Force re-fetch from specific date:
+### First run / full rebuild
 
-```python
-# In historical_pl_report_enhanced.py, change start_date
-start_date = "2021-01-01"  # Earlier date
-
-# Then clear cache and re-run
-python manage_cache.py clear-all
-python historical_pl_report_enhanced.py
+```bash
+$PY build_pl_report.py --out ~/pl_out
 ```
 
-### Issue: Incorrect realized P&L
+Cold start pulls ~7 years across every account. Expect it to take a while and
+log every chunk. It is resumable — if it dies, run it again and it picks up from
+the watermark.
 
-**Causes:**
-1. Corporate actions (splits, mergers) not handled
-2. Short sales mixed with long positions
+### Routine run (the normal case)
 
-**Solutions:**
-1. Check `trade_history` in the tracker for debugging
-2. Manually verify against Schwab statements
-3. Corporate actions may need manual adjustment
+```bash
+$PY build_pl_report.py --out ~/pl_out
+```
+
+Same command. It fetches only `last_date − 10 days` → today per account.
+
+### Useful flags
+
+| Flag | Effect |
+|---|---|
+| `--offline` | Rebuild reports from cache only. **No Schwab call** — works with a dead token |
+| `--no-prices` | Skip live quotes; unrealized P&L left blank rather than faked as zero |
+| `--out DIR` | Output directory. **Use it** — the default is `~/github/jobMyTrading/outputs/portfolio` |
+
+`--offline` is the one to reach for when you just changed `manual_basis.csv` or
+`corporate_actions.json` and want to see the effect. No API, no rate limits,
+instant.
 
 ---
 
-## Advanced Usage
+## 5. Cache management
 
-### Export to Excel for Further Analysis
-
-```python
-import pandas as pd
-
-# Read the CSV files
-per_ticker = pd.read_csv("data/per_ticker_pl.csv")
-per_account = pd.read_csv("data/per_account_ticker_pl.csv")
-
-# Export to Excel with multiple sheets
-with pd.ExcelWriter("portfolio_pl_analysis.xlsx") as writer:
-    per_ticker.to_excel(writer, sheet_name="By Ticker", index=False)
-    per_account.to_excel(writer, sheet_name="By Account", index=False)
+```bash
+$PY manage_cache.py list                              # status of every account
+$PY manage_cache.py clear <account_hash>              # force one account to cold start
+$PY manage_cache.py clear-all                         # nuke everything (prompts)
+$PY manage_cache.py reset-date <hash> 2026-01-01      # re-pull from a date
 ```
 
-### Filter for Specific Ticker
-
-```python
-from analytics_core_enhanced import calculate_comprehensive_pl
-from portfolio_snapshot import make_client
-
-client = make_client()
-per_ticker_df, _, _ = calculate_comprehensive_pl(client, start_date="2022-01-01")
-
-# Filter for AAPL only
-aapl_data = per_ticker_df[per_ticker_df["symbol"] == "AAPL"]
-print(aapl_data.to_string())
-```
-
-### Calculate Tax-Loss Harvesting Opportunities
-
-```python
-# Find positions with unrealized losses
-per_ticker_df = pd.read_csv("data/per_ticker_pl.csv")
-losses = per_ticker_df[per_ticker_df["unrealized_pl"] < -1000]  # >$1k loss
-print("Tax-loss harvesting opportunities:")
-print(losses[["symbol", "unrealized_pl", "market_value"]])
-```
+`reset-date` is the surgical tool: it rewinds one account's watermark so the
+next run re-fetches from that date and merges, without discarding what you have.
+Prefer it over `clear-all`, which throws away a seven-year download.
 
 ---
 
-## Architecture Overview
+## 6. Reading the output
+
+Four CSVs plus `portfolio_pl.xlsx` (same content as tabs) land in `--out`.
+
+### `ticker_pl_summary.csv` — the answer to "how am I doing"
+
+One row per ticker **ever traded**, open and closed. Sorted by total P&L.
+
+| Column | Meaning |
+|---|---|
+| `status` | `OPEN` or `CLOSED` |
+| `accounts` | Which accounts held it |
+| `open_qty` / `schwab_qty` | Our FIFO share count vs what Schwab says you hold |
+| `qty_mismatch` | Difference. **Should be 0.** Anything else means the engine lost track |
+| `avg_cost`, `open_cost_basis` | Cost basis of what is still open |
+| `realized_pl` | Locked in from closed lots |
+| `unrealized_pl` | Market value − open cost basis |
+| `dividends`, `fees` | Cash in, cash out |
+| `total_pl`, `total_pl_pct` | realized + unrealized + dividends |
+| `basis_flag` | `OK`, `UNKNOWN_BASIS`, or `DIVIDEND_ONLY` |
+
+The run also prints the top 15 and household totals to the terminal.
+
+### `anomalies.csv` — **read this one**
+
+Everything the engine could not explain. An empty file means a clean run. Issues
+it raises: `transfer_in_no_basis`, `shares_from_nothing`, `bad_split_adjustment`,
+`unbalanced_internal_journal`, `transfer_out`.
+
+### `ticker_txns.csv`, `open_lots.csv`
+
+Every transaction with running position, cost basis and per-row realized P&L —
+this is where you go to audit a number you distrust. And the FIFO lots still
+open, with per-lot cost and whether the basis is known.
+
+---
+
+## 7. The triage loop — where this was left
+
+The engine is honest about what it cannot know, and two files are how you teach
+it. **This is the unfinished work.**
+
+### `manual_basis.csv` — currently empty
+
+Shares transferred in from another broker arrive with cost `0`, so their P&L is
+overstated by the entire purchase price. The run prints the affected tickers:
 
 ```
-historical_pl_report_enhanced.py
-    │
-    ├─→ analytics_core_enhanced.py
-    │   ├─→ get_linked_accounts()
-    │   ├─→ get_transactions_cached()  [smart caching]
-    │   ├─→ build_per_ticker_pl()      [FIFO tracking]
-    │   └─→ calculate_comprehensive_pl()
-    │
-    └─→ portfolio_snapshot.py
-        ├─→ make_client()
-        └─→ get_positions_all_accounts()
-
-Data Flow:
-1. Fetch account list
-2. For each account:
-   - Check cache for existing transactions
-   - Fetch only NEW transactions from API
-   - Update cache
-3. Process transactions:
-   - Track buys/sells (FIFO)
-   - Record dividends
-   - Calculate realized P&L
-4. Get current positions from API
-5. Calculate unrealized P&L
-6. Aggregate results
+!! N tickers have NO cost basis from Schwab (transferred in from another broker).
+   Their P&L is understated. Fill in manual_basis.csv: ABC, XYZ
 ```
 
+Look each up in the **old broker's** statement, then add:
+
+```csv
+symbol,cost_per_share
+ABC,142.50
+```
+
+Re-run with `--offline` to see it applied.
+
+### `corporate_actions.json` — partly done
+
+`symbol_map` already carries `STPK→STEM`, `CYFRF→STKE`, `BRPHD→GLXY`, found in
+your real history. Still open: **7 unconfirmed CUSIPs** in
+`unmapped_cusips_to_confirm`, one flagged as *likely* LRCX. Confirm before
+mapping — a wrong map silently merges two tickers' P&L.
+
+### The loop
+
+```
+run → read anomalies.csv → add a mapping or a basis → run --offline → repeat
+```
+
+Stop when `anomalies.csv` is empty and every `qty_mismatch` is `0`.
+
 ---
 
-## Future Enhancements
+## 8. Troubleshooting
 
-Potential additions:
-- [ ] Support for options trading P&L
-- [ ] Tax reporting (short-term vs long-term gains)
-- [ ] Performance attribution (sector/asset class)
-- [ ] Benchmark comparison (S&P 500, etc.)
-- [ ] Web dashboard (Streamlit app)
-
----
-
-## Support
-
-For issues or questions:
-1. Check cached files: `python manage_cache.py list`
-2. Review log output for errors
-3. Verify API credentials in `.env`
-4. Check Schwab API status: https://developer.schwab.com/
+| Symptom | Cause / fix |
+|---|---|
+| `manage_cache.py` says cache doesn't exist | You are not in `schwabAPI/`. It uses a relative path. `cd` there |
+| `No token file at .../tokens.json` | Re-auth on Pi 1. Never create a second token file in `schwabAPI/` |
+| `Missing app_key... in .env` | `.env` is read from the repo root, with a local fallback |
+| `WARNING: stray token file` | A second `tokens.json` appeared in `schwabAPI/`. Delete it — two copies drift and the 7-day re-auth breaks one |
+| HTTP 429 | Wait 15–30 min. The cache means you resume, not restart |
+| `No transactions. Nothing to do.` | Cold start found nothing — check `SCHWAB_START_DATE` and that accounts are linked |
+| Timeouts on cold start | Already handled: the chunk halves down to 15 days before failing |
+| `qty_mismatch` non-zero | A split or corporate action was misread. Check `anomalies.csv` and `ticker_txns.csv` for that symbol |
+| P&L looks too good | Almost always `UNKNOWN_BASIS` — a transfer-in with cost 0. See §7 |
+| Wrote to a directory you didn't expect | You omitted `--out`; default is `~/github/jobMyTrading/outputs/portfolio` |
 
 ---
 
-## License
+## 9. Configuration
 
-This is an extension of your existing Schwab trading system. Use at your own risk. Verify all P&L calculations against official Schwab statements.
+| Setting | Where | Default |
+|---|---|---|
+| `SCHWAB_START_DATE` | env | `2019-01-01` |
+| `OVERLAP_DAYS` | `schwab_client.py:45` | `10` |
+| `CACHE_DIR` | `schwab_client.py:28` | `schwabAPI/data/transactions` |
+| `PORTFOLIO_OUT_DIR` | env | `~/github/jobMyTrading/outputs/portfolio` |
+| `TOKENS_FILE` | `schwab_client.py:25` | `~/github/myTrading/tokens.json` |
+
+This script never calls git. `gitpush.py` remains the only git writer.
+
+---
+
+## 10. Not handled
+
+- **Options P&L is partial** — expiry is handled, assignment and exercise are not
+- **No tax lots** — no short- vs long-term split, no wash sales. Not a tax tool
+- **Verify against Schwab's own statements** before trusting any number
