@@ -74,7 +74,7 @@ def _load_env() -> None:
 
 def make_client():
     """
-    Build a schwabdev client bound to the SHARED parent tokens.json.
+    Build a schwabdev client bound to the shared ~/.schwabdev/tokens.db.
     """
     import schwabdev
 
