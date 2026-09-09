@@ -12,7 +12,7 @@ responses:
 | 🐞 **DEFECT** | Something built that is wrong. Blocks trusting output. |
 | ❓ **OPEN QUESTION** | A decision only Chakravarti can make. Blocks work downstream. |
 
-Finished items move to [§6 Done](#6-done) rather than being deleted — the
+Finished items move to [§7 Done](#7-done) rather than being deleted — the
 history of what was fixed is worth as much as the list of what is left.
 
 Last updated: 2026-09-08
@@ -69,6 +69,36 @@ so the engine needs to answer P&L over an arbitrary window, not just
 all-time. Current output is all-time only; windowed realized P&L means
 replaying FIFO between two dates.
 
+### 💡 IDEA — schedule the incremental pull, and watch its health
+Today `build_pl_report.py` is run by hand. It needs a cron on Pi 1 doing the
+incremental fetch (`last_date − 10 days` → today per account), plus a health
+check so a *silent* failure is noticed. Silence is the risk: a failed run
+leaves the last good CSVs in place, so the report looks fine while going stale.
+Health signals worth asserting: every account's `last_date` is recent, row
+counts only grow, and `anomalies.csv` has not suddenly jumped.
+
+Note the auth constraint — the Schwab **refresh token expires in ~7 days**, so
+any schedule longer than that guarantees a dead run. Either the cron cadence
+stays well inside the window, or re-auth is handled first (see §6).
+
+### ❓ OPEN QUESTION — what cadence?
+Daily after the close? Weekly? The trade-off is API load versus staleness.
+Transactions settle and get back-dated by Schwab, which the 10-day overlap
+already absorbs, so daily is not required for correctness — it is a question of
+how fresh the dashboard should be.
+
+### 💡 IDEA — publish P&L output so Pi 2 can analyse it
+Pi 1 holds the credentials and does the fetching; Pi 2 has no Schwab access and
+is the analysis box. The plumbing for this **already exists in the design**:
+`schwab_client.REPORT_DIR` defaults to
+`~/github/jobMyTrading/outputs/portfolio`, and `build_pl_report.py` deliberately
+does not git push — `gitpush.py` remains the sole git writer. So dropping the
+`--out` override makes the CSVs land where `gitpush.py` will carry them, and Pi
+2 pulls read-only.
+
+*To verify first:* whether `jobMyTrading` is actually cloned on Pi 1, and
+whether `gitpush.py` already covers `outputs/portfolio`.
+
 ---
 
 ## 2. Seed money / capital reserves
@@ -85,7 +115,8 @@ Two readings, and the guard logic differs materially:
 - **total capital allocated to a ticker** — a target position size, needing a
   `Target_Capital` column in a config file
 
-This blocks §7 of the order-execution design and any `cash_reserve.py`.
+This blocks §7 of `orderExecutionDesign-9-7-26.md` (a different document — not
+§7 of this file) and any `cash_reserve.py`.
 
 ### 🐞 DEFECT — `cash_reserve.py` is referenced but does not exist
 `orderExecutionDesign-9-7-26.md` §3.4 and §7 call
@@ -170,7 +201,53 @@ and cannot create `/etc/myTrading/TRADING_DISABLED` without a sudoers rule.
 
 ---
 
-## 5. Infrastructure defects (cross-cutting)
+## 5. Evaluate bot / job runs
+
+**Goal:** Every day, scan the logs from the trading jobs and bots, and report
+anything that failed — without Chakravarti having to go and look.
+
+**Status:** 💡 Idea. Nothing built.
+
+**Shape:** Pi 1 runs the jobs and already pushes to two repos. Pi 2 has no
+credentials and no execution role, which makes it the right place to analyse:
+it pulls **read-only** and reports. Same split as §1's publishing idea — Pi 1
+produces, Pi 2 reads.
+
+```
+   Pi 1 (executes, has creds)          Pi 2 (analyses, read-only)
+        │ push                                  │ pull
+        ▼                                       ▼
+   github.com/rchak007/jobMyTrading   ──────────┤
+   github.com/rchak007/botsMyTrading  ──────────┘
+```
+
+### 💡 IDEA — read-only access for Pi 2 to both repos
+`jobMyTrading` and `botsMyTrading`. **Read-only is a deliberate constraint, not
+a convenience** — Pi 2 must not be able to write to the repos that drive
+execution. Use a deploy key per repo (read-only checkbox) or a fine-grained PAT
+scoped to contents:read on exactly those two. Pi 2's existing `github-agents`
+SSH identity has *write* access to `myTrading`, so this needs separate
+credentials rather than reusing that one.
+
+### 💡 IDEA — daily log scan and failure report
+Parse the logs, decide what "failing" means, report. First make it work by hand
+on a real day's logs, *then* automate — the classifier is the hard part and is
+best written against logs whose outcome is already known.
+
+### 💡 IDEA — cron the pull-and-analyse loop
+Only after the manual version works. Read-only `git pull` on Pi 2, then run the
+analysis. Note Pi 2 pulls; it never pushes to these two.
+
+### ❓ OPEN QUESTION — what counts as "failing", and where does the report go?
+A non-zero exit? A traceback in the log? A job that did not run at all —
+which is the one that produces *no* log line and so is easiest to miss?
+And delivery: terminal on demand, the ops sheet, a file in the repo, or a push
+notification? "Nothing ran today" is the failure mode most worth catching and
+the hardest to detect from logs alone.
+
+---
+
+## 6. Infrastructure defects (cross-cutting)
 
 ### 🐞 DEFECT — `auth_url` / `auth_code` verbs fail from the sheet
 `remote_ops.py` has no `dotenv` import, and `schwab_auth.py` reads credentials
@@ -202,7 +279,7 @@ short-lived, so this is minor.
 
 ---
 
-## 6. Done
+## 7. Done
 
 Kept for history — what was fixed, and when.
 
