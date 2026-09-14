@@ -294,6 +294,11 @@ Kept for history — what was fixed, and when.
 - Affects `signal_combined` (BUY requires RSI > 50) and therefore the
   `Combined Signal` / `Full Combined` columns. Does **not** affect
   `SIGNAL-Super-MOST-ADXR`, which uses only Supertrend/MOST/ADXR.
+- **Deliberately NOT changed:** `backtest_strategies.py:454-455` keeps the old
+  simple-mean formula in `run_backtest_mean_reversion_rsi`. Chakravarti's call,
+  2026-09-14 — that strategy has been tuned against it and changing the formula
+  would move every historical result. So backtest and live RSI now use
+  different definitions **on purpose**; do not "fix" it without asking.
 
 **2026-09-08 — Schwab P&L pipeline made to run**
 - Fixed `schwab_client.py` for current schwabdev: tokens live in
