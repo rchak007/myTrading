@@ -107,23 +107,71 @@ whether `gitpush.py` already covers `outputs/portfolio`.
 remaining reserved dollars stay earmarked for buying MU back, rather than
 being treated as free cash.
 
-**Status:** 💡 Idea only. Nothing built.
+**Status:** Module **added 2026-09-14** (`cash_reserve.py`, spec in
+`Documentation/CASH_RESERVE_HANDOFF.md`). Written but **never run and not wired
+into anything**. Follows the house injection contract: no paths, no logger, no
+HTML renderer, no Schwab client of its own.
 
-### ❓ OPEN QUESTION — what does a reserve actually mean?
-Two readings, and the guard logic differs materially:
-- **cash committed to a ticker** — money set aside, spent on purchase
-- **total capital allocated to a ticker** — a target position size, needing a
-  `Target_Capital` column in a config file
+State lives outside the repo at `~/.local/state/myTrading/`
+(`reserve_ledger.csv`, `reserves_config.csv`), override with
+`MYTRADING_STATE_DIR`. The ledger is append-only money history and must never
+be committed, sorted, or de-duplicated in place — corrections are new `ADJUST`
+rows, and `fold_balances()` is the only authority on a balance.
 
-This blocks §7 of `orderExecutionDesign-9-7-26.md` (a different document — not
-§7 of this file) and any `cash_reserve.py`.
+### ❓ OPEN QUESTION — `CASH_ONLY` or `TOTAL_CAPITAL` as the default?
+Both policies are implemented; the handoff deliberately declines to pick.
+- **`CASH_ONLY`** (current default) — the reserve is dry powder. Buys debit,
+  sells credit. `Available_To_Buy = balance`. Deterministic, needs no price data.
+- **`TOTAL_CAPITAL`** — `Available_To_Buy = Target_Capital − Position_Value`,
+  capped by the reserve. Self-limiting as a position runs up, **but a sharp
+  drawdown automatically re-opens buying capacity.** That may be exactly what
+  is wanted, or exactly what is not.
 
-### 🐞 DEFECT — `cash_reserve.py` is referenced but does not exist
-`orderExecutionDesign-9-7-26.md` §3.4 and §7 call
-`cash_reserve.committed_for_other_tickers(account)` as though the module
-exists. It does not, nor do `reserves_config.csv` or `reserve_ledger.csv`. The
-"reserve" wording inside `stocks_cash.py` is a *different* concept — cash tied
-up by open BUY orders, already netted out by `Cash_After_Open_Orders`.
+Must be confirmed before the gate is wired to anything that can submit an order.
+
+### 🐞 DEFECT — `close()` raises on a breached reserve
+`close()` appends a `CLOSE` event of `-cur`. When the balance is already
+negative (a BREACH), `-cur` is **positive**, and `append_events()` enforces
+`CLOSE` ∈ `DEBIT_EVENTS` must be `<= 0` — so it raises `ValueError` and the
+reserve cannot be closed. A breached reserve is exactly the one you most want
+to close.
+
+### 🐞 DEFECT — the order-exec design calls an API that does not exist
+`orderExecutionDesign-9-7-26.md` §7 uses
+`cash_reserve.committed_for_other_tickers(account)`. The module has no such
+function. Its gate is `available_to_buy(account, ticker) -> {"allowed",
+"available", "policy", "reason"}` — per-pair and fail-closed, rather than a
+per-account subtraction. The module's shape is the better one; the design doc's
+§7 formula needs rewriting to match, not the reverse.
+
+### 🐞 DEFECT — `fetch_fills()` still probes the pre-upgrade schwabdev
+It tries `transactions` / `account_transactions` / `transactions_all` across
+several kwarg shapes because the signature "varies by version". **We now know
+the signature exactly** (measured 2026-09-08, see `probe_schwab_api.py`):
+`transactions(accountHash, startDate, endDate, types: str, symbol=None)`, and
+accounts come from `linked_accounts()`, not `account_linked()`. Replace the
+probing with the confirmed call. Note `types` must be a comma-joined **string**;
+`"TRADE"` alone is valid.
+
+Handoff §8 step 4 also asks to confirm `activityId` not `transactionId`, and
+`netAmount` not `amount` — both **already confirmed** on 2026-09-08 while
+fixing `txn_cache.py`. The module already reads them correctly.
+
+### 💡 IDEA — wire it in (handoff §8 build order)
+Unrun and unwired. In order: smoke-test offline with
+`MYTRADING_STATE_DIR=/tmp/rtest` (needs no Schwab), add `OUT_RESERVES_CSV` /
+`OUT_RESERVES_HTML` to `jobStocksSignals.py`, add the reporting step in its own
+`try/except` so a reserve failure stays non-fatal, then fix `fetch_fills()`.
+**Do not** gate live orders on it until §4's security model exists.
+
+### 💡 IDEA — decide where sell proceeds go
+A SELL currently credits back to the ticker's fence, keeping the sleeve intact.
+The alternative is releasing to free account cash. Affects `sell_guard.py`
+integration.
+
+### 🐞 DEFECT — the ledger has no backup
+`reserve_ledger.csv` is money history, lives outside the repo, and is therefore
+backed up by nothing. Needs a real backup path before it matters.
 
 ---
 
