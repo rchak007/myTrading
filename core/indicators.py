@@ -6,14 +6,36 @@ import pandas as pd
 
 
 def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
+    """
+    Wilder's RSI -- what TradingView's ta.rsi(), Yahoo, StockCharts, TA-Lib and
+    everything else mean by "RSI(14)".
+
+    This previously averaged gains and losses with .rolling().mean(), i.e. a
+    SIMPLE moving average. That is a different indicator (Cutler's RSI), and it
+    reads far too low after a drop: a plain mean gives the newest bar full
+    weight and then drops it entirely `period` bars later, while Wilder's RMA
+    weights it 1/period and carries the rest forward. Measured 11-17 points of
+    divergence on a CRDO-shaped decline -- CRDO on 2026-09-14 read 20.9 here
+    against ~30.8 on both TradingView and Yahoo daily.
+
+    compute_most_rsi() below always used the correct RMA, so the two RSIs in
+    this one file disagreed with each other.
+    """
     if close is None or len(close) < period + 1:
         return pd.Series(np.nan, index=close.index if close is not None else None)
 
     delta = close.diff()
-    gain = delta.where(delta > 0, 0.0).rolling(window=period, min_periods=period).mean()
-    loss = (-delta.where(delta < 0, 0.0)).rolling(window=period, min_periods=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
+    gain = delta.clip(lower=0.0)
+    loss = (-delta).clip(lower=0.0)
+
+    avg_gain = gain.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+    avg_loss = loss.ewm(alpha=1.0 / period, adjust=False, min_periods=period).mean()
+
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    # avg_loss == 0 -> rs is inf -> 100, which is correct. But a dead-flat
+    # window gives 0/0 -> NaN; report that as neutral rather than missing.
+    return rsi.mask((avg_gain == 0) & (avg_loss == 0), 50.0)
 
 
 def compute_supertrend(

@@ -283,6 +283,18 @@ short-lived, so this is minor.
 
 Kept for history — what was fixed, and when.
 
+**2026-09-14 — RSI was not RSI**
+- `core/indicators.compute_rsi` averaged gains/losses with a SIMPLE moving
+  average rather than Wilder's RMA. That is a different indicator (Cutler's
+  RSI) and reads far too low after a decline. CRDO showed **20.9** in
+  `beth_funds.csv` against **~30.8 on both TradingView and Yahoo daily** —
+  measured 11–17 points of divergence on a comparable series.
+- The same file's `compute_most_rsi()` had always used the correct RMA, so
+  `RSI` and `MOST_RSI` in one CSV were computed by two different definitions.
+- Affects `signal_combined` (BUY requires RSI > 50) and therefore the
+  `Combined Signal` / `Full Combined` columns. Does **not** affect
+  `SIGNAL-Super-MOST-ADXR`, which uses only Supertrend/MOST/ADXR.
+
 **2026-09-08 — Schwab P&L pipeline made to run**
 - Fixed `schwab_client.py` for current schwabdev: tokens live in
   `~/.schwabdev/tokens.db`, not `tokens.json`; the `tokens_file` kwarg no
