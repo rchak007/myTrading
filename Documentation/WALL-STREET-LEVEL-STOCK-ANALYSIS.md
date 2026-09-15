@@ -275,7 +275,8 @@ Standing instructions for how research output should be produced.
 
 **AI-only thematic concentration, by deliberate choice.** All equity exposure is in the AI buildout: semiconductors, memory, optics, connectivity, power, and AI software. Risk management happens *inside* the theme rather than through diversification outside it.
 
-Separately: ~3 BTC held long-term, no active accumulation.
+Separately: a long-term crypto allocation, not actively accumulated. Size is
+tracked outside this repo.
 
 > **Note:** Bitcoin is not diversification from this book. In drawdowns BTC trades as a high-beta risk asset alongside AI equities. Real correlated exposure is higher than the two buckets suggest.
 
@@ -435,7 +436,7 @@ All tickers analyzed, with the standing verdict. Prices as of the analysis date 
 - **AVGO**
 - **PLTR**
 - **AAOI** — 10 shares (flagged for sale)
-- **~3 BTC** — hold, no active accumulation
+- **Crypto** — long-term hold, no active accumulation (size tracked elsewhere)
 
 ---
 ---
