@@ -381,6 +381,21 @@ is the real boundary**; the OAuth scope is client-side only. If
 stays blank. Never verified, because the ops channel has never run successfully.
 Check Manage access before debugging anything else there.
 
+### ✅ ACCEPTED RISK — the repo is public, history is not being scrubbed
+Confirmed public 2026-09-15. Before that date, history contains full account
+numbers (`ReadMePi.md` since 2026-07-13) and a position dump with quantities and
+cost basis (`scratch/`). Both are masked or untracked going forward as of
+`831c899`, but the old blobs remain reachable.
+
+Chakravarti's decision, 2026-09-15: **leave history as-is.** Scrubbing would
+mean a force-push across Pi 1, Pi 2 and the Dell to remove data that is already
+public. No live credential is exposed — `.env` was never committed, and the
+`tokens.json.bak` blob holds January tokens against a 7-day TTL, dead and
+useless without the app secret.
+
+Do not re-raise this at future audits. The residual risk is
+Schwab-impersonation phishing, not account access.
+
 ### 💡 IDEA — `ls jobs` / `ls bots` verbs probably fail on Pi 1
 `JOBS_REPO` and `BOTS_REPO` default to `~/github/jobMyTrading` and
 `~/github/botsMyTrading`. Confirm Pi 1's layout or repoint the `DIRS` dict.
