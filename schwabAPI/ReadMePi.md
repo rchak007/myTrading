@@ -117,7 +117,7 @@ summary so you always know which numbers to distrust.
 
 17 transactions are typed `TRADE`, described `"System transfer"`, with
 `netAmount = 0` and a **positive** `cost` (the carried basis, not a cash flow).
-These moved positions *into* accounts `67024171` (+2,337 sh) and `15238922`
+These moved positions *into* accounts `...171` (+2,337 sh) and `...922`
 (+45 sh) during an account consolidation. **Schwab does not report the outgoing
 leg.** The engine treats them as transfers-in with known basis.
 

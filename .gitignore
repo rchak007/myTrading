@@ -81,3 +81,7 @@ node_modules/
 package-lock.jsonasset_registry.json
 token_decimals.json
 nohup.out
+
+# Local scratch — position dumps, spreadsheets, throwaway tests.
+# Never tracked: these have held full account numbers and cost basis.
+scratch/
