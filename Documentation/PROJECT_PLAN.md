@@ -12,10 +12,10 @@ responses:
 | 🐞 **DEFECT** | Something built that is wrong. Blocks trusting output. |
 | ❓ **OPEN QUESTION** | A decision only Chakravarti can make. Blocks work downstream. |
 
-Finished items move to [§7 Done](#7-done) rather than being deleted — the
+Finished items move to [§8 Done](#8-done) rather than being deleted — the
 history of what was fixed is worth as much as the list of what is left.
 
-Last updated: 2026-09-08
+Last updated: 2026-09-14
 
 ---
 
@@ -295,7 +295,57 @@ the hardest to detect from logs alone.
 
 ---
 
-## 6. Infrastructure defects (cross-cutting)
+## 6. Research review cadence
+
+**Goal:** Keep the coverage log and watchlist current, so bucket assignments
+(accumulate / trade / avoid) reflect what the businesses are actually doing
+rather than what they were doing months ago.
+
+**Source:** `Documentation/WALL-STREET-LEVEL-STOCK-ANALYSIS.md` — prompt library
+(Part A), portfolio framework and tier rules (Part C), analytical principles
+(Part D), coverage log (Part E), review protocol (Part F), 29-name watchlist
+(Part G).
+
+### 🔁 RECURRING — run the full review MONTHLY
+
+**Cadence override:** Part F of that document says *quarterly*. Chakravarti
+changed this to **monthly** on 2026-09-14. This section is authoritative.
+
+- **Scope:** the 29-name watchlist (Part G) plus the coverage log (Part E)
+- **Per name:** the 8-point checklist in Part F — price/ATH with as-of date,
+  latest quarter, guidance shape, **estimate revision direction**, share-count
+  change, forward P/E and PEG, any Tier 1 invalidation event, bucket confirmation
+- **Portfolio level:** hyperscaler capex guidance (the stated leading indicator),
+  DRAM contract pricing for the memory bucket, Fed path, theme exposure vs dry
+  powder, any position past its dollar cap
+- **Prompts:** #1 + #6 + #10 per name; #4 ahead of any earnings inside the window
+- **Priority backlog:** 15 names have never been verified against current
+  fundamentals — ALAB, SIMO, SITM, COHR, LITE, GLW, NET, CEG, VST, NEE, GEV,
+  VRT, BE, AMD, MRVL. Work these first.
+
+**Next due: October 2026.**
+
+| Run | Date completed | Notes |
+|---|---|---|
+| Sep 2026 | 2026-09-14 | Baseline — Part E coverage log as written |
+| Oct 2026 | — | |
+
+### 💡 IDEA — automate the reminder, and make it persist until acknowledged
+Chakravarti's requirement: the reminder should keep nagging **until he confirms
+it is done**, not fire once and vanish. A plain cron that prints into a log is
+exactly the silent-failure shape already flagged in §1 and §5 — a reminder
+nobody sees is not a reminder.
+
+So it needs somewhere to record acknowledgement and something that re-raises
+while that is unset. Options not yet chosen: a row in the ops sheet, a state
+file on Pi 2 plus a re-raise on each session, or a scheduled agent. Decide when
+the ops-sheet work settles.
+
+Until then this is manual: ask "what's open?" and this section reports it.
+
+---
+
+## 7. Infrastructure defects (cross-cutting)
 
 ### 🐞 DEFECT — `auth_url` / `auth_code` verbs fail from the sheet
 `remote_ops.py` has no `dotenv` import, and `schwab_auth.py` reads credentials
@@ -337,7 +387,7 @@ Check Manage access before debugging anything else there.
 
 ---
 
-## 7. Done
+## 8. Done
 
 Kept for history — what was fixed, and when.
 
