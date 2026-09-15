@@ -321,6 +321,16 @@ and `audit(event="rejected", args=arg)` logs the URL in plaintext, because the
 typo is not in `PY_VERBS` and so escapes `safe_arg()`. Codes are single-use and
 short-lived, so this is minor.
 
+### ❓ OPEN QUESTION — is the ops sheet shared as Editor or Viewer?
+`remote_ops.py` requests full read/write scope and is "the only writer" — it
+writes `RUNNING` into column C, then C..J on completion. But the **Drive share
+is the real boundary**; the OAuth scope is client-side only. If
+`myTrading-ops-pi1` is shared with `mytrading-ops@...gserviceaccount.com` as
+**Viewer**, every write-back fails, `write_back()` retries three times, logs
+`writeback_failed` to the audit log, and returns quietly — the sheet row just
+stays blank. Never verified, because the ops channel has never run successfully.
+Check Manage access before debugging anything else there.
+
 ### 💡 IDEA — `ls jobs` / `ls bots` verbs probably fail on Pi 1
 `JOBS_REPO` and `BOTS_REPO` default to `~/github/jobMyTrading` and
 `~/github/botsMyTrading`. Confirm Pi 1's layout or repoint the `DIRS` dict.
