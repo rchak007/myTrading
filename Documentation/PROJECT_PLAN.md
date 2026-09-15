@@ -393,7 +393,11 @@ public. No live credential is exposed — `.env` was never committed, and the
 `tokens.json.bak` blob holds January tokens against a 7-day TTL, dead and
 useless without the app secret.
 
-Do not re-raise this at future audits. The residual risk is
+Also in history: a crypto position size, present only in `d7ff163`
+(2026-09-15) and removed from the working tree in `5c90618`. Same
+decision, same day — leave it.
+
+Do not re-raise any of this at future audits. The residual risk is
 Schwab-impersonation phishing, not account access.
 
 ### 💡 IDEA — `ls jobs` / `ls bots` verbs probably fail on Pi 1
