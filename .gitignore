@@ -51,6 +51,8 @@ transactions_cache/
 !/schwabAPI/*.csv
 !/schwabAPI/corporate_actions.json
 *.csv
+# ranked signal snapshots — intentionally tracked
+!/Data/*.csv
 *.parquet
 *.json
 
