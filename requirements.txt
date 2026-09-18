@@ -10,3 +10,8 @@ supabase>=2.6.0
 python-dateutil
 lxml
 scipy
+# Google Sheets — remote_ops.py and gsheet_notes.py. Both were imported but
+# never declared; gsheet_notes hides the failure in a try/except that degrades
+# silently, so the gap only surfaced when remote_ops.py crashed on it.
+gspread
+google-auth
