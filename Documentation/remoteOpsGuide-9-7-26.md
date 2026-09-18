@@ -178,6 +178,44 @@ Token states: `OK`, `RENEW_NOW` (past day 6 of 7), `EXPIRED`, `MISSING`
 
 ---
 
+## 4b. The cron entry
+
+```cron
+# Remote ops channel — polls the ops sheet every 10min. See Documentation/remoteOpsGuide-9-7-26.md §4b
+*/10 * * * * cd /home/rchak007/github/myTrading && set -a && . ./.env && set +a && flock -n /tmp/remote_ops.lock timeout 300 .venv/bin/python remote_ops.py >> /home/rchak007/.local/state/myTrading/remote_ops_cron.log 2>&1
+```
+
+Why each piece is there:
+
+| | |
+|---|---|
+| `set -a && . ./.env && set +a` | **The one that is not optional.** `remote_ops.py` has no `dotenv` import — it reads `GSHEET_OPS_ID` and `REMOTE_OPS_CREDS` from the environment. Without this the job exits instantly with *"GSHEET_OPS_ID is not set"* and nothing ever runs. Do not "tidy" it away. |
+| `flock -n /tmp/remote_ops.lock` | skip this cycle if the previous one is still going. Its own lock, not `jobmytrading.lock`, so ops commands do not queue behind a long signals run |
+| `timeout 300` | kill a wedged verb instead of letting runs pile up |
+| `>> ...cron.log 2>&1` | nothing rotates this; check its size occasionally |
+
+`MAX_ROWS_PER_RUN = 5` inside the script already caps how much one cycle can do.
+
+**Before trusting it, test under a bare environment** — cron has almost none,
+and that is where a line like this fails:
+
+```bash
+env -i PATH=/usr/bin:/bin HOME=/home/rchak007 /bin/sh -c 'cd /home/rchak007/github/myTrading && set -a && . ./.env && set +a && flock -n /tmp/remote_ops.lock timeout 300 .venv/bin/python remote_ops.py'
+```
+
+Silence means success — an idle run prints nothing. Confirm with the audit log.
+
+**Health check:** an `idle` event lands in `remote_ops_audit.log` every 10
+minutes. Those ticks are the heartbeat; if they stop, the poller is dead.
+
+⚠️ **Do not use `auth_url` / `auth_code` from the sheet until the `.env` defect
+is fixed** (`PROJECT_PLAN.md` §4). They work in a shell where `.env` has been
+sourced, but under cron `creds()` raises and `auth_url` is not wrapped in a
+try/except — so it crashes the cycle *after* the row is marked `RUNNING`,
+stranding it. `token_status` is unaffected.
+
+---
+
 ## 5. Command-line flags
 
 ```bash
