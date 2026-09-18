@@ -318,6 +318,24 @@ best written against logs whose outcome is already known.
 Only after the manual version works. Read-only `git pull` on Pi 2, then run the
 analysis. Note Pi 2 pulls; it never pushes to these two.
 
+### 💡 IDEA — quieten the idle audit lines (later, low priority)
+`remote_ops.py` writes an `idle` event every cycle. At `*/10` that is 144 lines
+a day, ~15KB, ~5MB a year, and nothing rotates it. Harmless, but it buries the
+interesting events in noise.
+
+Idea: when idle, only write the audit line a few times a day (say every 6 hours)
+rather than every cycle — while still writing *every* non-idle event
+immediately.
+
+**Careful with this one.** The idle ticks are currently the heartbeat: seeing
+them every 10 minutes is how you know the poller is alive, and their absence is
+the alarm. Quietening them weakens that signal unless the replacement is
+explicit — e.g. a `last_seen` timestamp written somewhere, or the orders-sheet
+header's `LAST POLL` cell taking over the job. Do not just drop the lines.
+
+A `logrotate` entry may be the simpler answer to the size concern, leaving the
+heartbeat intact.
+
 ### ❓ OPEN QUESTION — what counts as "failing", and where does the report go?
 A non-zero exit? A traceback in the log? A job that did not run at all —
 which is the one that produces *no* log line and so is easiest to miss?
