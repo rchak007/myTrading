@@ -379,6 +379,33 @@ Until then this is manual: ask "what's open?" and this section reports it.
 
 ## 7. Infrastructure defects (cross-cutting)
 
+### 💡 IDEA — the ops channel has never actually run
+Verified on Pi 1, 2026-09-16. `remote_ops.py` is present and current, the
+service-account key is in place at `/etc/myTrading/gsheets-ops.json`, and
+`GSHEET_OPS_ID` is set in `.env`. But:
+
+- **no cron entry and no systemd timer** — nothing polls the sheet, so a verb
+  typed into a row would sit there forever
+- **no state directory** — `~/.local/state/myTrading/` does not exist, so the
+  cursor has never been written and no audit log exists
+- **never run** — not once, successfully or otherwise
+
+Order to bring it up, once there is time. Do not skip to the cron; a scheduled
+job that silently fails is the failure mode already hit three times:
+
+1. `set -a; . ./.env; set +a` first — **`remote_ops.py` has no `dotenv` import**,
+   so it reads `GSHEET_OPS_ID` and `REMOTE_OPS_CREDS` from the environment. The
+   eventual cron entry must source `.env` too, not just call python.
+2. `remote_ops.py --dry-run` — authenticates and reads the sheet, executes and
+   writes nothing. Proves the service account can see it.
+3. `remote_ops.py --reset-cursor 2` — otherwise the first run adopts the bottom
+   row and executes nothing, by design.
+4. Put `git_pull` in **A3**, leave C..J empty, run `remote_ops.py` by hand, watch
+   C..J fill in. That live run is what proves write-back works.
+5. Only then add the schedule.
+
+
+
 ### 🐞 DEFECT — `auth_url` / `auth_code` verbs fail from the sheet
 `remote_ops.py` has no `dotenv` import, and `schwab_auth.py` reads credentials
 only from the environment. So `authorize_url()` and `install()` raise
