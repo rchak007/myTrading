@@ -395,7 +395,7 @@ Both directions were wrong, not just `--status`. It read *and wrote*
 reported on a dead file (causing a wrong "your token expired" call on
 2026-09-14 while Schwab calls were succeeding), and `install()` would have
 written a fresh re-auth into that same ignored file and reported success while
-changing nothing. Fixed in `1e4e1a8`. Unblocks the sheet header in §4.
+changing nothing. Fixed in `e9a866a`. Unblocks the sheet header in §4.
 
 ### 🐞 DEFECT (minor) — auth code leaks into the audit log on a typo
 A mistyped verb (`auth_cod`) with a real redirect URL in column B is rejected,
