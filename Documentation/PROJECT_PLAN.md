@@ -379,30 +379,42 @@ Until then this is manual: ask "what's open?" and this section reports it.
 
 ## 7. Infrastructure defects (cross-cutting)
 
-### 💡 IDEA — the ops channel has never actually run
-Verified on Pi 1, 2026-09-16. `remote_ops.py` is present and current, the
-service-account key is in place at `/etc/myTrading/gsheets-ops.json`, and
-`GSHEET_OPS_ID` is set in `.env`. But:
+### 🟡 IN PROGRESS — the ops channel works by hand; the schedule is not set up
+**First successful end-to-end run 2026-09-18.** `git_pull` typed into A3
+executed on Pi 1 and wrote its result back: `OK`, exit 0, 14.8s, the real
+`6ca06c6..5ebdd3e` pull output in column I. The audit log reads
+`cold_start_adopt → cursor_reset → start → done`.
 
-- **no cron entry and no systemd timer** — nothing polls the sheet, so a verb
-  typed into a row would sit there forever
-- **no state directory** — `~/.local/state/myTrading/` does not exist, so the
-  cursor has never been written and no audit log exists
-- **never run** — not once, successfully or otherwise
+That run also settles the **Editor-vs-Viewer** question empirically — the
+write-back landed, so the share is Editor.
 
-Order to bring it up, once there is time. Do not skip to the cron; a scheduled
-job that silently fails is the failure mode already hit three times:
+Two things learned bringing it up:
 
-1. `set -a; . ./.env; set +a` first — **`remote_ops.py` has no `dotenv` import**,
-   so it reads `GSHEET_OPS_ID` and `REMOTE_OPS_CREDS` from the environment. The
-   eventual cron entry must source `.env` too, not just call python.
-2. `remote_ops.py --dry-run` — authenticates and reads the sheet, executes and
-   writes nothing. Proves the service account can see it.
-3. `remote_ops.py --reset-cursor 2` — otherwise the first run adopts the bottom
-   row and executes nothing, by design.
-4. Put `git_pull` in **A3**, leave C..J empty, run `remote_ops.py` by hand, watch
-   C..J fill in. That live run is what proves write-back works.
-5. Only then add the schedule.
+- **`gspread` and `google-auth` were never in `requirements.txt`**, although
+  `remote_ops.py` and `gsheet_notes.py` both import them. The gap stayed hidden
+  because `gsheet_notes` wraps its imports in a try/except and degrades
+  silently. Fixed in `5ebdd3e`.
+- **Cold start adopts the bottom row**, so a verb typed in *before* the first
+  run gets swallowed rather than executed. `--reset-cursor` afterwards is not
+  optional in that case.
+
+**Remaining: the schedule.** Nothing polls the sheet yet, so a typed verb still
+sits there until `remote_ops.py` is run by hand. The cron entry **must source
+`.env`** — `remote_ops.py` has no `dotenv` import, so a naive line gets
+"GSHEET_OPS_ID is not set" and never runs:
+
+```cron
+*/10 * * * * cd /home/rchak007/github/myTrading && set -a && . ./.env && set +a && flock -n /tmp/remote_ops.lock timeout 300 .venv/bin/python remote_ops.py >> /home/rchak007/.local/state/myTrading/remote_ops_cron.log 2>&1
+```
+
+`flock -n` skips if a previous run is still going; `timeout 300` stops a wedged
+verb; `MAX_ROWS_PER_RUN = 5` already caps one cycle.
+
+**Do not use `auth_url` / `auth_code` from the sheet until the `.env` defect
+below is fixed.** They work in a shell where `.env` has been sourced, but under
+cron `creds()` raises and `auth_url` — not wrapped in a try/except — crashes the
+poll cycle *after* the row is marked `RUNNING`, stranding it. `token_status` is
+unaffected.
 
 
 
