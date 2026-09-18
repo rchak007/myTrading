@@ -19,19 +19,37 @@
 #   gives you 7 more days from day 6 — you are never forced to wait for
 #   the failure. Pick a fixed slot (Sunday morning) and stay ahead of it.
 #
+# WHERE THE TOKENS ACTUALLY LIVE  (fixed 2026-09-18)
+#   Current schwabdev keeps tokens in a SQLite database at
+#   ~/.schwabdev/tokens.db, one row in a table called `schwabdev`. It no
+#   longer reads or writes tokens.json at all.
+#
+#   This module used to read AND write tokens.json, which meant two
+#   things went wrong at once:
+#     * --status reported on a file nothing uses, so it called a live
+#       token dead (observed 2026-09-14: the JSON was four months stale
+#       while Schwab calls succeeded normally);
+#     * install() wrote the new credentials to that same ignored file,
+#       so a re-auth would report success and change nothing.
+#   Both now go through the database.
+#
+#   tokens.json is left alone as the fossil it is. Do not resurrect it.
+#
 # SAFETY
-#   The live tokens.json is never overwritten until the NEW credentials
-#   have been proven against a real Schwab endpoint. Failure leaves the
-#   working file untouched. The previous file is kept as tokens.json.bak.
+#   The live token row is never written until the NEW credentials have
+#   been proven against a real Schwab endpoint. Failure leaves the
+#   working row untouched. The database is copied to tokens.db.bak
+#   before any write.
 # =====================================================================
 from __future__ import annotations
 
 import argparse
 import base64
-import copy
 import json
 import os
 import re
+import shutil
+import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -46,6 +64,14 @@ VALIDATE_URL = "https://api.schwabapi.com/trader/v1/accounts/accountNumbers"
 REFRESH_TTL = timedelta(days=7)          # hard, enforced by Schwab
 RENEW_AT = timedelta(days=6)             # our own trigger, one day of slack
 
+# The real store. Shared by every Schwab caller on the box, so a re-auth
+# here fixes all of them at once.
+TOKEN_DB = Path(os.getenv("SCHWABDEV_TOKENS_DB",
+                          Path.home() / ".schwabdev" / "tokens.db")).expanduser()
+TOKEN_TABLE = "schwabdev"
+
+# Legacy path. Nothing reads it; kept only so --status can say so out loud
+# when it is still lying around confusing people.
 TOKEN_PATH = Path(os.getenv("SCHWAB_TOKENS",
                             Path.home() / "github" / "myTrading" / "tokens.json"))
 
@@ -77,59 +103,72 @@ def authorize_url() -> str:
 # Token file: read, inspect, write
 # ---------------------------------------------------------------------
 def load_tokens() -> dict | None:
-    if not TOKEN_PATH.exists():
+    """
+    The live token row, flat, straight out of schwabdev's SQLite store.
+
+    Columns: access_token_issued, refresh_token_issued, access_token,
+    refresh_token, id_token, expires_in, token_type, scope. The *_issued
+    stamps are ISO 8601 with a UTC offset.
+    """
+    if not TOKEN_DB.exists():
         return None
     try:
-        return json.loads(TOKEN_PATH.read_text())
-    except (json.JSONDecodeError, OSError):
+        conn = sqlite3.connect(f"file:{TOKEN_DB}?mode=ro", uri=True)
+        try:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(f"SELECT * FROM {TOKEN_TABLE} LIMIT 1").fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error:
         return None
+    return dict(row) if row else None
 
 
-def _walk_set(node, updates: dict, stamped: str) -> None:
+def write_tokens(payload: dict) -> str:
     """
-    Substitute values in place wherever their key appears, at any depth.
+    Put freshly exchanged credentials into schwabdev's store.
 
-    schwabdev's file shape has drifted between versions (top-level keys
-    vs. a nested token_dictionary). Rather than hardcode one layout and
-    silently produce a file the library cannot read, we preserve whatever
-    structure is already on disk and only swap the leaves.
+    Both *_issued stamps are set to now, in UTC ISO 8601 — matching what
+    schwabdev writes, and what refresh_issued_at() expects to parse. A
+    code exchange mints a NEW refresh token, so its 7-day clock restarts
+    here; that is the whole point of re-authorizing.
+
+    Returns the path of the backup taken before the write.
     """
-    if isinstance(node, dict):
-        for k, v in node.items():
-            if k in updates and not isinstance(v, (dict, list)):
-                node[k] = updates[k]
-            elif "issued" in k.lower() and not isinstance(v, (dict, list)):
-                node[k] = stamped
-            else:
-                _walk_set(v, updates, stamped)
-    elif isinstance(node, list):
-        for item in node:
-            _walk_set(item, updates, stamped)
-
-
-def build_token_file(payload: dict, previous: dict | None) -> dict:
-    """New token file, shaped like the old one when there is an old one."""
-    stamped = datetime.now().astimezone().isoformat()
-    updates = {
+    stamped = datetime.now(timezone.utc).isoformat()
+    row = {
+        "access_token_issued": stamped,
+        "refresh_token_issued": stamped,
         "access_token": payload["access_token"],
         "refresh_token": payload["refresh_token"],
         "id_token": payload.get("id_token", ""),
-        "expires_in": payload.get("expires_in", 1800),
+        "expires_in": int(payload.get("expires_in", 1800)),
         "token_type": payload.get("token_type", "Bearer"),
         "scope": payload.get("scope", "api"),
     }
 
-    if previous:
-        out = copy.deepcopy(previous)
-        _walk_set(out, updates, stamped)
-        return out
+    TOKEN_DB.parent.mkdir(parents=True, exist_ok=True)
+    backup = TOKEN_DB.with_suffix(".db.bak")
+    if TOKEN_DB.exists():
+        shutil.copy2(TOKEN_DB, backup)
+        os.chmod(backup, 0o600)
 
-    # No prior file to imitate — fall back to the schwabdev v2 layout.
-    return {
-        "access_token_issued": stamped,
-        "refresh_token_issued": stamped,
-        "token_dictionary": {k: v for k, v in updates.items()},
-    }
+    conn = sqlite3.connect(TOKEN_DB)
+    try:
+        cols = ", ".join(f"{k} = ?" for k in row)
+        cur = conn.execute(f"UPDATE {TOKEN_TABLE} SET {cols}", list(row.values()))
+        if cur.rowcount == 0:
+            # Empty table — first ever write.
+            names = ", ".join(row)
+            marks = ", ".join("?" * len(row))
+            conn.execute(f"INSERT INTO {TOKEN_TABLE} ({names}) VALUES ({marks})",
+                         list(row.values()))
+        conn.commit()
+    finally:
+        conn.close()
+
+    os.chmod(TOKEN_DB, 0o600)
+    return str(backup)
 
 
 def refresh_issued_at(tokens: dict | None) -> datetime | None:
@@ -166,10 +205,13 @@ def status() -> dict:
     now = datetime.now(timezone.utc)
 
     st = {
-        "path": str(TOKEN_PATH),
-        "exists": TOKEN_PATH.exists(),
+        "path": str(TOKEN_DB),
+        "exists": TOKEN_DB.exists(),
         "refresh_issued": issued.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z") if issued else None,
     }
+    if TOKEN_PATH.exists():
+        st["legacy_file"] = (f"{TOKEN_PATH} still exists and is IGNORED — "
+                             "its date says nothing about whether auth works")
     if not issued:
         st["state"] = "UNKNOWN" if tokens else "MISSING"
         return st
@@ -253,25 +295,15 @@ def install(pasted: str) -> str:
     """Full flow. Returns a human summary with no secrets in it."""
     code = extract_code(pasted)
     payload = exchange(code)
-    detail = validate(payload["access_token"])          # fail here => file untouched
+    detail = validate(payload["access_token"])          # fail here => store untouched
 
-    previous = load_tokens()
-    new_file = build_token_file(payload, previous)
-
-    TOKEN_PATH.parent.mkdir(parents=True, exist_ok=True)
-    tmp = TOKEN_PATH.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(new_file, indent=4))
-    os.chmod(tmp, 0o600)
-    if TOKEN_PATH.exists():
-        TOKEN_PATH.replace(TOKEN_PATH.with_suffix(".json.bak"))
-    tmp.replace(TOKEN_PATH)
+    backup = write_tokens(payload)
 
     expires = (datetime.now().astimezone() + REFRESH_TTL).strftime("%Y-%m-%d %H:%M %Z")
-    shape = "preserved existing schema" if previous else "wrote default schwabdev schema"
-    return (f"tokens.json updated ({shape})\n"
+    return (f"{TOKEN_DB} updated — schwabdev will pick this up immediately\n"
             f"validated: {detail}\n"
             f"refresh token good until {expires}\n"
-            f"previous file kept at {TOKEN_PATH.with_suffix('.json.bak')}")
+            f"previous database kept at {backup}")
 
 
 # ---------------------------------------------------------------------

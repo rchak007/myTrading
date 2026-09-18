@@ -224,11 +224,9 @@ Also decided: account digits are the **last 3** (matching `acct_key()`),
 tab rather than moved down the sheet, since moving a row shifts every row
 number below it.
 
-### 🐞 DEFECT — `schwab_auth.py --status` now blocks the header block
-Already listed in §7, but it has been promoted: the sheet's header reports
-Schwab token expiry, and `--status` reads the dead legacy
-`~/github/myTrading/tokens.json` rather than `~/.schwabdev/tokens.db`. The
-header cannot be built honestly until this is fixed.
+### ✅ RESOLVED 2026-09-18 — the header's token line is unblocked
+`schwab_auth.py` now reads and writes `~/.schwabdev/tokens.db` (see §7), so
+`--status` is truthful and can back the header's token line.
 
 ### ❓ OPEN QUESTION — from the sheet design (§12)
 1. **`PCT_POS` semantics** — is "trim 25%" a percentage of the *current*
@@ -391,13 +389,13 @@ marked `RUNNING`, and strands that row forever (non-empty Status = "already
 handled"). `token_status` is unaffected — `status()` reads only the token file.
 *Fix:* load `.env` in `run_pyverb` and wrap the whole body.
 
-### 🐞 DEFECT — `schwab_auth.py --status` is misleading
-It computes expiry from a `refresh_token_issued` stamp in
-`~/github/myTrading/tokens.json` against a hardcoded 7-day TTL. But current
-schwabdev stores tokens in **`~/.schwabdev/tokens.db`**, and `tokens.json` is a
-dead artifact from May. Its date says nothing about whether auth works — this
-caused a wrong "your token expired" diagnosis on 2026-09-08. Either point
-`schwab_auth.py` at the DB or stop trusting its verdict.
+### ✅ RESOLVED 2026-09-18 — `schwab_auth.py` now uses `tokens.db`
+Both directions were wrong, not just `--status`. It read *and wrote*
+`tokens.json`, which current schwabdev ignores entirely — so `--status`
+reported on a dead file (causing a wrong "your token expired" call on
+2026-09-14 while Schwab calls were succeeding), and `install()` would have
+written a fresh re-auth into that same ignored file and reported success while
+changing nothing. Fixed in `1e4e1a8`. Unblocks the sheet header in §4.
 
 ### 🐞 DEFECT (minor) — auth code leaks into the audit log on a typo
 A mistyped verb (`auth_cod`) with a real redirect URL in column B is rejected,
