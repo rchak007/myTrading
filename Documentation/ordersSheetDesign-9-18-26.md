@@ -202,7 +202,51 @@ already implements the stop-loss half.
 
 ---
 
-## 12. Open decisions
+## 12. Credentials — one service account for both sheets
+
+**Decided 2026-09-18.** A single identity manages both sheets:
+
+```
+mytrading-ops@mytrading-sheets.iam.gserviceaccount.com
+```
+
+| Sheet | Access | Why write access |
+|---|---|---|
+| `myTrading-ops-pi1` | **Editor** | Pi 1 writes verb results back into columns C..J |
+| `myTrading-ORDERS-pi1` | **Editor** | Pi 1 writes status, header block, Positions, Cash, History |
+
+Key on Pi 1 at `/etc/myTrading/gsheets-ops.json`, mode `600`, owned by
+`rchak007` — readable by the process, by nobody else on the box. Pointed at by
+`REMOTE_OPS_CREDS` in `.env`.
+
+Both are **Editor, not Viewer**, and that is required rather than convenient:
+the Drive share is the real boundary, and the OAuth scope is client-side only.
+With Viewer, `remote_ops` would run a verb correctly, then fail every write-back
+— three retries, an audited `writeback_failed`, and a row that silently stays
+blank.
+
+### Deviating from `orderExecutionDesign` §6.8, deliberately
+
+That document specifies a **separate, dedicated** service account for the orders
+sheet. Chakravarti has decided against it, now and later.
+
+The reasoning that makes this defensible: both keys would live on Pi 1 anyway,
+so a Pi 1 compromise reaches both sheets regardless. A second identity only
+helps against a key leaking *independently* of the box — committed by accident,
+copied to a laptop, pasted somewhere.
+
+What it costs, stated plainly so it is not rediscovered later as a surprise:
+**if this one key leaks, it can write to both the ops channel and the orders
+sheet.** Once Pi 1 can place orders (phase 2), that means a single leaked key
+reaches order placement. The compensating controls then have to come from
+elsewhere — the caps, allowlists and kill switch in `orderExecutionDesign` §6.5
+and §6.7 — rather than from credential separation.
+
+Do not re-raise this as a defect. It is a decision.
+
+---
+
+## 13. Open decisions
 
 1. **`PCT_POS` semantics** — is "trim 25%" a percentage of the current position
    or of the original entry? They diverge after the first trim.

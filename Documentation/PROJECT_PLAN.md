@@ -403,15 +403,17 @@ and `audit(event="rejected", args=arg)` logs the URL in plaintext, because the
 typo is not in `PY_VERBS` and so escapes `safe_arg()`. Codes are single-use and
 short-lived, so this is minor.
 
-### ❓ OPEN QUESTION — is the ops sheet shared as Editor or Viewer?
-`remote_ops.py` requests full read/write scope and is "the only writer" — it
-writes `RUNNING` into column C, then C..J on completion. But the **Drive share
-is the real boundary**; the OAuth scope is client-side only. If
-`myTrading-ops-pi1` is shared with `mytrading-ops@...gserviceaccount.com` as
-**Viewer**, every write-back fails, `write_back()` retries three times, logs
-`writeback_failed` to the audit log, and returns quietly — the sheet row just
-stays blank. Never verified, because the ops channel has never run successfully.
-Check Manage access before debugging anything else there.
+### ✅ RESOLVED 2026-09-18 — both sheets are Editor, one service account
+`mytrading-ops@mytrading-sheets.iam.gserviceaccount.com` has **Editor** on both
+`myTrading-ops-pi1` and `myTrading-ORDERS-pi1`. Editor is required, not
+convenient: with Viewer, `remote_ops` runs the verb and then fails every
+write-back silently — three retries, an audited `writeback_failed`, and a row
+that stays blank.
+
+Chakravarti decided **not** to split into a second service account for the
+orders sheet, contrary to `orderExecutionDesign` §6.8, now or later. Rationale
+and the residual risk are recorded in `ordersSheetDesign-9-18-26.md` §12. Do not
+re-raise it as a defect.
 
 ### ✅ ACCEPTED RISK — the repo is public, history is not being scrubbed
 Confirmed public 2026-09-15. Before that date, history contains full account
