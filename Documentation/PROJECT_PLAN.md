@@ -15,7 +15,7 @@ responses:
 Finished items move to [§8 Done](#8-done) rather than being deleted — the
 history of what was fixed is worth as much as the list of what is left.
 
-Last updated: 2026-09-14
+Last updated: 2026-09-18
 
 ---
 
@@ -199,16 +199,50 @@ on §2 being settled first, since "where I want to buy" is a reserve question.
 have the program place the order when the condition is met. Conditions Schwab
 itself cannot express as a resting order.
 
-**Status:** Designed in full, **not implemented**. See
-`Documentation/orderExecutionDesign-9-7-26.md`. Nothing ships until that
-document's §6 security model is built in full.
+**Status:** Designed, **not implemented**. Two documents, different scopes:
+- `Documentation/ordersSheetDesign-9-18-26.md` — the **sheet**: tabs, columns,
+  ownership, header block, phasing. Current.
+- `Documentation/orderExecutionDesign-9-7-26.md` — the hardened **engine**:
+  HMAC tokens, ledger, state machine, caps. Nothing executes until its §6
+  security model is built in full.
 
-### ❓ OPEN QUESTION — the sheet must cover mixed order kinds
-New requirement, 2026-09-08. Some orders go **straight to Schwab as a limit
-order**; others are **close-condition triggers the program evaluates**. Both
-must live in one sheet with columns that make the distinction unambiguous, and
-cover every case. The current design assumes only the second kind. Needs a
-column design pass before implementation.
+**Build order: reporting first.** Phase 1 places no orders — Pi 1 writes
+`Positions`, `Cash`, `Seed_Left`, the header, reconciles Schwab orders in, and
+flags coverage gaps. Worst case it writes a wrong number in a cell. Phase 2
+places resting orders; phase 3 evaluates watched triggers.
+
+### ✅ RESOLVED 2026-09-18 — mixed order kinds
+Answered by the `Venue` column: `SCHWAB_RESTING` (a native resting order —
+survives Pi 1 dying), `PI_WATCHING` (a close condition Schwab cannot express),
+`SCHWAB_DIRECT` (placed by hand, reconciled in from
+`stocks_orders.build_orders_table()`). Both paths stay open deliberately —
+requiring every order through the sheet would mean Pi 1 being down stops
+trading. **SELL-STOPLOSS should always rest at Schwab.**
+
+Also decided: account digits are the **last 3** (matching `acct_key()`),
+`Row_ID` is **Pi-generated**, and completed rows are **copied** to a `History`
+tab rather than moved down the sheet, since moving a row shifts every row
+number below it.
+
+### 🐞 DEFECT — `schwab_auth.py --status` now blocks the header block
+Already listed in §7, but it has been promoted: the sheet's header reports
+Schwab token expiry, and `--status` reads the dead legacy
+`~/github/myTrading/tokens.json` rather than `~/.schwabdev/tokens.db`. The
+header cannot be built honestly until this is fixed.
+
+### ❓ OPEN QUESTION — from the sheet design (§12)
+1. **`PCT_POS` semantics** — is "trim 25%" a percentage of the *current*
+   position or of the *original* entry? They diverge after the first trim.
+2. **Expiry default** — blank `Expires_On`: live forever, or default to the
+   90 days the execution design caps at?
+3. **Partial fills** — does a partially filled row stay live for the
+   remainder, or go terminal?
+4. **Multiple accounts, same ticker** — one row per (account, ticker, action),
+   or one row per ticker spanning accounts?
+5. **Who cancels?** If a row already `SCHWAB_RESTING` is deleted, does Pi 1
+   cancel the live order at Schwab or leave it and warn? Deleting a row is easy
+   to do by accident, and silently cancelling a stop-loss is a bad outcome —
+   warn-don't-cancel is the safer default, but it is a money decision.
 
 ### 🐞 DEFECT — §4.2 contradicts §6.3 on `Row_ID` collisions
 §4.2 rejects collisions "in any state"; §6.3 skips terminal-state matches
