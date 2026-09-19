@@ -286,6 +286,99 @@ def _put(ws, df, cols, log):
     return len(body)
 
 
+POS_HDR = ["Ticker", "Acct", "Qty", "Avg_Cost", "Market_Value", "Unrealized_PL",
+           "Has_Stop", "Has_Trim", "Has_Dip", "Has_Breakout", "Seed_Reserved"]
+ORD_HDR = ["Acct", "Side", "Type", "Qty", "Limit_Price", "Stop_Price",
+           "Status", "Entered", "Order_ID"]
+DASH_WIDTH = 1 + len(POS_HDR)          # column A holds the ticker label
+
+
+def build_dashboard(positions: pd.DataFrame, orders_df=None) -> tuple[list, dict]:
+    """
+    One block per ticker: the positions mini-table, then the live Schwab orders
+    for that ticker.
+
+    Read-only by construction. Nothing typed by a human lives here, which is the
+    whole reason it can be regenerated wholesale every cycle without a merge
+    step — and without any risk of eating an intent.
+
+    Returns (rows, marks) where marks records which row numbers are ticker
+    headers / section labels / column headers, so formatting can be applied in
+    one batch afterwards.
+    """
+    rows: list[list] = []
+    marks = {"ticker": [], "label": [], "header": []}
+
+    def add(vals):
+        rows.append(list(vals) + [""] * (DASH_WIDTH - len(vals)))
+        return len(rows)                      # 1-based row number
+
+    for ticker in sorted(positions["Ticker"].unique()):
+        grp = positions[positions["Ticker"] == ticker]
+
+        marks["ticker"].append(add([ticker, "POSITIONS"]))
+        marks["header"].append(add([""] + POS_HDR))
+        for _, r in grp.iterrows():
+            add(["", r["Ticker"], r["Acct"], r["Qty"], r["Avg_Cost"],
+                 r["Market_Value"], r["Unrealized_PL"], r["Has_Stop"],
+                 r["Has_Trim"], r["Has_Dip"], r["Has_Breakout"], r["Seed_Reserved"]])
+
+        add([])
+        marks["label"].append(add(["", "ORDERS"]))
+        marks["header"].append(add([""] + ORD_HDR))
+
+        legs = pd.DataFrame()
+        if orders_df is not None and not getattr(orders_df, "empty", True):
+            legs = orders_df[orders_df["Ticker"].astype(str).str.upper() == ticker]
+        if legs.empty:
+            add(["", "— no open orders —"])
+        else:
+            for _, o in legs.iterrows():
+                add(["", acct_key(o.get("Account")), o.get("Side", ""),
+                     o.get("Order_Type", ""), o.get("Remaining_QTY", o.get("QTY", "")),
+                     o.get("Limit_Price", ""), o.get("Stop_Price", ""),
+                     o.get("Status", ""), str(o.get("Entered_Time", ""))[:16],
+                     o.get("Order_ID", "")])
+        add([])
+        add([])
+
+    return rows, marks
+
+
+def _paint(ws, marks, log):
+    """Cosmetics. Best-effort — never let a formatting call lose the data."""
+    cyan = {"backgroundColor": {"red": 0.80, "green": 0.95, "blue": 1.0},
+            "textFormat": {"bold": True}}
+    yellow = {"backgroundColor": {"red": 1.0, "green": 0.95, "blue": 0.60},
+              "textFormat": {"bold": True}}
+    bold = {"textFormat": {"bold": True}}
+    try:
+        if marks["ticker"]:
+            ws.format([f"A{r}:B{r}" for r in marks["ticker"]], cyan)
+        if marks["label"]:
+            ws.format([f"B{r}" for r in marks["label"]], yellow)
+        if marks["header"]:
+            ws.format([f"B{r}:L{r}" for r in marks["header"]], bold)
+    except Exception as e:
+        log(f"⚠️  dashboard formatting skipped (data is fine): {e}")
+
+
+def write_dashboard(book, positions: pd.DataFrame, orders_df=None, log=print) -> int:
+    if positions is None or positions.empty:
+        return 0
+    try:
+        ws = book.worksheet("Dashboard")
+    except Exception:
+        ws = book.add_worksheet(title="Dashboard", rows=1000, cols=DASH_WIDTH + 2)
+
+    rows, marks = build_dashboard(positions, orders_df)
+    ws.clear()
+    ws.update(values=rows, range_name=f"A1:L{len(rows)}")
+    ws.freeze(rows=0)
+    _paint(ws, marks, log)
+    return len(marks["ticker"])
+
+
 def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
                        cash_df=None, reserves=None, token_status=None,
                        log=print) -> None:
@@ -301,6 +394,7 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
 
     n_pos = _put(book.worksheet("Positions"), positions, POSITIONS_COLS, log)
     n_cash = _put(book.worksheet("Cash"), cash, CASH_COLS, log)
+    n_dash = write_dashboard(book, positions, orders_df, log=log)
 
     # ---- header block. LAST POLL is the health check: if this stops moving,
     # ---- whatever runs this module has died.
@@ -327,4 +421,4 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     book.worksheet("Orders").update(values=header, range_name="A1:B6")
 
     log(f"Orders sheet updated: {n_pos} position row(s), {n_cash} cash row(s), "
-        f"free ${free:,.2f}, {naked} unprotected")
+        f"{n_dash} dashboard block(s), free ${free:,.2f}, {naked} unprotected")
