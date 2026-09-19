@@ -117,7 +117,11 @@ def get_schwab_client():
 # Logging
 # -----------------------------
 def log(msg: str):
-    ts   = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    # Pacific, not UTC. These lines get read against market hours and against
+    # the cron schedule, both of which are local — a UTC stamp meant doing the
+    # arithmetic in your head every time. %Z prints PDT or PST as appropriate.
+    ts   = datetime.now(pytz.timezone("America/Los_Angeles")).strftime(
+        "%Y-%m-%d %H:%M:%S %Z")
     line = f"[{ts}] {msg}\n"
     print(line, end="")
     try:

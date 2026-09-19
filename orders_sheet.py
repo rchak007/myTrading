@@ -74,7 +74,15 @@ def acct_key(a) -> str:
 
 
 def _now() -> str:
-    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    """Pacific, explicitly — the Pi's own clock may be on UTC, and LAST POLL
+    is read against market hours. Falls back to local time if the tz database
+    is missing rather than failing the write."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/Los_Angeles")).strftime(
+            "%Y-%m-%d %H:%M:%S %Z")
+    except Exception:
+        return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
 # ───────────────────────────────────────────────────── positions fetch
@@ -277,11 +285,28 @@ def _open_book():
     ).open_by_key(sid)
 
 
+def _scrub(v):
+    """NaN/NaT/None -> "". Anything else passes through untouched.
+
+    pd.isna() raises on a list or array rather than returning a scalar, so the
+    guard is not decoration — it keeps a stray sequence from taking the whole
+    write down.
+    """
+    if v is None:
+        return ""
+    try:
+        if pd.isna(v):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    return v
+
+
 def _put(ws, df, cols, log):
     ws.batch_clear([f"A2:{chr(64 + len(cols))}1000"])
     if df is None or df.empty:
         return 0
-    body = [[("" if pd.isna(v) else v) for v in row] for row in df[cols].values.tolist()]
+    body = [[_scrub(v) for v in row] for row in df[cols].values.tolist()]
     ws.update(values=body, range_name=f"A2:{chr(64 + len(cols))}{len(body) + 1}")
     return len(body)
 
@@ -307,11 +332,22 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None) -> tuple[list, dict
     one batch afterwards.
     """
     rows: list[list] = []
-    marks = {"ticker": [], "label": [], "header": []}
+    marks = {"ticker": [], "label": [], "header": [], "title": []}
 
     def add(vals):
-        rows.append(list(vals) + [""] * (DASH_WIDTH - len(vals)))
+        # Scrub NaN the way _put() does. Google's API rejects the entire
+        # batch on a single non-compliant float, so one NaN in one order leg
+        # silently blanks the whole tab. Order legs are full of them: a stop
+        # order has no Limit_Price, a limit order has no Stop_Price.
+        clean = [_scrub(v) for v in vals]
+        rows.append(clean + [""] * (DASH_WIDTH - len(clean)))
         return len(rows)                      # 1-based row number
+
+    n_tickers = positions.loc[positions["Acct"] != TOTAL, "Ticker"].nunique()
+    marks["title"].append(add(["DASHBOARD", f"updated {_now()}"]))
+    add(["", f"{n_tickers} ticker(s) · read-only, regenerated every cycle · "
+             f"ORDERS rows are live Schwab orders, not the Orders tab"])
+    add([])
 
     for ticker in sorted(positions["Ticker"].unique()):
         grp = positions[positions["Ticker"] == ticker]
@@ -352,7 +388,12 @@ def _paint(ws, marks, log):
     yellow = {"backgroundColor": {"red": 1.0, "green": 0.95, "blue": 0.60},
               "textFormat": {"bold": True}}
     bold = {"textFormat": {"bold": True}}
+    title = {"backgroundColor": {"red": 0.20, "green": 0.25, "blue": 0.35},
+             "textFormat": {"bold": True, "fontSize": 12,
+                            "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}}}
     try:
+        if marks.get("title"):
+            ws.format([f"A{r}:L{r}" for r in marks["title"]], title)
         if marks["ticker"]:
             ws.format([f"A{r}:B{r}" for r in marks["ticker"]], cyan)
         if marks["label"]:
