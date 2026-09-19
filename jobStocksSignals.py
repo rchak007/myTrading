@@ -489,6 +489,8 @@ def main(no_push: bool = False):
     OUT_HTML.write_text(html, encoding="utf-8")
 
     # ── 4c. Cash & cash investments per account → cash.csv/html (non-fatal) ─────
+    # Hoisted so the orders-sheet step below still has it if the cash step fails.
+    df_cash = None
     try:
         from stocks_cash import build_cash_table, write_cash_outputs
         df_cash = build_cash_table(get_schwab_client(), df_orders, mask=True, log=log)
@@ -499,6 +501,24 @@ def main(no_push: bool = False):
         )
     except Exception as e:
         log(f"⚠️  Cash step failed (non-fatal): {e}")
+
+    # ── 4d. Orders sheet: Positions, Cash and the header block (non-fatal) ─────
+    # Phase 1 of ordersSheetDesign-9-18-26.md — writes only Pi-1-owned tabs and
+    # columns, places nothing. A Sheets hiccup must never take down signals.
+    try:
+        from orders_sheet import write_orders_sheet
+        try:
+            import schwab_auth
+            tok = schwab_auth.status()
+        except Exception:
+            tok = None                      # header will show UNKNOWN
+        write_orders_sheet(
+            client_wrapper=get_schwab_client(),
+            signals_df=df, orders_df=df_orders, cash_df=df_cash,
+            token_status=tok, log=log,
+        )
+    except Exception as e:
+        log(f"⚠️  Orders sheet step failed (non-fatal): {e}")
 
     # Summary stats
     held      = df[df["VALUE"] > 0]
