@@ -206,6 +206,10 @@ itself cannot express as a resting order.
   HMAC tokens, ledger, state machine, caps. Nothing executes until its §6
   security model is built in full.
 
+**Sheet initialised 2026-09-18** (`orders_sheet_init.py --force`): four tabs
+live — Orders with the status header, ownership banner and data from row 9, plus
+Positions, Cash and History. `GSHEET_ORDERS_ID` is in Pi 1's `.env`.
+
 **Build order: reporting first.** Phase 1 places no orders — Pi 1 writes
 `Positions`, `Cash`, `Seed_Left`, the header, reconciles Schwab orders in, and
 flags coverage gaps. Worst case it writes a wrong number in a cell. Phase 2
