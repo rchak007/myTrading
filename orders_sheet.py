@@ -213,9 +213,14 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
             })
 
     df = pd.DataFrame(out, columns=POSITIONS_COLS)
-    naked = df[(df["Acct"] != TOTAL) & (df["Has_Stop"] == NO)]["Ticker"].tolist()
-    if naked:
-        log(f"⚠️  {len(naked)} holding(s) with no protective stop: {', '.join(naked[:12])}")
+    bare = df[(df["Acct"] != TOTAL) & (df["Has_Stop"] == NO)]
+    # Unique tickers, not rows — a ticker held in three accounts is one
+    # problem listed three times, and the header line counts uniques too.
+    names = sorted(bare["Ticker"].unique())
+    if names:
+        shown = ", ".join(names[:12]) + (" …" if len(names) > 12 else "")
+        log(f"⚠️  {len(names)} ticker(s) unprotected in {len(bare)} (ticker, account) "
+            f"row(s): {shown}")
     return df
 
 
@@ -231,8 +236,15 @@ def build_cash_rows(cash_df, reserves=None, log=print) -> pd.DataFrame:
 
     stamp, out = _now(), []
     for _, r in cash_df.iterrows():
-        a = acct_key(r.get("Account"))
-        if not a or a.upper() == TOTAL:
+        # Test the RAW value before masking. build_cash_table() appends a TOTAL
+        # row, and acct_key("TOTAL") is "TAL" — which matches nothing, so the
+        # total was counted as a seventh account and Free_To_Deploy came out
+        # exactly doubled.
+        raw = str(r.get("Account") or "").strip().upper()
+        if not raw or raw == TOTAL:
+            continue
+        a = acct_key(raw)
+        if not a:
             continue
         after = _num(r.get("Cash_After_Open_Orders"), 0.0) or 0.0
         seed = round(per_acct.get(a, 0.0), 2)
