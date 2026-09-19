@@ -202,6 +202,46 @@ already implements the stop-loss half.
 
 ---
 
+## 11b. `Positions` — grain and totals
+
+**Decided 2026-09-18.** One row per **(ticker, account)**, plus a `TOTAL` row
+after a ticker **only when it is held in more than one account**. A
+single-account holding gets no total row — it would just be the same numbers
+twice.
+
+```
+Ticker  Acct   Qty  Avg_Cost  Market_Value  Has_Stop  Has_Trim  ...
+AAPL    431     50    182.40      9,875.00       Y         N
+AAPL    482     30    201.10      5,925.00       N         N      <- unprotected
+AAPL    TOTAL   80    189.43     15,800.00       -         -
+MSFT    431     10    405.27      4,940.00       Y         Y      <- no total row
+```
+
+Rules for the `TOTAL` row:
+
+- `Acct` reads `TOTAL`; sorts last within its ticker group
+- `Qty`, `Market_Value`, `Unrealized_PL`, `Seed_Reserved` are sums
+- **`Avg_Cost` is quantity-weighted**, not a mean of the per-account averages.
+  `Σ(qty × avg_cost) / Σ(qty)`. A plain average is wrong whenever the accounts
+  hold different sizes, and wrong in a way that looks plausible
+- the four `Has_*` flags are **blank** — see below
+
+### Coverage is per account, and must stay that way
+
+`Has_Stop` and its siblings are evaluated **per (ticker, account)**, never
+rolled up. This is not a presentation choice.
+
+A stop-loss resting in account `...431` protects only the shares in `...431`.
+If AAPL is held in two accounts with a stop in one of them, a rolled-up
+`Has_Stop = Y` would report the position as protected while half of it is
+naked. The aggregate answer is not merely less precise — it is false, and false
+in the direction that gets expensive.
+
+Hence the blank on `TOTAL` rows: there is no honest aggregate value to put
+there.
+
+---
+
 ## 12. Credentials — one service account for both sheets
 
 **Decided 2026-09-18.** A single identity manages both sheets:
