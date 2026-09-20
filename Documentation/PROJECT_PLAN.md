@@ -118,6 +118,38 @@ State lives outside the repo at `~/.local/state/myTrading/`
 be committed, sorted, or de-duplicated in place — corrections are new `ADJUST`
 rows, and `fold_balances()` is the only authority on a balance.
 
+### 🐞 DEFECT — `TOTAL_CAPITAL` silently degrades to `CASH_ONLY` from the CLI
+`position_value()` returns `0.0` when `positions_df is None` (line 529), and
+neither the `--list` nor the `--check` CLI branch injects one. So headroom
+computes as `Target_Capital - 0` and the reserve balance becomes the only real
+cap — the target does no work at all.
+
+Observed 2026-09-19: `171/MU` seeded $7,606.68 with `Target_Capital 7968.10`
+reported `Position_Value 0.0` while the account actually held $361.42 of MU.
+`Available_To_Buy` was right *by coincidence*, because the balance was the
+tighter bound.
+
+This over-permits precisely when the target should start binding — i.e. as a
+position approaches its goal. **Must be fixed before the gate is wired to
+anything that can submit an order.** Fix: have the CLI load positions (the same
+frame `orders_sheet.fetch_positions_detailed()` builds, whose `Market_Value`
+column `position_value()` already recognises) and pass it through.
+
+### 🐞 DEFECT — `--list` TOTAL row sums inactive reserves
+The TOTAL row adds `Seed_Cash` and `Target_Capital` across **all** config rows
+including `Active=N`. After closing `885/MU` and re-seeding `171/MU`, the total
+read `Seed_Cash 15,213.36` / `Target_Capital 17,968.10` — double-counting money
+that had been released. `Reserved_Cash` is correct (it folds the ledger).
+Cosmetic, but misleading at a glance. Fix: filter to active rows before the sum.
+
+### ❓ OPEN QUESTION — aggregate a ticker's target across accounts?
+Reserves are keyed per `(Account, Ticker)`, but a capital goal is usually per
+**ticker**. MU is held in both `885` ($2,031.90) and `171` ($361.42); a "$10k of
+MU" goal has no single row to live on. Worked around 2026-09-19 by carving the
+other account's value out of the target by hand (`10,000 - 2,031.90 = 7,968.10`),
+which is a snapshot — it goes stale as the unfenced position moves. Real fix is
+a ticker-level target with per-account reserves drawn against it.
+
 ### ❓ OPEN QUESTION — `CASH_ONLY` or `TOTAL_CAPITAL` as the default?
 Both policies are implemented; the handoff deliberately declines to pick.
 - **`CASH_ONLY`** (current default) — the reserve is dry powder. Buys debit,
