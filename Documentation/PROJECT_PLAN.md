@@ -223,6 +223,30 @@ count a sell LIMIT *above* the price (that's a profit target, not protection).
 Needs design. The trim side is the mirror of `sell_guard`; the buy side depends
 on §2 being settled first, since "where I want to buy" is a reserve question.
 
+### 💡 IDEA — Claude reviews the Dashboard on request (asked 2026-09-19)
+Chakravarti wants to be able to ask, on demand rather than on a schedule:
+1. **Of what I hold, which is missing a TRIM level** (take profit above), and
+   which is missing a SELL/stop (protection below)?
+2. **Where I have seed money left, is a BUY actually resting** for that ticker,
+   or is the reserve idle?
+
+Now possible without pasting screenshots: **Pi 2 got read-only Sheets access on
+2026-09-19** (`mytrading-reader@mytrading-sheets.iam.gserviceaccount.com`,
+Viewer on both sheets; key at `~/.config/myTrading/gsheets-reader.json`, IDs in
+Pi 2's gitignored `.env`). So Claude can read the `Dashboard`, `Positions` and
+`Cash` tabs directly and answer from live data.
+
+Question 1 is answerable **today** — `Has_Stop` / `Has_Trim` are already per
+(ticker, account) on the Dashboard, and the per-account grain is what catches a
+holding protected in one account and naked in another (AVGO on 2026-09-19: a
+stop on all 10 shares in `431`, nothing on the 7.67 in `171`).
+
+Question 2 is **blocked on §2** — `Seed_Reserved` is still blank in the sheet
+because step 4d is not wired to `cash_reserve`, so there is no way to see idle
+reserve money from the sheet alone. Fixing that wiring is the prerequisite.
+
+This is a read-and-report job, not an automation — no orders are placed.
+
 ---
 
 ## 4. Sheet-driven trade execution
