@@ -145,6 +145,22 @@ anything that can submit an order.** Fix: have the CLI load positions (the same
 frame `orders_sheet.fetch_positions_detailed()` builds, whose `Market_Value`
 column `position_value()` already recognises) and pass it through.
 
+### 🐞 DEFECT — a seed is never checked against the account's actual cash
+`seed()` and `topup()` validate that the amount is positive and the policy is
+known, but never compare it to what the account really holds. Fencing more than
+exists is accepted silently; the only symptom is a negative `Free_To_Deploy`
+noticed later, and only once §2 is wired into the sheet at all.
+
+Concrete risk as of 2026-09-19: account `171` now carries **$15,106.52** of
+reserves — `MU` $7,606.68 plus `MSTR` $7,499.84 — against a cash balance nobody
+has checked. The ops-sheet `seed` verb makes this easier to hit, since it is
+now a one-line entry from a phone.
+
+*Fix:* have `seed`/`topup` read `cash.csv` (already written every cycle) and
+**warn** when the account's total reserved would exceed its cash. A warning, not
+a hard block — the cash figure can legitimately lag a same-day settlement, and
+refusing a correct seed because of a stale CSV would be worse than flagging it.
+
 ### 🐞 DEFECT — `--list` TOTAL row sums inactive reserves
 The TOTAL row adds `Seed_Cash` and `Target_Capital` across **all** config rows
 including `Active=N`. After closing `885/MU` and re-seeding `171/MU`, the total
