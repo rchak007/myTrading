@@ -141,15 +141,97 @@ VERBS = {
 # Verbs handled in-process rather than via subprocess. They may take a
 # free-form argument because nothing here reaches a shell or an argv.
 #   verb -> needs_arg
+# verb -> (needs_arg, sensitive)
+#
+# These were one boolean until `seed` arrived, which needs an argument but
+# whose argument is NOT a secret — and which moves money, so the argument is
+# exactly what you want in the audit log. Conflating "requires an argument"
+# with "must be redacted" would have silently hidden every seed amount.
 PY_VERBS = {
-    "token_status": False,
-    "auth_url":     False,
-    "auth_code":    True,
+    "token_status": (False, False),
+    "auth_url":     (False, False),
+    "auth_code":    (True,  True),
+    "seed":         (True,  False),
+    "reserves":     (False, False),
 }
+
+
+# A fat-fingered amount on a phone keyboard is the realistic failure here, not
+# a malicious one. Anything above this is far more likely a typo than an
+# intention, and the CLI on Pi 1 remains available for a genuinely large seed.
+SEED_MAX = float(os.getenv("REMOTE_OPS_SEED_MAX", "100000"))
+
+SEED_USAGE = (
+    "seed  ACCT TICKER AMOUNT [POLICY] [TARGET]\n"
+    "  e.g.  seed  171 MU 7606.68 TOTAL_CAPITAL 7968.10\n"
+    "        seed  885 NOC 5000\n"
+    "POLICY is CASH_ONLY (default) or TOTAL_CAPITAL.\n"
+    "TOTAL_CAPITAL requires TARGET — the ceiling for that account's position."
+)
+
+
+def _run_seed(arg: str) -> tuple[int, str]:
+    """Fence cash to a ticker from the ops sheet, so seeding needs no SSH.
+
+    The ledger stays authoritative: this calls the same cash_reserve.seed()
+    the CLI does. The sheet carries the intent, never the balance.
+    """
+    import cash_reserve
+
+    parts = arg.split()
+    if len(parts) < 3:
+        return 2, "need at least ACCT TICKER AMOUNT\n\n" + SEED_USAGE
+
+    acct, ticker, raw_amount = parts[0], parts[1], parts[2]
+    policy = parts[3].upper() if len(parts) > 3 else "CASH_ONLY"
+    raw_target = parts[4] if len(parts) > 4 else None
+
+    try:
+        amount = float(raw_amount.replace(",", "").lstrip("$"))
+    except ValueError:
+        return 2, f"AMOUNT {raw_amount!r} is not a number\n\n" + SEED_USAGE
+    if amount <= 0:
+        return 2, "AMOUNT must be positive\n\n" + SEED_USAGE
+    if amount > SEED_MAX:
+        return 2, (f"AMOUNT ${amount:,.2f} exceeds the ops-sheet ceiling of "
+                   f"${SEED_MAX:,.2f}. If that was deliberate, seed it from the "
+                   f"CLI on Pi 1; if not, check for a stray digit.")
+
+    if policy not in cash_reserve.POLICIES:
+        return 2, (f"POLICY {policy!r} unknown — use one of "
+                   f"{', '.join(sorted(cash_reserve.POLICIES))}\n\n" + SEED_USAGE)
+
+    target = None
+    if raw_target is not None:
+        try:
+            target = float(raw_target.replace(",", "").lstrip("$"))
+        except ValueError:
+            return 2, f"TARGET {raw_target!r} is not a number\n\n" + SEED_USAGE
+    if policy == "TOTAL_CAPITAL" and target is None:
+        return 2, ("TOTAL_CAPITAL needs a TARGET, or the reserve can never "
+                   "bind.\n\n" + SEED_USAGE)
+
+    out: list[str] = []
+    bal = cash_reserve.seed(acct, ticker, amount, policy=policy,
+                            target_capital=target, source="ops_sheet",
+                            reason="seeded from ops sheet",
+                            log=out.append)
+    out.append(f"\nreserve balance for {acct}/{ticker.upper()} is now ${bal:,.2f}")
+    out.append("to undo:  withdraw or close, from the CLI on Pi 1")
+    return 0, "\n".join(out)
 
 
 def run_pyverb(verb: str, arg: str) -> tuple[int, str]:
     import schwab_auth
+
+    if verb == "seed":
+        return _run_seed(arg)
+
+    if verb == "reserves":
+        import cash_reserve
+        d = cash_reserve.build_reserves_table(log=lambda *a, **k: None)
+        return 0, (d.to_string(index=False) if not d.empty
+                   else "(no reserves configured)")
 
     if verb == "token_status":
         return 0, json.dumps(schwab_auth.status(), indent=2)
@@ -185,13 +267,22 @@ def safe_arg(verb: str, arg: str) -> str:
     Subprocess verbs take a KEY into a fixed dict, so logging them verbatim
     is safe and useful. In-process verbs are the only ones that accept a
     free-form string, so an argument to any of them may carry a secret —
-    an OAuth redirect URL today, something else tomorrow. Redact by that
-    rule, not by verb name, so a future PY_VERBS entry is covered the day
-    it is added rather than the day someone remembers to update this.
+    an OAuth redirect URL today, something else tomorrow.
+
+    So the default for an in-process verb is REDACT, and a verb must opt out
+    explicitly by declaring sensitive=False. A malformed or half-written
+    PY_VERBS entry is treated as sensitive too: the failure mode of redacting
+    something harmless is an unhelpful log line, while the failure mode of the
+    reverse is a credential in a file we keep forever.
     """
-    if arg and PY_VERBS.get(verb):
-        return "(redacted)"
-    return arg
+    entry = PY_VERBS.get(verb)
+    if not arg or entry is None:      # no arg, or a subprocess verb
+        return arg
+    try:
+        sensitive = bool(entry[1])
+    except (TypeError, IndexError):   # someone wrote a bare bool, or a 1-tuple
+        sensitive = True
+    return "(redacted)" if sensitive else arg
 
 
 def ensure_dirs() -> None:
@@ -246,7 +337,7 @@ def shrink(text: str, spill_path: Path) -> str:
 # ---------------------------------------------------------------------
 def run_verb(verb: str, arg: str) -> tuple[int, str]:
     if verb in PY_VERBS:
-        if PY_VERBS[verb] and not arg:
+        if PY_VERBS[verb][0] and not arg:
             return 2, f"verb '{verb}' requires an argument in column B"
         return run_pyverb(verb, arg)
 
@@ -361,8 +452,10 @@ def main() -> int:
         for name, (_, timeout, needs) in sorted(VERBS.items()):
             note = " <arg required>" if needs else ""
             print(f"{name:<12} timeout={timeout}s{note}")
-        for name, needs in sorted(PY_VERBS.items()):
-            print(f"{name:<12} in-process{' <arg required>' if needs else ''}")
+        for name, (needs, secret) in sorted(PY_VERBS.items()):
+            print(f"{name:<12} in-process"
+                  f"{' <arg required>' if needs else ''}"
+                  f"{' <arg redacted in audit log>' if secret else ''}")
         print(f"\nlog keys: {', '.join(sorted(LOGS))}")
         print(f"dir keys: {', '.join(sorted(DIRS))}")
         return 0

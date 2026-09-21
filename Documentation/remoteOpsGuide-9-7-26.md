@@ -38,12 +38,17 @@ the auth verbs run in-process rather than through `subprocess`.
 
 ### Argument redaction
 
-`safe_arg()` masks arguments in the audit log and `--dry-run` output. It keys
-off the rule — *in-process verbs are the only ones taking a free-form
-argument* — rather than off the name `auth_code`, so any future `PY_VERBS`
-entry with `needs_arg=True` is covered the day it is added. Dict-key
-arguments (`stocks`, `repo`) still log verbatim, because they are safe and
-useful.
+`safe_arg()` masks arguments in the audit log and `--dry-run` output. In-process
+verbs are the only ones taking a free-form argument, so **for a `PY_VERBS` entry
+the default is redact** — a verb must opt out explicitly. Dict-key arguments
+(`stocks`, `repo`) log verbatim, because they are safe and useful.
+
+`PY_VERBS` maps `verb -> (needs_arg, sensitive)`. These were a single boolean
+until `seed` arrived, which needs an argument whose value is *not* secret and
+which moves money — so it must be logged, not hidden. A half-written entry (a
+bare `True`, a 1-tuple) is treated as **sensitive**: redacting something
+harmless costs an unhelpful log line, while the reverse writes a credential
+into a file we keep forever.
 
 Known residual: a **typo'd** verb (`auth_cod`) with a real URL in column B is
 rejected, and the rejection audit line logs the URL in plaintext. The code is
@@ -154,16 +159,47 @@ Add keys to these dicts in code, **never** to the sheet.
 
 ### In-process verbs (`PY_VERBS`)
 
-These bypass `subprocess` entirely and call `schwab_auth` directly.
+These bypass `subprocess` entirely and call `schwab_auth` / `cash_reserve`
+directly.
 
 | Verb | Column B | Does |
 |------|----------|------|
 | `token_status` | — | Schwab token state as JSON — state, hours/days left, expiry |
 | `auth_url` | — | The tappable re-authorization link, plus instructions |
 | `auth_code` | **required** | Exchanges the pasted redirect URL for new tokens |
+| `reserves` | — | The reserves table — what is fenced, deployed, available |
+| `seed` | **required** | Fences cash to a ticker. See below |
 
 Token states: `OK`, `RENEW_NOW` (past day 6 of 7), `EXPIRED`, `MISSING`
 (no token file), `UNKNOWN` (file exists but no issue stamp found).
+
+#### `seed` — fencing cash without SSH
+
+```
+seed    ACCT TICKER AMOUNT [POLICY] [TARGET]
+```
+
+| Example in column B | Meaning |
+|---|---|
+| `885 NOC 5000` | fence $5,000 of account 885 to NOC, `CASH_ONLY` |
+| `171 MU 7606.68 TOTAL_CAPITAL 7968.10` | fence $7,606.68, and stop buying once that account's MU position reaches $7,968.10 |
+
+`POLICY` defaults to `CASH_ONLY`. `TOTAL_CAPITAL` **requires** `TARGET` —
+without it the reserve can never bind, so it is rejected rather than accepted
+and silently ignored. `$` and thousands commas are tolerated.
+
+**Guard rail.** Amounts above `REMOTE_OPS_SEED_MAX` (default `$100,000`) are
+rejected with a message rather than applied. A stray digit on a phone keyboard
+is the realistic failure mode here; a genuinely larger seed goes through the
+CLI on Pi 1.
+
+**The ledger stays authoritative.** This calls the same `cash_reserve.seed()`
+the CLI does, recording `source=ops_sheet`. The sheet carries intent, never a
+balance. There is no un-seed verb on purpose — reversing money is a
+`withdraw`/`close` on Pi 1, where you can see the ledger first.
+
+Seeding a pair that is already fenced **adds** to its balance and overwrites
+its policy/target, the same as the CLI.
 
 ### Exit codes in column H
 
