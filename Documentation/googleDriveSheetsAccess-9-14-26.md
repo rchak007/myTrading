@@ -188,6 +188,21 @@ what you share with it.
 The JSON contains an email like
 `something@your-project.iam.gserviceaccount.com`. **That email is the identity.**
 
+> **A key can only be downloaded once.** Google keeps the public half; the
+> private half is handed to you at creation and never again. There is no
+> re-download button. A key listed in the console that you cannot match to a
+> file on disk is unusable — create a new one and delete the orphaned row,
+> because each row is a credential that exists somewhere you cannot account for.
+
+> **Check the email inside the file, not the filename.** Without ever printing
+> the secret:
+> ```bash
+> grep -o '"client_email"[^,]*' key.json
+> ```
+> On this project the reader key turned out to be `mytrading-reader@…`, not
+> `reader@…` as assumed. The share dialog accepts a nonexistent principal
+> silently, so the mistake surfaces later as an opaque `PermissionError`.
+
 ### 3.2 Share the sheet with it
 
 In Google Sheets: **Share** → paste the service-account email →
@@ -240,6 +255,42 @@ export GOOGLE_APPLICATION_CREDENTIALS=~/.config/gcp/my-project-sa.json
 
 For Streamlit Cloud, paste the JSON into **Secrets** — encrypted, never in the
 repo, so the code can be public while the access is not.
+
+### 3.5 This project's two identities
+
+| | Pi 1 (`rchak007pi`) | Pi 2 (`raspberrypi2`) |
+|---|---|---|
+| Identity | `mytrading-ops@mytrading-sheets…` | `mytrading-reader@mytrading-sheets…` |
+| Role on both sheets | **Editor** | **Viewer** |
+| Key | `/etc/myTrading/gsheets-ops.json` | `~/.config/myTrading/gsheets-reader.json` |
+| Env var | `REMOTE_OPS_CREDS` | `GSHEET_READER_CREDS` |
+| Mode | `600`, owner `rchak007` | `600`, owner `chakravarti` |
+
+Pi 1 runs everything and needs write. Pi 2 only reads, so it gets an identity
+that **cannot** write — the Drive share is the real boundary, not the client
+code. Keep it that way: Pi 2 is the machine where untested code runs.
+
+Getting a key onto Pi 2 (from the laptop, over Tailscale):
+
+```bash
+scp ~/myDev/myTrading/READER-mytrading-sheets-XXXX.json \
+    chakravarti@100.77.66.80:~/.config/myTrading/gsheets-reader.json
+```
+
+Then on Pi 2 — `scp` does not reliably carry permissions:
+
+```bash
+chmod 600 ~/.config/myTrading/gsheets-reader.json
+```
+
+**Raspberry Pi OS blocks `pip install --user`** (PEP 668, "externally managed
+environment"). Use a venv rather than `--break-system-packages`:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install gspread google-auth
+```
+
+Verify `.venv/` is gitignored before creating it inside a public repo.
 
 ---
 

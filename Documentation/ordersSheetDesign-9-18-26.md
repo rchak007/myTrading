@@ -1,6 +1,8 @@
 # Orders Sheet — Design
 
-**Status:** Design in progress, nothing implemented
+**Status:** **Phase 1 live since 2026-09-19.** `Positions`, `Cash`, `Dashboard`
+and the header block are written every cycle by `jobStocksSignals.py` step 4d.
+Pi 1 still places **no orders** — phases 2 and 3 are not built. See §10.
 **Sheet:** `myTrading-ORDERS-pi1` (separate from `myTrading-ops-pi1`)
 **Runs on:** Pi 1
 **Relationship to `orderExecutionDesign-9-7-26.md`:** that document specifies a
@@ -43,6 +45,7 @@ delivers most of the value. See §10.
 | `Positions` | **Pi 1 only** | holdings from Schwab, with coverage flags |
 | `Cash` | **Pi 1 only** | cash, seed reserved, free to deploy |
 | `History` | **Pi 1 only, append-only** | completed rows |
+| `Dashboard` | **Pi 1 only, regenerated** | per-ticker blocks: positions + live orders together. See §11c |
 
 ---
 
@@ -67,10 +70,23 @@ alarm should be visible from a phone without reading anything.
 Row 7 blank, row 8 column headers, **data starts row 9**. Whatever reads this
 sheet needs a `DATA_START_ROW = 9` constant rather than assuming row 2.
 
-**Prerequisite:** the token expiry must come from `~/.schwabdev/tokens.db`.
-`schwab_auth.py --status` currently reads the dead legacy
-`~/github/myTrading/tokens.json` and reports a misleading answer — see
-`PROJECT_PLAN.md` §7. That defect now blocks the header.
+**Prerequisite — cleared 2026-09-18 in `e9a866a`.** The token expiry must come
+from `~/.schwabdev/tokens.db`; `schwab_auth.py` had been reading (and writing)
+the dead legacy `tokens.json`, which current schwabdev ignores. No longer
+blocking. See `PROJECT_PLAN.md` §7.
+
+### Timestamps are Pacific — changed 2026-09-19
+
+`LAST POLL`, the `Dashboard` header and the `jobStocksSignals.py` log all print
+Pacific time with `%Z`, so they read `PDT` or `PST` as the season dictates.
+
+Previously the job log printed UTC while the sheet used the Pi's *own* timezone
+— two different clocks in one system, neither matching the market hours or the
+cron schedule you read them against. The sheet side is now pinned explicitly
+rather than inherited from the host, because the Pi's clock may itself be UTC.
+
+`orders_sheet._now()` falls back to local time if the tz database is missing,
+rather than failing the write — a wrong-looking timestamp beats a lost refresh.
 
 ---
 
@@ -242,6 +258,75 @@ there.
 
 ---
 
+## 11c. `Dashboard` — one block per ticker
+
+**Added 2026-09-19.** `Positions` and `Orders` answer "show me everything of one
+kind". The `Dashboard` answers the question actually asked while trading:
+*for this one ticker, what do I hold and what is resting against it?*
+
+### Layout
+
+One block per ticker, alphabetical. Column A carries only the ticker label, so
+the tables underneath start in column B and line up across every block.
+
+```
+AEHR │ POSITIONS                                      ← cyan, bold
+     │ Ticker  Acct  Qty  Avg_Cost  Market_Value  Unrealized_PL  Has_Stop …
+     │ AEHR    171    26     80.98       2430.74         127.49  N
+     │
+     │ ORDERS                                         ← yellow, bold
+     │ Acct  Side  Type  Qty  Limit_Price  Stop_Price  Status  Entered  Order_ID
+     │ — no open orders —
+```
+
+A ticker split across accounts gets its `TOTAL` row inside the block, same rule
+as §11b — and the `Has_*` flags stay blank on it, same reason.
+
+Row 1 is a header carrying the tab's **own** update time, so a stale Dashboard
+is visible without cross-checking `LAST POLL` in `Orders`.
+
+### Read-only by construction
+
+Nothing a human types lives here. That is what lets it be regenerated wholesale
+every cycle with `ws.clear()` and no merge step — and therefore what makes it
+impossible for a refresh to eat a typed intent.
+
+A writable block layout was considered and rejected: blocks break sorting and
+filtering, every inserted row shifts the ones below it, and reconciling typed
+values back out of a regenerated layout needs exactly the merge step whose
+absence makes this safe. Intent goes in `Orders`, which is flat and row-stable.
+
+### The `ORDERS` rows are Schwab's, not the `Orders` tab's
+
+They come from the live Schwab order list, not from what you typed. What
+matters for protection is what is actually resting at the broker — and per §8
+you place orders directly too, so the `Orders` tab is not a complete picture.
+This is the same reasoning that drives the `Has_*` flags, and it means the two
+always agree: `— no open orders —` under a ticker is exactly why its `Has_Stop`
+says `N`.
+
+### Formatting never costs data
+
+`_paint()` is wrapped in its own `try/except`. `gspread`'s `format()` signature
+varies across versions; losing the colours to a library difference is a nuisance,
+losing the write is not. On failure it logs
+`⚠️ dashboard formatting skipped (data is fine)` and the data stands.
+
+### Defect fixed 2026-09-19 — one NaN blanked the whole tab
+
+The first run produced an empty tab and
+`Out of range float values are not JSON compliant: nan`. Google rejects the
+**entire batch** on a single non-compliant float. Order legs are full of them —
+a stop order has no `Limit_Price`, a limit order has no `Stop_Price`. `_put()`
+had always scrubbed `NaN`; the dashboard path was the one place it was missed.
+Both now share `_scrub()`.
+
+Worth remembering as a class: **any** unexpected `NaN` anywhere in a payload
+blanks the whole write, and the symptom is an empty tab rather than a partial
+one. That error line is the first place to look.
+
+---
+
 ## 12. Credentials — one service account for both sheets
 
 **Decided 2026-09-18.** A single identity manages both sheets:
@@ -264,6 +349,45 @@ the Drive share is the real boundary, and the OAuth scope is client-side only.
 With Viewer, `remote_ops` would run a verb correctly, then fail every write-back
 — three retries, an audited `writeback_failed`, and a row that silently stays
 blank.
+
+### A second, read-only identity for Pi 2 — added 2026-09-19
+
+```
+mytrading-reader@mytrading-sheets.iam.gserviceaccount.com     Viewer on both sheets
+```
+
+Purpose: let Claude, running on **Pi 2**, read the `Dashboard`, `Positions` and
+`Cash` tabs directly — so a question like "which holdings have no stop?" is
+answered from live data rather than from pasted screenshots. See PROJECT_PLAN §3.
+
+| | Pi 1 | Pi 2 |
+|---|---|---|
+| Identity | `mytrading-ops@…` | `mytrading-reader@…` |
+| Role | Editor | **Viewer** |
+| Key | `/etc/myTrading/gsheets-ops.json` | `~/.config/myTrading/gsheets-reader.json` |
+| Env var | `REMOTE_OPS_CREDS` | `GSHEET_READER_CREDS` |
+
+This does place a credential on Pi 2, which the Pi1/Pi2 split otherwise avoids.
+Accepted because a Viewer key cannot write, cannot trade, and cannot reach the
+token store — and because the alternative was reading the system through
+screenshots. **The role must stay Viewer.** Pi 2 is where untested code runs; an
+Editor key there would let a half-written script write to the live trading sheet.
+
+Pi 2 setup (Debian PEP 668 blocks `pip --user`, hence the venv):
+
+```bash
+mkdir -p ~/.config/myTrading && chmod 700 ~/.config/myTrading
+chmod 600 ~/.config/myTrading/gsheets-reader.json
+python3 -m venv .venv && .venv/bin/pip install gspread google-auth
+```
+
+Sheet IDs live in Pi 2's own `.env` — gitignored, and deliberately **not** a
+copy of Pi 1's: it carries no Schwab credentials and no editor key.
+
+**Note the exact address.** It is `mytrading-reader@…`, not `reader@…`. Google's
+share dialog accepts a nonexistent principal without complaint, so a wrong
+address fails later as an opaque `PermissionError` rather than at the point of
+the mistake.
 
 ### Deviating from `orderExecutionDesign` §6.8, deliberately
 

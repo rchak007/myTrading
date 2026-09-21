@@ -107,10 +107,20 @@ whether `gitpush.py` already covers `outputs/portfolio`.
 remaining reserved dollars stay earmarked for buying MU back, rather than
 being treated as free cash.
 
-**Status:** Module **added 2026-09-14** (`cash_reserve.py`, spec in
-`Documentation/CASH_RESERVE_HANDOFF.md`). Written but **never run and not wired
-into anything**. Follows the house injection contract: no paths, no logger, no
-HTML renderer, no Schwab client of its own.
+**Status:** Module added 2026-09-14 (`cash_reserve.py`, spec in
+`Documentation/CASH_RESERVE_HANDOFF.md`). **First run 2026-09-19** — `171/MU`
+seeded $7,606.68 under `TOTAL_CAPITAL`, target $7,968.10. Follows the house
+injection contract: no paths, no logger, no HTML renderer, no Schwab client of
+its own.
+
+**Seedable from the ops sheet since 2026-09-19** — `seed` and `reserves` verbs,
+so fencing cash needs no SSH. Usage in `remoteOpsGuide` §4. The ledger remains
+authoritative; the sheet only ever carries intent.
+
+**Still not wired into `jobStocksSignals.py`** — `Seed_Reserved` and
+`Free_To_Deploy` in the orders sheet are therefore not yet real, and the
+coverage review in §3 cannot answer "is my seed money actually deployed?"
+until they are.
 
 State lives outside the repo at `~/.local/state/myTrading/`
 (`reserve_ledger.csv`, `reserves_config.csv`), override with
@@ -457,6 +467,27 @@ Until then this is manual: ask "what's open?" and this section reports it.
 
 ## 7. Infrastructure defects (cross-cutting)
 
+### 🐞 DEFECT (latent) — the job's `timeout` outlives its own cron gap
+Measured 2026-09-19: a full `jobStocksSignals.py` cycle takes **~9-10 minutes**.
+The active crontab line is
+
+```
+15,50 1-16 * * 1-5  flock -w 600 … timeout -k 30 2400 … jobStocksSignals.py --no-push
+```
+
+Runs fire at `:15` and `:50`, so the **narrow gap is 25 minutes** while
+`timeout` allows **40**. Today's 10 minutes leaves plenty of room, but the two
+new Schwab round-trips per cycle (cash, positions) already grew it, and the
+crontab's own history shows the cap being raised 900 → 2400 because 15 minutes
+was once hit.
+
+If a run ever exceeds 25 minutes: the next fires while it is still going, waits
+on `flock -w 600`, and dies silently after ten minutes without running. No
+error — just a skipped cycle, and `job_stocks.log` overwritten by whichever run
+finishes last. *Fix when it gets close:* either widen the schedule to hourly at
+`:15`, or drop `timeout` to ~1200 so a hung run dies before it can eat the next
+slot. Not urgent; worth a look if the runtime passes ~20 minutes.
+
 ### 🟡 IN PROGRESS — the ops channel works by hand; the schedule is not set up
 **First successful end-to-end run 2026-09-18.** `git_pull` typed into A3
 executed on Pi 1 and wrote its result back: `OK`, exit 0, 14.8s, the real
@@ -560,6 +591,44 @@ Schwab-impersonation phishing, not account access.
 ## 8. Done
 
 Kept for history — what was fixed, and when.
+
+**2026-09-19 — Orders sheet phase 1 live, and Pi 2 can read it**
+- `Dashboard` tab built: one block per ticker, positions and live Schwab orders
+  together, read-only by construction (`3fab4f2`). Documented in
+  `ordersSheetDesign` §11c.
+- **Defect fixed** — a single `NaN` blanked the entire tab. Google rejects the
+  whole batch on one non-compliant float, and order legs are full of them (a
+  stop has no `Limit_Price`, a limit has no `Stop_Price`). `_put()` had always
+  scrubbed; the dashboard path was the one place it was missed. Both now share
+  `_scrub()` (`d1c253b`).
+- **Defect fixed** — `Free_To_Deploy` was exactly doubled ($77,168 vs $38,584):
+  `acct_key("TOTAL")` returns `"TAL"`, matching nothing, so the TOTAL row was
+  counted as a seventh account. Now the raw value is tested before masking
+  (`c109e8d`). Verified on Pi 1: `available $38,584.19`.
+- **Defect fixed** — the unprotected-holdings warning listed rows while the
+  header counted uniques. Both count uniques now (`c109e8d`).
+- Timestamps moved to **Pacific** with `%Z` in both the job log and the sheet.
+  The job had printed UTC while the sheet used the Pi's own timezone — two
+  clocks, neither matching the market hours or cron schedule they are read
+  against (`d1c253b`).
+- **Pi 2 got read-only Sheets access** — `mytrading-reader@…`, Viewer on both
+  sheets, key at `~/.config/myTrading/gsheets-reader.json`. Documented in
+  `googleDriveSheetsAccess` §3.5 and `ordersSheetDesign` §12.
+- **Measured:** a full `jobStocksSignals.py` cycle takes **~9-10 minutes**
+  (Friday's 16:50 cron run finished 16:59). Cron fires `:15` and `:50`, so the
+  narrow gap is 25 minutes — comfortable, but the `timeout` is set to 40, which
+  is longer than that gap. See §7.
+
+**2026-09-19 — seeding without SSH**
+- `seed` and `reserves` verbs added to the ops sheet (`4362bcd`). The ledger
+  stays authoritative; the sheet carries intent only.
+- `PY_VERBS` became `(needs_arg, sensitive)`. One boolean had been doing both
+  jobs — fine while they coincided, but it would have **redacted every seed
+  amount from the audit log**, the opposite of what a money verb needs.
+  Redaction now defaults to on and must be opted out of; a malformed entry is
+  treated as sensitive.
+- First real reserve seeded: `171/MU` $7,606.68, `TOTAL_CAPITAL`, target
+  $7,968.10 (= $10,000 goal less the $2,031.90 held unfenced in `885`).
 
 **2026-09-14 — RSI was not RSI**
 - `core/indicators.compute_rsi` averaged gains/losses with a SIMPLE moving
