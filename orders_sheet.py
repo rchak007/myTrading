@@ -256,13 +256,20 @@ def build_cash_rows(cash_df, reserves=None, log=print) -> pd.DataFrame:
             continue
         after = _num(r.get("Cash_After_Open_Orders"), 0.0) or 0.0
         seed = round(per_acct.get(a, 0.0), 2)
+        free = round(after - seed, 2)
+        if free < 0:
+            # Nothing validates a seed against real cash (PROJECT_PLAN §2), so
+            # this is where over-fencing first becomes visible. Say it out loud
+            # rather than leaving a negative number in a cell nobody scrolls to.
+            log(f"⚠️  {a} is over-fenced: ${seed:,.2f} reserved against "
+                f"${after:,.2f} available — short ${abs(free):,.2f}")
         out.append({
             "Acct": a, "Nickname": r.get("Nickname", ""),
             "Cash": _num(r.get("Cash"), 0.0),
             "Cash_In_Open_Orders": _num(r.get("Cash_In_Open_Orders"), 0.0),
             "Cash_After_Open_Orders": after,
             "Seed_Reserved": seed,
-            "Free_To_Deploy": round(after - seed, 2),
+            "Free_To_Deploy": free,
             "Updated": stamp,
         })
     return pd.DataFrame(out, columns=CASH_COLS)
@@ -283,6 +290,45 @@ def _open_book():
     return gspread.authorize(
         Credentials.from_service_account_file(creds, scopes=SCOPES)
     ).open_by_key(sid)
+
+
+def load_reserves(log=print) -> dict:
+    """{(acct_last3, TICKER): reserved_cash} folded from cash_reserve's ledger.
+
+    Fail-soft on purpose. A missing ledger, an unimportable module or a bad row
+    must cost the Seed_Reserved column, never the whole sheet write — positions
+    and coverage flags are the part you cannot get anywhere else.
+
+    Pairs folding to zero (a closed or fully deployed reserve) are dropped, so
+    the column shows blank rather than a misleading $0.00 next to a ticker that
+    has no reserve at all.
+    """
+    try:
+        import cash_reserve
+    except Exception as e:
+        log(f"⚠️  cash_reserve unavailable — Seed_Reserved left blank: {e}")
+        return {}
+
+    try:
+        folded = cash_reserve.fold_balances()
+    except Exception as e:
+        log(f"⚠️  could not fold the reserve ledger — Seed_Reserved blank: {e}")
+        return {}
+
+    if folded is None or folded.empty:
+        return {}
+
+    out = {}
+    for _, r in folded.iterrows():
+        amt = float(r["Reserved_Cash"])
+        if abs(amt) < 0.005:                 # closed, or spent down to nothing
+            continue
+        out[(acct_key(r["Account"]), str(r["Ticker"]).strip().upper())] = amt
+
+    if out:
+        log(f"Reserves loaded: {len(out)} fenced pair(s) · "
+            f"${sum(out.values()):,.2f} reserved")
+    return out
 
 
 def _scrub(v):
@@ -429,6 +475,11 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     """
     book = _open_book()
 
+    # Caller may inject reserves (tests, or a future caller that already has
+    # them); otherwise read the ledger, which is the authority.
+    if reserves is None:
+        reserves = load_reserves(log=log)
+
     pos_raw = fetch_positions_detailed(client_wrapper, log=log)
     positions = build_positions_table(pos_raw, signals_df, orders_df, reserves, log=log)
     cash = build_cash_rows(cash_df, reserves, log=log)
@@ -443,6 +494,16 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     naked = positions[(positions["Acct"] != TOTAL)
                       & (positions["Has_Stop"] == NO)]["Ticker"].nunique()
 
+    over = (cash[cash["Free_To_Deploy"] < 0]["Acct"].tolist()
+            if not cash.empty else [])
+    seeded_total = cash["Seed_Reserved"].sum() if not cash.empty else 0.0
+
+    alerts = []
+    if naked:
+        alerts.append(f"{naked} holding(s) with no protective stop")
+    if over:
+        alerts.append(f"OVER-FENCED: {', '.join(over)} reserved beyond cash")
+
     tok = token_status or {}
     state = str(tok.get("state", "UNKNOWN"))
     days = tok.get("days_left")
@@ -456,8 +517,10 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
         ["LAST POLL", _now()],
         ["TRADING", "DISABLED (kill switch)" if Path("/etc/myTrading/TRADING_DISABLED").exists()
                     else "reporting only — phase 1, nothing is placed"],
-        ["FREE TO DEPLOY", f"${free:,.2f} across {len(cash)} account(s)"],
-        ["ALERTS", f"{naked} holding(s) with no protective stop" if naked else "none"],
+        ["FREE TO DEPLOY", f"${free:,.2f} across {len(cash)} account(s)"
+                           + (f" · ${seeded_total:,.2f} seed-reserved"
+                              if seeded_total else "")],
+        ["ALERTS", " · ".join(alerts) if alerts else "none"],
     ]
     book.worksheet("Orders").update(values=header, range_name="A1:B6")
 
