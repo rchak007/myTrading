@@ -117,10 +117,18 @@ its own.
 so fencing cash needs no SSH. Usage in `remoteOpsGuide` §4. The ledger remains
 authoritative; the sheet only ever carries intent.
 
-**Still not wired into `jobStocksSignals.py`** — `Seed_Reserved` and
-`Free_To_Deploy` in the orders sheet are therefore not yet real, and the
-coverage review in §3 cannot answer "is my seed money actually deployed?"
-until they are.
+**Wired into the orders sheet 2026-09-22** (`72b5623`). `orders_sheet.
+load_reserves()` folds the ledger into the `{(acct, ticker): amount}` dict the
+builders always expected, so `Seed_Reserved` is real on `Positions` and the
+`Dashboard`, and `Free_To_Deploy = Cash_After_Open_Orders − Seed_Reserved`
+finally subtracts something. Fail-soft: a missing ledger costs that one column,
+never the sheet write. Zero-balance pairs are dropped so a closed reserve reads
+blank rather than `$0.00`.
+
+**Still outstanding:** nothing consumes fills, so `Deployed` stays 0 — a buy
+that spends reserved money does not debit the reserve until `apply_fills()` is
+run on a schedule. Until then the ledger records intent and the sheet reports
+it, but the balance does not follow real trading.
 
 State lives outside the repo at `~/.local/state/myTrading/`
 (`reserve_ledger.csv`, `reserves_config.csv`), override with
@@ -160,6 +168,12 @@ now a one-line entry from a phone.
 **warn** when the account's total reserved would exceed its cash. A warning, not
 a hard block — the cash figure can legitimately lag a same-day settlement, and
 refusing a correct seed because of a stale CSV would be worse than flagging it.
+
+**Partly addressed 2026-09-22** (`72b5623`) — over-fencing is now *visible* at
+the point the sheet is written: `Free_To_Deploy` goes negative, the log warns
+with the account and shortfall, and the header `ALERTS` row reads `OVER-FENCED:
+171`. Still not caught at **seed time**, which is where it belongs — you learn
+about it on the next cycle rather than when you type the row.
 
 ### 🐞 DEFECT — `--list` TOTAL row sums inactive reserves
 The TOTAL row adds `Seed_Cash` and `Target_Capital` across **all** config rows

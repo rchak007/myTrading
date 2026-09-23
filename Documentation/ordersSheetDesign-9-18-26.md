@@ -177,6 +177,26 @@ being wrong and impossible to audit afterwards.
 
 `Cash` tab: `Free_To_Deploy = Cash_After_Open_Orders − Seed_Reserved`.
 
+**Live since 2026-09-22.** `orders_sheet.load_reserves()` folds
+`cash_reserve.fold_balances()` into `{(acct, ticker): amount}`. `Seed_Reserved`
+appears per (ticker, account) on `Positions` and the `Dashboard`, and summed per
+account on `Cash`. A pair folding to zero — closed, or fully deployed — is
+dropped, so the column reads blank rather than `$0.00` beside a ticker with no
+reserve.
+
+Fail-soft by design: if `cash_reserve` cannot be imported or the ledger is
+missing, the column is left blank and the sheet still writes. Positions and
+coverage flags are the part you cannot get anywhere else.
+
+**A reserve is an earmark, not a separate pot.** The money stays ordinary cash
+in the account; nothing stops it being spent elsewhere. `Seed_Reserved` only
+subtracts it from `Free_To_Deploy` so you can see it is spoken for.
+
+**Over-fencing is visible, not prevented.** Nothing validates a seed against the
+account's real balance (PROJECT_PLAN §2), so reserving more than you hold is
+accepted. It then shows as a negative `Free_To_Deploy`, a log warning naming the
+account and shortfall, and `OVER-FENCED: <acct>` in the header `ALERTS` row.
+
 **History.** Do **not** move completed rows down the sheet — moving a row
 changes every row number below it and breaks anything tracking position. Pi 1
 *copies* completed rows to `History` and marks the `Orders` row terminal.
