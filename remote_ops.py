@@ -14,18 +14,19 @@
 #   - Anything that moves funds, touches tokens.json, or restarts the
 #     bot service is deliberately NOT here. Keep it that way.
 #
-# COLD START
-#   With no state file, the first run ADOPTS the current bottom of the
-#   sheet and executes nothing. That stops a fresh install from
-#   replaying months of history. Use --catchup to override once.
+# WHERE WORK GOES
+#   NEW COMMANDS GO AT THE TOP, directly under the header. The poller walks
+#   down from row 2 and STOPS at the first row that already has a Status —
+#   everything below that is history. Insert rows above to queue work; never
+#   clear a Status to "reuse" a row.
 #
 # SHEET LAYOUT (row 1 is the header, written by --init)
 #   A Verb  B Args  C Status  D QueuedAt  E StartedAt  F FinishedAt
 #   G Secs  H Exit  I Output  J Host
 #
-# You fill A and B. Pi 1 fills C..J. Rows are APPEND-ONLY — never
-# delete a row, or the row numbers shift and the cursor skips work.
-# Archive by copying to another tab.
+# You fill A and B. Pi 1 fills C..J. Never DELETE a row and never clear a
+# Status — a stamped row is the boundary marker, and losing it makes the
+# poller walk down into history. Archive by copying to another tab.
 # =====================================================================
 from __future__ import annotations
 
@@ -48,7 +49,6 @@ JOBS_REPO = Path(os.getenv("JOBS_REPO", HOME / "github" / "jobMyTrading"))
 BOTS_REPO = Path(os.getenv("BOTS_REPO", HOME / "github" / "botsMyTrading"))
 
 STATE_DIR = Path(os.getenv("REMOTE_OPS_STATE", HOME / ".local" / "state" / "myTrading"))
-STATE_FILE = STATE_DIR / "remote_ops.state"
 AUDIT_LOG = STATE_DIR / "remote_ops_audit.log"
 OUTPUT_DIR = STATE_DIR / "remote_ops_out"
 
@@ -65,6 +65,7 @@ TS_FMT = "%Y-%m-%d %H:%M:%S %Z"
 # ---------------------------------------------------------------------
 # Tunables
 # ---------------------------------------------------------------------
+START_ROW = 2               # row 1 is the header; new work goes directly below
 MAX_ROWS_PER_RUN = 5        # a pasted wall of rows cannot stampede the box
 SHEET_OUTPUT_MAX = 1500     # chars kept in column I; full text goes to disk
 TAIL_LINES = 120
@@ -140,8 +141,7 @@ VERBS = {
 
 # Verbs handled in-process rather than via subprocess. They may take a
 # free-form argument because nothing here reaches a shell or an argv.
-#   verb -> needs_arg
-# verb -> (needs_arg, sensitive)
+#   verb -> (needs_arg, sensitive)
 #
 # These were one boolean until `seed` arrived, which needs an argument but
 # whose argument is NOT a secret — and which moves money, so the argument is
@@ -299,22 +299,6 @@ def audit(**fields) -> None:
         fh.write(json.dumps(fields, default=str) + "\n")
 
 
-def read_cursor() -> int | None:
-    if not STATE_FILE.exists():
-        return None
-    try:
-        return int(STATE_FILE.read_text().strip())
-    except (ValueError, OSError):
-        return None
-
-
-def write_cursor(row: int) -> None:
-    ensure_dirs()
-    tmp = STATE_FILE.with_suffix(".tmp")
-    tmp.write_text(str(row))
-    tmp.replace(STATE_FILE)          # atomic; no half-written cursor
-
-
 def spill(row: int, verb: str, text: str) -> Path:
     """Full output to disk so column I can stay short and readable."""
     ensure_dirs()
@@ -399,20 +383,27 @@ def open_sheet():
     return gspread.authorize(creds).open_by_key(sid).worksheet(tab)
 
 
-def write_back(ws, row: int, values: dict) -> None:
-    """One API call per row update: C..J in a single range write."""
+def write_back(ws, row: int, values: dict) -> bool:
+    """One API call per row update: C..J in a single range write.
+
+    Returns True if the write landed. The caller MUST check this when claiming
+    a row: in top-scan mode a non-empty Status is the only thing marking a row
+    as handled, so an unwritten claim means the row is re-run on the next poll.
+    For `seed` that would fence the money twice.
+    """
     order = ["Status", "QueuedAt", "StartedAt", "FinishedAt",
              "Secs", "Exit", "Output", "Host"]
     payload = [[str(values.get(k, "")) for k in order]]
     for attempt in range(3):
         try:
             ws.update(values=payload, range_name=f"C{row}:J{row}")
-            return
+            return True
         except Exception as e:                       # transient 429/500
             if attempt == 2:
                 audit(event="writeback_failed", row=row, error=str(e))
-                return
+                return False
             time.sleep(2 ** attempt)
+    return False
 
 
 def nudge(ws) -> int:
@@ -438,14 +429,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Allowlisted remote ops channel for Pi 1")
     ap.add_argument("--dry-run", action="store_true",
                     help="show what would run; execute nothing, write nothing")
-    ap.add_argument("--catchup", action="store_true",
-                    help="on cold start, actually run the pending backlog")
     ap.add_argument("--verbs", action="store_true", help="print the allowlist and exit")
     ap.add_argument("--init", action="store_true", help="write the header row and exit")
     ap.add_argument("--nudge", action="store_true",
                     help="append a re-auth prompt row if the refresh token is aging out")
-    ap.add_argument("--reset-cursor", type=int, metavar="ROW",
-                    help="force the cursor to ROW (rows at or below it are ignored)")
     args = ap.parse_args()
 
     if args.verbs:
@@ -458,12 +445,6 @@ def main() -> int:
                   f"{' <arg redacted in audit log>' if secret else ''}")
         print(f"\nlog keys: {', '.join(sorted(LOGS))}")
         print(f"dir keys: {', '.join(sorted(DIRS))}")
-        return 0
-
-    if args.reset_cursor is not None:
-        write_cursor(args.reset_cursor)
-        audit(event="cursor_reset", row=args.reset_cursor)
-        print(f"cursor set to row {args.reset_cursor}")
         return 0
 
     ws = open_sheet()
@@ -480,33 +461,48 @@ def main() -> int:
     rows = ws.get_all_values()
     last_sheet_row = len(rows)
 
-    cursor = read_cursor()
-    if cursor is None:
-        if not args.catchup:
-            write_cursor(last_sheet_row)
-            audit(event="cold_start_adopt", row=last_sheet_row)
-            print(f"cold start: adopted row {last_sheet_row}, executed nothing")
-            return 0
-        cursor = 1                                   # row 1 is the header
-
+    # ---- Top-scan, adopted 2026-09-22 ------------------------------------
+    # Walk DOWN from row 2 and stop at the first row that already carries a
+    # Status. New work goes at the TOP, history sinks below that boundary.
+    #
+    # This replaced a stored row-number cursor. Inserting a row shifted every
+    # number below it, so the cursor silently pointed at the wrong row and
+    # new commands above it were never scanned. Nothing points anywhere now;
+    # the boundary is read off the sheet each poll.
+    #
+    # What makes it safe is that a row is CLAIMED before its verb runs, and an
+    # unclaimable row is not run at all — see the write_back gate below.
     executed = 0
-    for r in range(max(cursor + 1, 2), last_sheet_row + 1):
+    for r in range(START_ROW, last_sheet_row + 1):
         cells = rows[r - 1] + [""] * (len(HEADER) - len(rows[r - 1]))
         verb = cells[0].strip()
         arg = cells[1].strip()
         status = cells[2].strip()
 
-        if not verb:                                 # blank spacer row
-            write_cursor(r)
+        if status:
+            # THE BOUNDARY. Everything from here down is history. Stop, do not
+            # continue — a blank row further down is old spacing, not new work.
+            break
+
+        if not verb:
+            # Blank row above the boundary: spacing between queued commands,
+            # or a row typed but not filled in yet. Skip it and keep looking.
             continue
 
-        if status:                                   # already handled
-            write_cursor(r)
-            continue
+        # A verb whose argument has not been typed yet. Leave the row ALONE —
+        # unstamped, so it runs on a later poll once you finish typing. The
+        # poller used to stamp FAIL here, burning a row you were mid-way
+        # through entering (seen 2026-09-21 on `seed 171 MSTR 7499.84`).
+        needs_arg = (PY_VERBS[verb][0] if verb in PY_VERBS
+                     else VERBS[verb][2] if verb in VERBS else False)
+        if needs_arg and not arg:
+            audit(event="awaiting_arg", row=r, verb=verb)
+            print(f"row {r}: {verb} is waiting for an argument in column B")
+            break                                    # preserve typed order
 
         if executed >= MAX_ROWS_PER_RUN:
             audit(event="batch_cap", stopped_at=r, cap=MAX_ROWS_PER_RUN)
-            break                                    # cursor NOT advanced
+            break
 
         if args.dry_run:
             known = verb in VERBS or verb in PY_VERBS
@@ -526,7 +522,6 @@ def main() -> int:
                 "Host": HOST,
             })
             audit(event="rejected", row=r, verb=verb, args=arg)
-            write_cursor(r)
             executed += 1
             continue
 
@@ -534,8 +529,16 @@ def main() -> int:
         # and a crash mid-flight leaves a visible marker rather than a
         # silently re-runnable blank.
         started = now_str()
-        write_back(ws, r, {"Status": "RUNNING", "QueuedAt": queued,
-                           "StartedAt": started, "Host": HOST})
+        claimed = write_back(ws, r, {"Status": "RUNNING", "QueuedAt": queued,
+                                     "StartedAt": started, "Host": HOST})
+        if not claimed:
+            # Could not mark the row. Since a non-empty Status is the ONLY
+            # record that a row has been handled, running the verb now would
+            # leave it looking untouched and re-runnable — a second `seed`
+            # fences the money twice. Stop the batch and retry next poll.
+            audit(event="claim_failed", row=r, verb=verb)
+            print(f"row {r}: could not claim the row, ran nothing — will retry")
+            break
         audit(event="start", row=r, verb=verb, args=safe_arg(verb, arg))
 
         t0 = time.monotonic()
@@ -565,11 +568,10 @@ def main() -> int:
         audit(event="done", row=r, verb=verb, args=safe_arg(verb, arg), exit=rc,
               secs=secs, spill=str(path))
 
-        write_cursor(r)
         executed += 1
 
     if executed == 0:
-        audit(event="idle", cursor=read_cursor(), sheet_rows=last_sheet_row)
+        audit(event="idle", sheet_rows=last_sheet_row)
     return 0
 
 

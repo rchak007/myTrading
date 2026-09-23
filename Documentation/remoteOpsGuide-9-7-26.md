@@ -61,24 +61,26 @@ single-use and short-lived, so this is minor, but worth knowing.
 Each cron run:
 
 1. Opens the sheet (`GSHEET_OPS_ID`, tab `GSHEET_OPS_TAB`).
-2. Reads the **cursor** from `~/.local/state/myTrading/remote_ops.state` —
-   the last row already dealt with.
-3. Walks rows `cursor+1` → bottom of sheet.
-   - Blank column A (spacer row) → skip, advance cursor.
-   - Non-empty column C (already handled) → skip, advance cursor.
-4. For a live row: writes `RUNNING` into C **first**, so a slow verb shows up
-   on your phone and a crash mid-flight leaves a visible marker instead of a
-   silently re-runnable blank row.
-5. Runs the verb, writes C..J back in a single range call.
-6. Advances the cursor, writes it atomically via a `.tmp` + rename.
+2. Walks **down from row 2**, stopping at the first row with a non-empty
+   Status — that row and everything below it is history.
+   - Blank column A → skip, keep scanning.
+   - Verb present but its required argument missing → stop, leave the row
+     unstamped so it runs once you finish typing.
+3. For a live row: **claims** it by writing `RUNNING` into C *before* running
+   anything. If that write fails, the verb does **not** run and the batch
+   stops — see below.
+4. Runs the verb, writes C..J back in a single range call.
+
+**No state is stored.** The boundary is re-read from the sheet every poll, so
+inserting rows at the top is safe and nothing can point at a stale row number.
 
 **Batch cap:** `MAX_ROWS_PER_RUN = 5`. A pasted wall of rows cannot stampede
-the box; the cursor is *not* advanced past the cap, so the remainder runs on
-the next tick.
+the box; the remainder runs on the next tick.
 
-**Cold start:** with no state file, the first run **adopts the bottom row and
-executes nothing**. That stops a fresh install from replaying months of
-history. `--catchup` overrides it once (sets cursor to row 1).
+**Run-once guarantee.** A non-empty Status is the *only* record that a row was
+handled, so the claim write is load-bearing: `write_back()` returns whether it
+landed, and an unclaimable row is skipped entirely rather than run blind. For
+`seed` a re-run would fence the money twice.
 
 **Output:** the full text is spilled to `remote_ops_out/` on disk; column I
 keeps the last `SHEET_OUTPUT_MAX = 1500` chars. The **tail** is kept, not the
@@ -106,28 +108,58 @@ Row 1 is the header (written by `--init`, or pasted).
 | I | Output | Pi 1 (tail, truncated to 1500 chars) |
 | J | Host | Pi 1 |
 
-### Row rules
+### Row rules — top-scan, changed 2026-09-22
 
-- **Never delete a row.** Rows are append-only. Deleting one shifts every row
-  number below it and the cursor silently skips work. Archive by copying to
-  another tab.
-- Leave **C..J empty** on rows you add. A non-empty Status means "already
-  handled" and the row is skipped forever.
-- Blank column A is a spacer — the cursor walks straight past it. This is what
-  makes the `--nudge` row inert.
+**New commands go at the TOP, directly under the header.** Insert rows above
+the existing ones; history sinks down the sheet.
 
-### Current seed (rows 1–2, real work starts row 3)
+The poller walks down from row 2 and **stops at the first row that already has
+a Status**. Everything below that row is history and is never looked at again.
 
-Row 2 is a template that never executes, protected two ways: column C is
-pre-filled (so the row is skipped), and cold start adopts the bottom row
-anyway. **Do not clear C2.**
+- **Never clear a Status.** A stamped row is the boundary marker. Clearing one
+  makes the poller walk down into old rows and re-run them.
+- **Never delete a row** — archive by copying to another tab.
+- Leave **C..J empty** on rows you add.
+- **Blank column A is a spacer** — skipped, and the scan keeps going. So you
+  can insert three blank rows and fill them in any order.
+- A verb whose **required argument is still empty stops the scan** and leaves
+  the row unstamped, so it runs on a later poll once you finish typing. Order
+  is preserved: nothing below it jumps the queue.
 
-After pasting the seed, pin the cursor explicitly rather than trusting cold
-start:
+> **The template row must not live at row 2.** Its Status cell is filled, so
+> top-scan treats it as the boundary and **nothing ever runs**. Move the
+> template to a `Documentation` tab (extra tabs are invisible to the poller —
+> it opens only `GSHEET_OPS_TAB`, default `ops`).
 
-```bash
-.venv/bin/python remote_ops.py --reset-cursor 2
-```
+#### Why this replaced the cursor
+
+The old design stored the last-processed row *number* on Pi 1 and scanned
+downward from it. Inserting a row at the top shifted every row below it, so the
+stored number pointed at the wrong row — and new commands above it were never
+scanned at all. Silently. The cursor also had a cold-start rule that once
+swallowed a pre-typed `git_pull`.
+
+Nothing is stored now; the boundary is read off the sheet each poll.
+
+**What replaced the cursor's safety.** The cursor guaranteed a row ran once.
+Now that guarantee comes from the row being **claimed** — `Status = RUNNING` is
+written *before* the verb runs, and `write_back()` returns whether that write
+landed. **If the claim fails, the verb does not run** and the batch stops. This
+matters for `seed`: a re-run would fence the money twice. Previously
+`write_back` gave up silently after three attempts and the verb ran anyway.
+
+### The template row — moved 2026-09-22
+
+Under the old cursor design the template lived at row 2 with its Status
+pre-filled so it would be skipped. **Under top-scan that stops the poller
+dead**: a filled Status at row 2 is read as the boundary, so nothing below it
+ever runs.
+
+Keep the template on a separate `Documentation` tab instead. The poller opens
+only the tab named by `GSHEET_OPS_TAB` (default `ops`), so any other tab is
+invisible to it and safe for notes, examples and usage text.
+
+Row 2 onward in `ops` should be either empty or live commands.
 
 ---
 
@@ -263,10 +295,8 @@ stranding it. `token_status` is unaffected.
 | *(none)* | normal poll — the cron entry point |
 | `--verbs` | print the allowlist and exit (no sheet access needed) |
 | `--dry-run` | show what would run; execute nothing, write nothing |
-| `--catchup` | on cold start, actually run the pending backlog |
 | `--init` | write the header row to A1:J1 and exit |
 | `--nudge` | append a re-auth prompt row if the refresh token is aging out |
-| `--reset-cursor ROW` | force the cursor; rows at or below ROW are ignored |
 
 `--verbs` is the quickest sanity check that a code change parsed — it needs no
 credentials and no network.
@@ -283,7 +313,7 @@ credentials and no network.
 | `MYTRADING_REPO` | `~/github/myTrading` | repo for git verbs and log paths |
 | `JOBS_REPO` | `~/github/jobMyTrading` | `ls jobs` |
 | `BOTS_REPO` | `~/github/botsMyTrading` | `ls bots` |
-| `REMOTE_OPS_STATE` | `~/.local/state/myTrading` | cursor, audit log, spilled output |
+| `REMOTE_OPS_STATE` | `~/.local/state/myTrading` | audit log, spilled output |
 | `BOT_SERVICE` | `mytrading-bot.service` | target of `status` and `svc_log` |
 | `SCHWAB_TOKENS` | see `schwab_auth.py` | token file location |
 
@@ -359,7 +389,7 @@ pointless risk.
 waiting in the sheet. It appends a row only when the state is `RENEW_NOW`,
 `EXPIRED`, `MISSING` or `UNKNOWN`; on `OK` it does nothing and returns 0.
 
-Column A is left **blank** on the appended row, so the cursor walks past it
+Column A is left **blank** on the appended row, so the scan walks past it
 without trying to execute it — the row is a notification, not a command.
 
 Suggested cron on Pi 1:
@@ -374,12 +404,11 @@ Suggested cron on Pi 1:
 
 ```
 ~/.local/state/myTrading/
-├── remote_ops.state          cursor — one integer, atomically replaced
 ├── remote_ops_audit.log      one JSON object per line, append-only, not rotated
 └── remote_ops_out/           full spilled output, <stamp>_r<row>_<verb>.txt
 ```
 
-Audit events: `cold_start_adopt`, `cursor_reset`, `start`, `done`,
+Audit events: `start`, `done`, `awaiting_arg`, `claim_failed`,
 `rejected`, `batch_cap`, `idle`, `writeback_failed`, `redact_failed`, `nudge`.
 
 The audit log is never rotated by us. Read it from your phone with a
@@ -391,9 +420,9 @@ The audit log is never rotated by us. Read it from your phone with a
 
 | Symptom | Cause |
 |---------|-------|
-| Nothing runs, no rows change | Cold start adopted the bottom row. Add a *new* row below, or `--reset-cursor`. |
+| Nothing runs, no rows change | A row at or near the top already has a Status — the scan stops there. Most often the old template row at row 2; move it to the `Documentation` tab. |
 | A row is skipped forever | Column C is non-empty. Pi 1 treats any Status as "already handled". |
-| Rows run out of order / get skipped | A row was **deleted**. Row numbers shifted under the cursor. Never delete. |
+| Rows run out of order / get skipped | A Status was **cleared**, or a row deleted. The boundary moved. Never clear a Status. |
 | `REJECTED` in column C | Verb is not in either allowlist. Column I lists the valid ones. |
 | Exit 2 on `tail_log` / `ls` | Bad key. Column I lists the valid keys. |
 | `auth_code` returns exit 1 | Code expired or already used, or the URL was truncated. Re-run `auth_url` and copy the **whole** address bar. |
