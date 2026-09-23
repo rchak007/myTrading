@@ -19,6 +19,7 @@ import os
 import sys
 import json
 import subprocess
+import time
 import importlib.util
 from pathlib import Path
 from datetime import datetime, timezone
@@ -675,8 +676,24 @@ if __name__ == "__main__":
                         help="Skip git commit/push (useful for local testing)")
     args = parser.parse_args()
 
+    # Timed out here rather than inside main(): main() returns from several
+    # places (--no-push, "no changes", a failed push), and a finally block
+    # catches every one of them plus the fatal path.
+    #
+    # Why this matters: cron fires at :15 and :50, a 25-minute gap, while the
+    # crontab's `timeout` allows 40. A run that ever exceeds the gap collides
+    # with the next one, which then waits on flock and dies without running —
+    # silently. See PROJECT_PLAN §7. Per-step timings are already derivable
+    # from the timestamps on every log line; this is the total.
+    _t0 = time.monotonic()
     try:
         main(no_push=args.no_push)
     except Exception as e:
         log(f"FATAL: {repr(e)}")
         raise
+    finally:
+        _secs = time.monotonic() - _t0
+        _m, _s = divmod(int(_secs), 60)
+        log(f"⏱  Total runtime: {_m}m {_s:02d}s  ({_secs:.1f}s)"
+            + ("   ⚠️  longer than the 25-minute gap between cron runs"
+               if _secs > 1500 else ""))
