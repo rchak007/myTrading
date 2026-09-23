@@ -96,8 +96,15 @@ does not git push — `gitpush.py` remains the sole git writer. So dropping the
 `--out` override makes the CSVs land where `gitpush.py` will carry them, and Pi
 2 pulls read-only.
 
-*To verify first:* whether `jobMyTrading` is actually cloned on Pi 1, and
-whether `gitpush.py` already covers `outputs/portfolio`.
+**Verified 2026-09-22:** `jobMyTrading` *is* cloned on Pi 1, and `gitpush.py`
+runs `git add -A` at the repo root every 5 minutes (`*/5` in cron), so
+`outputs/portfolio` is covered automatically. Dropping the `--out` override is
+all that is needed — nothing else to wire.
+
+Note the division of labour this confirms: the signal jobs all run `--no-push`
+and only write files; `gitpush.py` is the sole git writer, on its own schedule.
+So "did it reach GitHub?" is never a question about the job that produced the
+file.
 
 ---
 
@@ -570,7 +577,7 @@ finishes last. *Fix when it gets close:* either widen the schedule to hourly at
 `:15`, or drop `timeout` to ~1200 so a hung run dies before it can eat the next
 slot. Not urgent; worth a look if the runtime passes ~20 minutes.
 
-### 🟡 IN PROGRESS — the ops channel works by hand; the schedule is not set up
+### ✅ RESOLVED — the ops channel is live on cron (verified 2026-09-22)
 **First successful end-to-end run 2026-09-18.** `git_pull` typed into A3
 executed on Pi 1 and wrote its result back: `OK`, exit 0, 14.8s, the real
 `6ca06c6..5ebdd3e` pull output in column I. The audit log reads
@@ -585,14 +592,15 @@ Two things learned bringing it up:
   `remote_ops.py` and `gsheet_notes.py` both import them. The gap stayed hidden
   because `gsheet_notes` wraps its imports in a try/except and degrades
   silently. Fixed in `5ebdd3e`.
-- **Cold start adopts the bottom row**, so a verb typed in *before* the first
-  run gets swallowed rather than executed. `--reset-cursor` afterwards is not
-  optional in that case.
+- **Cold start adopted the bottom row**, so a verb typed in *before* the first
+  run got swallowed. That whole mechanism is gone as of `932f247` — there is no
+  cursor and no cold start; see the top-scan section of `remoteOpsGuide`.
 
-**Remaining: the schedule.** Nothing polls the sheet yet, so a typed verb still
-sits there until `remote_ops.py` is run by hand. The cron entry **must source
-`.env`** — `remote_ops.py` has no `dotenv` import, so a naive line gets
-"GSHEET_OPS_ID is not set" and never runs:
+**The schedule is in place.** Confirmed in Pi 1's crontab 2026-09-22, polling
+every 10 minutes. The plan had said otherwise for days and that was simply
+stale — the `seed` rows on 2026-09-21 were executed by this cron, not by hand.
+The entry **must source `.env`** — `remote_ops.py` has no `dotenv` import, so a
+naive line gets "GSHEET_OPS_ID is not set" and never runs:
 
 ```cron
 */10 * * * * cd /home/rchak007/github/myTrading && set -a && . ./.env && set +a && flock -n /tmp/remote_ops.lock timeout 300 .venv/bin/python remote_ops.py >> /home/rchak007/.local/state/myTrading/remote_ops_cron.log 2>&1
