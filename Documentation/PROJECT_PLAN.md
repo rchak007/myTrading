@@ -15,7 +15,7 @@ responses:
 Finished items move to [§8 Done](#8-done) rather than being deleted — the
 history of what was fixed is worth as much as the list of what is left.
 
-Last updated: 2026-09-18
+Last updated: 2026-09-22
 
 ---
 
@@ -125,16 +125,38 @@ finally subtracts something. Fail-soft: a missing ledger costs that one column,
 never the sheet write. Zero-balance pairs are dropped so a closed reserve reads
 blank rather than `$0.00`.
 
+**Published to `jobMyTrading` since 2026-09-22** (`91b35c9`). Step 4d-2 writes
+`reserves.csv` / `reserves.html` into `JOB_DIR`, picked up by the existing
+`git add -A`, so the Streamlit app can show reserves alongside cash.
+
 **Still outstanding:** nothing consumes fills, so `Deployed` stays 0 — a buy
 that spends reserved money does not debit the reserve until `apply_fills()` is
 run on a schedule. Until then the ledger records intent and the sheet reports
-it, but the balance does not follow real trading.
+it, but the balance does not follow real trading. **This is the remaining
+blocker on §4 phases 2 and 3.**
 
 State lives outside the repo at `~/.local/state/myTrading/`
 (`reserve_ledger.csv`, `reserves_config.csv`), override with
 `MYTRADING_STATE_DIR`. The ledger is append-only money history and must never
 be committed, sorted, or de-duplicated in place — corrections are new `ADJUST`
 rows, and `fold_balances()` is the only authority on a balance.
+
+### ✅ RESOLVED 2026-09-22 — `TOTAL_CAPITAL` now binds (`91b35c9`)
+Two faults, not one. `position_value()` returned `0.0` because no caller ever
+passed a positions frame — **and** it accepted only an `Account` column while
+`orders_sheet.fetch_positions_detailed()` returns `Acct`, so even when a frame
+was supplied the account filter was silently skipped and the value summed across
+every account holding the ticker. A per-account reserve compared against a
+whole-portfolio position.
+
+`jobStocksSignals` step 4d-2 now fetches positions once, shares them with
+`write_orders_sheet`, and passes them to `build_reserves_table`. Verified:
+`target $7,968.10 - position $361.42 = $7,606.68, capped by reserve $7,606.68`.
+
+The CLI (`--list`, `--check`) still injects nothing, so those two still report
+`Position_Value 0.0`. Use the sheet or `reserves.csv` for the real number.
+
+<details><summary>Original report</summary>
 
 ### 🐞 DEFECT — `TOTAL_CAPITAL` silently degrades to `CASH_ONLY` from the CLI
 `position_value()` returns `0.0` when `positions_df is None` (line 529), and
@@ -152,6 +174,7 @@ position approaches its goal. **Must be fixed before the gate is wired to
 anything that can submit an order.** Fix: have the CLI load positions (the same
 frame `orders_sheet.fetch_positions_detailed()` builds, whose `Market_Value`
 column `position_value()` already recognises) and pass it through.
+</details>
 
 ### 🐞 DEFECT — a seed is never checked against the account's actual cash
 `seed()` and `topup()` validate that the amount is positive and the policy is
@@ -175,12 +198,12 @@ with the account and shortfall, and the header `ALERTS` row reads `OVER-FENCED:
 171`. Still not caught at **seed time**, which is where it belongs — you learn
 about it on the next cycle rather than when you type the row.
 
-### 🐞 DEFECT — `--list` TOTAL row sums inactive reserves
-The TOTAL row adds `Seed_Cash` and `Target_Capital` across **all** config rows
-including `Active=N`. After closing `885/MU` and re-seeding `171/MU`, the total
-read `Seed_Cash 15,213.36` / `Target_Capital 17,968.10` — double-counting money
-that had been released. `Reserved_Cash` is correct (it folds the ledger).
-Cosmetic, but misleading at a glance. Fix: filter to active rows before the sum.
+### ✅ RESOLVED 2026-09-22 — TOTAL row summed inactive reserves (`91b35c9`)
+It added `Seed_Cash` and `Target_Capital` across **all** rows including
+`Status = INACTIVE`, double-counting money that had been released — after
+closing `885/MU` and re-seeding `171/MU` the total read `Seed_Cash $24,914.01`
+against $17,307.33 of actual reserve. `Reserved_Cash` was always right because
+it folds the ledger; the intent columns were not. Now sums live rows only.
 
 ### ❓ OPEN QUESTION — aggregate a ticker's target across accounts?
 Reserves are keyed per `(Account, Ticker)`, but a capital goal is usually per
