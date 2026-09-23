@@ -468,7 +468,7 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None, log=print) ->
 
 def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
                        cash_df=None, reserves=None, token_status=None,
-                       log=print) -> None:
+                       positions_raw=None, log=print) -> None:
     """
     Refresh Positions, Cash and the header block. Never touches columns A-K of
     Orders — those are the human's.
@@ -480,7 +480,10 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     if reserves is None:
         reserves = load_reserves(log=log)
 
-    pos_raw = fetch_positions_detailed(client_wrapper, log=log)
+    # Caller may have fetched positions already (the reserves step needs the
+    # same frame); one Schwab round-trip is worth avoiding.
+    pos_raw = (positions_raw if positions_raw is not None
+               else fetch_positions_detailed(client_wrapper, log=log))
     positions = build_positions_table(pos_raw, signals_df, orders_df, reserves, log=log)
     cash = build_cash_rows(cash_df, reserves, log=log)
 

@@ -40,6 +40,8 @@ OUT_META    = JOB_DIR / "meta_stocks.json"
 LOG_FILE    = JOB_DIR / "job_stocks.log"
 OUT_CASH_CSV  = JOB_DIR / "cash.csv"
 OUT_CASH_HTML = JOB_DIR / "cash.html"
+OUT_RESERVES_CSV  = JOB_DIR / "reserves.csv"
+OUT_RESERVES_HTML = JOB_DIR / "reserves.html"
 
 
 TOKEN_PATHS = [
@@ -509,20 +511,41 @@ def main(no_push: bool = False):
     # ── 4d. Orders sheet: Positions, Cash and the header block (non-fatal) ─────
     # Phase 1 of ordersSheetDesign-9-18-26.md — writes only Pi-1-owned tabs and
     # columns, places nothing. A Sheets hiccup must never take down signals.
+    # Hoisted: the reserves step below needs the same per-account frame, and
+    # TOTAL_CAPITAL is wrong without it (it would see a position value of 0).
+    df_positions = None
     try:
-        from orders_sheet import write_orders_sheet
+        from orders_sheet import write_orders_sheet, fetch_positions_detailed
         try:
             import schwab_auth
             tok = schwab_auth.status()
         except Exception:
             tok = None                      # header will show UNKNOWN
+        df_positions = fetch_positions_detailed(get_schwab_client(), log=log)
         write_orders_sheet(
             client_wrapper=get_schwab_client(),
             signals_df=df, orders_df=df_orders, cash_df=df_cash,
-            token_status=tok, log=log,
+            positions_raw=df_positions, token_status=tok, log=log,
         )
     except Exception as e:
         log(f"⚠️  Orders sheet step failed (non-fatal): {e}")
+
+    # ── 4d-2. Cash reserves → reserves.csv/html (non-fatal) ───────────────────
+    # Publishes to jobMyTrading so the Streamlit app can show it. Passing
+    # positions is what makes TOTAL_CAPITAL's headroom real rather than
+    # "target - 0"; passing cash gives the coverage columns something to
+    # compare against.
+    try:
+        from cash_reserve import build_reserves_table, write_reserve_outputs
+        df_reserves = build_reserves_table(positions_df=df_positions,
+                                           cash_df=df_cash, log=log)
+        write_reserve_outputs(
+            df_reserves, updated_pst,
+            out_csv=OUT_RESERVES_CSV, out_html=OUT_RESERVES_HTML,
+            html_builder=build_html_table, log=log,
+        )
+    except Exception as e:
+        log(f"⚠️  Reserves step failed (non-fatal): {e}")
 
     # Summary stats
     held      = df[df["VALUE"] > 0]

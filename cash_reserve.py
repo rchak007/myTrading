@@ -532,8 +532,13 @@ def position_value(account, ticker, positions_df=None) -> float:
     if "Ticker" not in df.columns:
         return 0.0
     m = df["Ticker"].map(tkr_key) == tkr_key(ticker)
-    if "Account" in df.columns:
-        m &= df["Account"].map(acct_key) == acct_key(account)
+    # "Acct" is what orders_sheet.fetch_positions_detailed() calls it. Accepting
+    # only "Account" meant the account filter was silently skipped and the value
+    # summed across EVERY account holding the ticker — a per-account reserve
+    # compared against a whole-portfolio position.
+    acct_col = next((c for c in ("Account", "Acct") if c in df.columns), None)
+    if acct_col:
+        m &= df[acct_col].map(acct_key) == acct_key(account)
     val_col = next((c for c in ("VALUE", "Value", "Market_Value") if c in df.columns), None)
     if val_col is None:
         return 0.0
@@ -820,9 +825,15 @@ def build_reserves_table(*, positions_df=None, cash_df=None,
     total = {c: None for c in RESERVE_COLS}
     total.update({"Account": "TOTAL", "Nickname": "", "Ticker": "", "Policy": "",
                   "Status": "", "Last_Event_PST": ""})
+    # Sum only LIVE rows. An INACTIVE pair keeps its original Seed_Cash and
+    # Target_Capital as history, and including them double-counted money that
+    # had been released — after closing 885/MU and re-seeding 171/MU the total
+    # read Seed_Cash $15,213.36 for $7,606.68 of actual reserve. Reserved_Cash
+    # was always right because it folds the ledger; the intent columns were not.
+    live = df[df["Status"].ne("INACTIVE")]
     for c in ("Seed_Cash", "Target_Capital", "Reserved_Cash", "Deployed",
               "Returned", "Position_Value", "Available_To_Buy"):
-        s = pd.to_numeric(df[c], errors="coerce")
+        s = pd.to_numeric(live[c], errors="coerce")
         total[c] = round(float(s.sum()), 2) if s.notna().any() else None
     df = pd.concat([df, pd.DataFrame([total])], ignore_index=True)
 
