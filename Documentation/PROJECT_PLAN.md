@@ -302,6 +302,35 @@ itself cannot express as a resting order.
   HMAC tokens, ledger, state machine, caps. Nothing executes until its §6
   security model is built in full.
 
+### 🔒 SEQUENCING — decided 2026-09-22
+Phases 2 and 3 are **on hold until §2 (cash reserves) is resolved**. Chakravarti's
+call. The reserve gate decides how much may be spent on a ticker, so building
+order placement on top of a reserve system whose `TOTAL_CAPITAL` policy does not
+yet bind (see §2) would put money behind a number that is known to be wrong.
+
+**Neither phase needs a 24/7 process** — confirmed 2026-09-22:
+- **Phase 2** (`After_Close = N`): Pi 1 reads the row, places a resting order at
+  Schwab, writes back `Schwab_Order_ID`, done. Schwab holds it from then on, so
+  it survives Pi 1 dying. Code is required; *watching* is not.
+- **Phase 3** (`After_Close = Y`): one evaluation per day shortly after the
+  close. A daily close is a daily event.
+
+A daemon that must stay alive to protect a position is a liability, which is
+why §7 of the sheet design requires `SELL-STOPLOSS` to always rest at Schwab.
+
+### 💡 IDEA — conflict detection, buildable in phase 1
+Chakravarti asked 2026-09-22 for a warning when a sheet intent duplicates
+something already resting at Schwab — e.g. an `AFTER_CLOSE` sell typed while a
+SELL already rests for the same (ticker, account).
+
+**This needs no execution capability.** It only reads open Schwab orders, which
+`stocks_orders.build_orders_table()` already does and the `Dashboard` already
+renders per ticker. Column **O `Validation`** was reserved for exactly this.
+
+Worth building *before* phases 2 and 3 rather than alongside: it is read-only,
+it is the safety net that makes typing intents less dangerous, and it exercises
+the sheet-intent-vs-Schwab-reality comparison that phase 2 depends on anyway.
+
 **Sheet initialised 2026-09-18** (`orders_sheet_init.py --force`): four tabs
 live — Orders with the status header, ownership banner and data from row 9, plus
 Positions, Cash and History. `GSHEET_ORDERS_ID` is in Pi 1's `.env`.
