@@ -61,21 +61,25 @@ single-use and short-lived, so this is minor, but worth knowing.
 Each cron run:
 
 1. Opens the sheet (`GSHEET_OPS_ID`, tab `GSHEET_OPS_TAB`).
-2. Walks **down from row 2**, stopping at the first row with a non-empty
-   Status — that row and everything below it is history.
+2. Examines the top `SCAN_WINDOW = 25` rows from row 2 down.
+   - Non-empty Status → already handled, skip and keep scanning.
    - Blank column A → skip, keep scanning.
-   - Verb present but its required argument missing → stop, leave the row
-     unstamped so it runs once you finish typing.
+   - Verb present but its required argument missing → skip unstamped, so it
+     runs once you finish typing.
 3. For a live row: **claims** it by writing `RUNNING` into C *before* running
    anything. If that write fails, the verb does **not** run and the batch
    stops — see below.
 4. Runs the verb, writes C..J back in a single range call.
 
-**No state is stored.** The boundary is re-read from the sheet every poll, so
-inserting rows at the top is safe and nothing can point at a stale row number.
+**No state is stored.** What has run is read off the sheet itself every poll —
+column C is the record — so inserting rows at the top is safe and nothing can
+point at a stale row number.
 
-**Batch cap:** `MAX_ROWS_PER_RUN = 5`. A pasted wall of rows cannot stampede
-the box; the remainder runs on the next tick.
+**Batch cap:** `MAX_ROWS_PER_RUN = 5` executions per poll. A pasted wall of
+rows cannot stampede the box; the remainder runs on the next tick — which only
+works because stamped rows are skipped rather than treated as a boundary. An
+earlier version stopped at the first stamped row, so queueing six commands ran
+five and abandoned the sixth forever.
 
 **Run-once guarantee.** A non-empty Status is the *only* record that a row was
 handled, so the claim write is load-bearing: `write_back()` returns whether it
@@ -113,23 +117,25 @@ Row 1 is the header (written by `--init`, or pasted).
 **New commands go at the TOP, directly under the header.** Insert rows above
 the existing ones; history sinks down the sheet.
 
-The poller walks down from row 2 and **stops at the first row that already has
-a Status**. Everything below that row is history and is never looked at again.
+The poller examines the **top 25 rows** (`SCAN_WINDOW`) every poll. A row that
+already has a Status is **skipped**, never a stopping point — so a completed
+row can never hide a pending one below it. Up to `MAX_ROWS_PER_RUN = 5`
+unstamped rows execute per poll; the rest run on the next one.
 
-- **Never clear a Status.** A stamped row is the boundary marker. Clearing one
-  makes the poller walk down into old rows and re-run them.
+- **Never clear a Status.** A cleared Status makes the row look pending, and it
+  runs again. For `seed` that fences the money twice.
 - **Never delete a row** — archive by copying to another tab.
 - Leave **C..J empty** on rows you add.
 - **Blank column A is a spacer** — skipped, and the scan keeps going. So you
   can insert three blank rows and fill them in any order.
-- A verb whose **required argument is still empty stops the scan** and leaves
-  the row unstamped, so it runs on a later poll once you finish typing. Order
-  is preserved: nothing below it jumps the queue.
+- A verb whose **required argument is still empty is skipped**, unstamped, and
+  runs on a later poll once you finish typing. Rows below it still run, so a
+  row you are mid-way through typing cannot hold up the queue — the trade-off
+  is that a later row may run first.
 
-> **The template row must not live at row 2.** Its Status cell is filled, so
-> top-scan treats it as the boundary and **nothing ever runs**. Move the
-> template to a `Documentation` tab (extra tabs are invisible to the poller —
-> it opens only `GSHEET_OPS_TAB`, default `ops`).
+> **Where the window runs out.** Rows 2–26 are examined. Since new work goes on
+> top, a pending row only falls outside that if you put a command below 25 rows
+> of history. Raise `SCAN_WINDOW` if you ever need a deeper queue.
 
 #### Why this replaced the cursor
 
@@ -139,7 +145,7 @@ stored number pointed at the wrong row — and new commands above it were never
 scanned at all. Silently. The cursor also had a cold-start rule that once
 swallowed a pre-typed `git_pull`.
 
-Nothing is stored now; the boundary is read off the sheet each poll.
+Nothing is stored now; column C on the sheet is the only record of what ran.
 
 **What replaced the cursor's safety.** The cursor guaranteed a row ran once.
 Now that guarantee comes from the row being **claimed** — `Status = RUNNING` is
@@ -148,18 +154,14 @@ landed. **If the claim fails, the verb does not run** and the batch stops. This
 matters for `seed`: a re-run would fence the money twice. Previously
 `write_back` gave up silently after three attempts and the verb ran anyway.
 
-### The template row — moved 2026-09-22
+### The template row
 
-Under the old cursor design the template lived at row 2 with its Status
-pre-filled so it would be skipped. **Under top-scan that stops the poller
-dead**: a filled Status at row 2 is read as the boundary, so nothing below it
-ever runs.
+A template row with its Status pre-filled is simply skipped, like any other
+completed row, so it is harmless wherever it sits.
 
-Keep the template on a separate `Documentation` tab instead. The poller opens
-only the tab named by `GSHEET_OPS_TAB` (default `ops`), so any other tab is
-invisible to it and safe for notes, examples and usage text.
-
-Row 2 onward in `ops` should be either empty or live commands.
+Better still, keep usage notes on a separate `Documentation` tab. The poller
+opens only the tab named by `GSHEET_OPS_TAB` (default `ops`), so **any other
+tab is invisible to it** and safe for notes, examples and usage text.
 
 ---
 
@@ -420,9 +422,9 @@ The audit log is never rotated by us. Read it from your phone with a
 
 | Symptom | Cause |
 |---------|-------|
-| Nothing runs, no rows change | A row at or near the top already has a Status — the scan stops there. Most often the old template row at row 2; move it to the `Documentation` tab. |
+| Nothing runs, no rows change | Every row in the top 25 already has a Status, or the pending row sits below the window. Check column C is genuinely empty on the row you added. |
 | A row is skipped forever | Column C is non-empty. Pi 1 treats any Status as "already handled". |
-| Rows run out of order / get skipped | A Status was **cleared**, or a row deleted. The boundary moved. Never clear a Status. |
+| A row ran twice | Its Status was **cleared**, making it look pending again. Never clear a Status. |
 | `REJECTED` in column C | Verb is not in either allowlist. Column I lists the valid ones. |
 | Exit 2 on `tail_log` / `ls` | Bad key. Column I lists the valid keys. |
 | `auth_code` returns exit 1 | Code expired or already used, or the URL was truncated. Re-run `auth_url` and copy the **whole** address bar. |

@@ -66,6 +66,7 @@ TS_FMT = "%Y-%m-%d %H:%M:%S %Z"
 # Tunables
 # ---------------------------------------------------------------------
 START_ROW = 2               # row 1 is the header; new work goes directly below
+SCAN_WINDOW = 25            # rows from START_ROW examined each poll, stamped or not
 MAX_ROWS_PER_RUN = 5        # a pasted wall of rows cannot stampede the box
 SHEET_OUTPUT_MAX = 1500     # chars kept in column I; full text goes to disk
 TAIL_LINES = 120
@@ -461,28 +462,33 @@ def main() -> int:
     rows = ws.get_all_values()
     last_sheet_row = len(rows)
 
-    # ---- Top-scan, adopted 2026-09-22 ------------------------------------
-    # Walk DOWN from row 2 and stop at the first row that already carries a
-    # Status. New work goes at the TOP, history sinks below that boundary.
+    # ---- Top-scan window, adopted 2026-09-22 -----------------------------
+    # Examine the top SCAN_WINDOW rows every poll. A row that already carries
+    # a Status is SKIPPED, not a stopping point — anything unstamped below it
+    # still runs.
+    #
+    # Stopping at the first stamped row was the obvious reading of "history
+    # sinks down", and it was wrong: with MAX_ROWS_PER_RUN = 5, queueing six
+    # commands ran five, and the next poll then hit row 2's OK and stopped —
+    # the sixth never ran at all. Same if a run died partway through a batch.
     #
     # This replaced a stored row-number cursor. Inserting a row shifted every
-    # number below it, so the cursor silently pointed at the wrong row and
-    # new commands above it were never scanned. Nothing points anywhere now;
-    # the boundary is read off the sheet each poll.
+    # number below it, so the cursor silently pointed at the wrong row and new
+    # commands above it were never scanned. Nothing points anywhere now.
     #
-    # What makes it safe is that a row is CLAIMED before its verb runs, and an
-    # unclaimable row is not run at all — see the write_back gate below.
+    # What keeps a row from running twice is that it is CLAIMED before its
+    # verb runs, and an unclaimable row is not run at all — see the gate below.
     executed = 0
-    for r in range(START_ROW, last_sheet_row + 1):
+    for r in range(START_ROW, min(last_sheet_row, START_ROW + SCAN_WINDOW - 1) + 1):
         cells = rows[r - 1] + [""] * (len(HEADER) - len(rows[r - 1]))
         verb = cells[0].strip()
         arg = cells[1].strip()
         status = cells[2].strip()
 
         if status:
-            # THE BOUNDARY. Everything from here down is history. Stop, do not
-            # continue — a blank row further down is old spacing, not new work.
-            break
+            # Already handled. Skip it and keep looking — a stamped row above
+            # must never hide an unstamped one below.
+            continue
 
         if not verb:
             # Blank row above the boundary: spacing between queued commands,
@@ -496,9 +502,14 @@ def main() -> int:
         needs_arg = (PY_VERBS[verb][0] if verb in PY_VERBS
                      else VERBS[verb][2] if verb in VERBS else False)
         if needs_arg and not arg:
+            # Skip, do not stop: a row you are still typing must not hold up
+            # the ones below it. It stays unstamped and runs on a later poll.
+            # The cost is that a later row may run first — acceptable, since
+            # the verbs that need an argument (seed, tail_log, auth_code) do
+            # not depend on the ones that do not.
             audit(event="awaiting_arg", row=r, verb=verb)
             print(f"row {r}: {verb} is waiting for an argument in column B")
-            break                                    # preserve typed order
+            continue
 
         if executed >= MAX_ROWS_PER_RUN:
             audit(event="batch_cap", stopped_at=r, cap=MAX_ROWS_PER_RUN)
