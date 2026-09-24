@@ -25,10 +25,20 @@
 # Seeded from the 21 mismatches as of 2026-09-24. Delete a line rather than
 # guessing if you would rather leave a ticker visibly wrong.
 #
-# PREFER manual_transactions.csv when you have the full Schwab history for a
-# ticker: it replaces the API rows outright and gets realized P&L exactly right.
-# This file only nets the share count, which is the fallback for when the real
-# trades are not recoverable.
+# WHICH FILE TO USE
+#   manual_transactions.csv when you have the COMPLETE history — it replaces
+#   the API rows outright. SOFI qualified: every buy and sell was visible.
+#
+#   THIS file when only the EXIT is missing and the buys were captured
+#   correctly. BITO and METV qualify: Schwab's UI only goes back four years, so
+#   their original purchases are not visible, but our API data already holds
+#   BUY 329 / SELL 35 for BITO and BUY 260 / SELL 85 for METV. Supplying just
+#   the missing sell with its proceeds closes the lots FIFO and gets realized
+#   P&L right without needing the opening trades.
+#
+# KNOWN SMALL GAP: dividends paid inside the API window are missing too — BITO
+# received ~$143.60 across Oct-Dec 2023 and METV $3.35 on 2023-12-29. Neither
+# file carries dividends yet. About $147 total, so recorded rather than built.
 symbol,date,qty,proceeds,note
 AEHR,,109,,gap 2023-10..2024-08
 AMD,,90,,
@@ -43,9 +53,9 @@ BYND,,22,,
 TDOC,,100,,
 GDYN,,52,,
 # SOFI — superseded by the full history in manual_transactions.csv
-METV,,175,,TDA era
+METV,2024-01-11,175,1972.20,sold 175 @ 11.27 acct 171 — inside the API gap
 AI,,100,,
-BITO,,294,,TDA era
+BITO,2024-01-11,294,6929.00,sold 294 @ 23.5684 acct 171 — inside the API gap
 XYZ,,14,,
 SNOW,,65,,
 ROKU,,50,,
