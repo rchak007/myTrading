@@ -37,13 +37,28 @@ def main() -> int:
     # `.client`, found the wrapper itself, and reported "NONE FOUND" — the
     # wrapper has no quote methods because it only forwards what it was asked
     # to forward. Unwrap properly, and say which object is being probed.
+    # get_client() first: SchwabClient builds schwabdev lazily, so ._client is
+    # None until something asks for it. Reading the attribute finds None,
+    # falls through, and leaves you probing the wrapper — which exposes only
+    # fetch_positions, because that is all it was written to forward.
     inner = client
-    for attr in ("_client", "client", "schwab", "_schwab"):
-        cand = getattr(client, attr, None)
-        if cand is not None and cand is not client:
-            inner = cand
-            print(f"unwrapped via .{attr}")
-            break
+    getter = getattr(client, "get_client", None)
+    if callable(getter):
+        try:
+            cand = getter()
+            if cand is not None and cand is not client:
+                inner = cand
+                print("unwrapped via .get_client()")
+        except Exception as e:
+            print(f"get_client() raised: {type(e).__name__}: {e}")
+
+    if inner is client:
+        for attr in ("_client", "client", "schwab", "_schwab"):
+            cand = getattr(client, attr, None)
+            if cand is not None and cand is not client:
+                inner = cand
+                print(f"unwrapped via .{attr}")
+                break
 
     print(f"\nwrapper type: {type(client)}")
     print(f"probing type: {type(inner)}")
