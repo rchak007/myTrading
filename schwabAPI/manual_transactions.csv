@@ -1,0 +1,35 @@
+# manual_transactions.csv — complete hand-entered histories, taken from Schwab.
+#
+# AUTHORITATIVE, NOT ADDITIVE. Every symbol listed here has ALL its API rows
+# replaced by these, so nothing can be double-counted.
+#
+# Use this (not manual_adjustments.csv) when the API gap swallowed BUYS as well
+# as sells — netting the share difference would leave realized P&L wrong even
+# once the quantity was right.
+#
+#   qty     always POSITIVE; `action` carries the direction
+#   amount  signed cash exactly as Schwab shows it: negative on a buy,
+#           positive on a sell. Copy it straight off the screen.
+#   account last 3 digits
+#
+# Internal transfer pairs that net to zero inside one account are omitted —
+# they moved nothing.
+symbol,date,action,qty,amount,account,note
+# ---- SOFI: closed everywhere, Schwab says 0 shares. Verified 2026-09-24.
+# The API gap of 2023-10..2024-08 swallowed the 70/350/367 sells and the 142 buy.
+SOFI,2023-04-14,BUY,165,-990.00,171,TDA
+SOFI,2023-08-02,BUY,150,-1500.00,171,TDA
+SOFI,2023-08-03,BUY,100,-1009.57,171,TDA
+SOFI,2023-08-11,BUY,222,-1908.53,431,TDA
+SOFI,2023-09-22,BUY,230,-1844.60,171,
+SOFI,2023-10-10,SELL,70,583.09,171,inside API gap
+SOFI,2023-10-30,BUY,142,-979.80,171,inside API gap
+SOFI,2024-01-03,SELL,350,3069.42,171,inside API gap
+SOFI,2024-01-11,SELL,367,3048.04,171,inside API gap
+SOFI,2024-01-11,SELL,222,1825.97,431,
+SOFI,2025-10-17,BUY,38,-1016.36,171,
+SOFI,2025-11-20,SELL,38,944.46,171,
+SOFI,2025-12-02,BUY,34,-1014.05,922,
+SOFI,2025-12-04,SELL,34,948.26,922,
+SOFI,2026-04-29,BUY,127,-1992.00,431,
+SOFI,2026-05-08,SELL,127,1975.39,431,

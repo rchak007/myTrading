@@ -52,7 +52,12 @@ CHECKS = [
     ("45 signal PM",     JOBS / "45_signal_full_evening.csv",   30,   True),
     ("P&L summary",      JOBS / "outputs/portfolio/ticker_pl_summary.csv", 30, False),
     ("job log",          JOBS / "job_stocks.log",                2,   True),
-    ("ops poller log",   STATE / "remote_ops_cron.log",          1,  False),
+    # The AUDIT log, not remote_ops_cron.log. A healthy poll with nothing to do
+    # prints nothing at all, so the cron log's mtime stops moving while the
+    # poller is perfectly fine — it read as 57h stale on 2026-09-24 when the
+    # job was running every 10 minutes as scheduled. The audit log gets an
+    # "idle" line on every single run, which is what we actually want to know.
+    ("ops poller",       STATE / "remote_ops_audit.log",         1,  False),
     ("gitpush log",      HOME / "gitpush_cron.log",              1,  False),
     ("price updater",    STATE / "prices_cron.log",              1,   True),
 ]

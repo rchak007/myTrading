@@ -58,8 +58,11 @@ transactions_cache/
 # manual_basis.csv survived only because it was tracked before the *.csv rule
 # existed; manual_adjustments.csv was silently skipped by `git add -A` and
 # never reached Pi 1, so the reconciliation appeared to do nothing.
-!manual_basis.csv
-!manual_adjustments.csv
+# Pattern, not a list of names: listing them individually already failed twice
+# -- manual_adjustments.csv and then manual_transactions.csv were each silently
+# skipped by `git add -A`, never reached Pi 1, and made the fix look like it had
+# done nothing.
+!manual_*.csv
 !corporate_actions.json
 
 # =========================
