@@ -357,8 +357,29 @@ def _put(ws, df, cols, log):
     return len(body)
 
 
-POS_HDR = ["Ticker", "Acct", "Qty", "Avg_Cost", "Market_Value", "Unrealized_PL",
+# Live_Price and Day_% sit next to Avg_Cost on purpose: paid / now / today's
+# move reads left to right. Both are filled by orders_sheet_prices.py on its own
+# faster schedule, so they are written blank here rather than with a stale value.
+POS_HDR = ["Ticker", "Acct", "Qty", "Avg_Cost", "Live_Price", "Day_%",
+           "Market_Value", "Unrealized_PL",
            "Has_Stop", "Has_Trim", "Has_Dip", "Has_Breakout", "Seed_Reserved"]
+# Column letters within a block (column A is the ticker label, so POS_HDR
+# starts at B). orders_sheet_prices.py writes into these two.
+COL_LIVE_PRICE = "F"
+COL_DAY_PCT = "G"
+
+
+def _last_col() -> str:
+    """Rightmost column letter of a dashboard block.
+
+    Derived, not hardcoded: adding Live_Price and Day_% moved it from L to N,
+    and three separate range strings said "L".
+    """
+    n, s = DASH_WIDTH, ""
+    while n:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
 ORD_HDR = ["Acct", "Side", "Type", "Qty", "Limit_Price", "Stop_Price",
            "Status", "Entered", "Order_ID"]
 DASH_WIDTH = 1 + len(POS_HDR)          # column A holds the ticker label
@@ -402,6 +423,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None) -> tuple[list, dict
         marks["header"].append(add([""] + POS_HDR))
         for _, r in grp.iterrows():
             add(["", r["Ticker"], r["Acct"], r["Qty"], r["Avg_Cost"],
+                 "", "",                      # Live_Price, Day_% — see below
                  r["Market_Value"], r["Unrealized_PL"], r["Has_Stop"],
                  r["Has_Trim"], r["Has_Dip"], r["Has_Breakout"], r["Seed_Reserved"]])
 
@@ -480,13 +502,13 @@ def _paint(ws, marks, log):
                             "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}}}
     try:
         if marks.get("title"):
-            ws.format([f"A{r}:L{r}" for r in marks["title"]], title)
+            ws.format([f"A{r}:{_last_col()}{r}" for r in marks["title"]], title)
         if marks["ticker"]:
             ws.format([f"A{r}:B{r}" for r in marks["ticker"]], cyan)
         if marks["label"]:
             ws.format([f"B{r}" for r in marks["label"]], yellow)
         if marks["header"]:
-            ws.format([f"B{r}:L{r}" for r in marks["header"]], bold)
+            ws.format([f"B{r}:{_last_col()}{r}" for r in marks["header"]], bold)
     except Exception as e:
         log(f"⚠️  dashboard formatting skipped (data is fine): {e}")
 
@@ -501,7 +523,7 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None, log=print) ->
 
     rows, marks = build_dashboard(positions, orders_df)
     ws.clear()
-    ws.update(values=rows, range_name=f"A1:L{len(rows)}")
+    ws.update(values=rows, range_name=f"A1:{_last_col()}{len(rows)}")
     ws.freeze(rows=0)
     _link_tickers(ws, rows, marks, log)
     _paint(ws, marks, log)          # after the links, so the cyan survives

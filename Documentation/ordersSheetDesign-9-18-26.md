@@ -305,6 +305,40 @@ as §11b — and the `Has_*` flags stay blank on it, same reason.
 Row 1 is a header carrying the tab's **own** update time, so a stale Dashboard
 is visible without cross-checking `LAST POLL` in `Orders`.
 
+### Live prices — added 2026-09-23
+
+`Live_Price` (col F) and `Day_%` (col G) sit beside `Avg_Cost`, so paid / now /
+today's move reads left to right. **`jobStocksSignals.py` writes them blank**;
+`orders_sheet_prices.py` fills them on its own faster schedule.
+
+**Why a separate script.** The full job takes ~9 minutes and runs at `:15` and
+`:50`, so its prices are already ~9 minutes old on arrival and up to 35 minutes
+old before the next write. Fine for signals, useless for "is it at my trigger
+right now". The price updater makes one Schwab `quotes` call and writes two
+columns — seconds, so it can run every 3 minutes.
+
+**Schwab `quotes`, not `Market_Value / Qty`.** The division is tempting and
+needs no new API, but the quotes payload carries `realtime: true` and a separate
+`extended` block for pre/post market. A derived figure gives neither. Measured
+with `probe_quotes_api.py`: the method is `quotes` on the **schwabdev** client
+(the wrapper forwards only `fetch_positions`, reach it via `get_client()`), and
+it takes a single **comma-joined string** — the same shape `types` needed for
+transactions.
+
+**It touches nothing else.** Sheet-only: no files, no git, so `gitpush.py` never
+sees it. It runs under `flock -n` on the *same* lock as `jobStocksSignals.py`,
+so it skips while the big job rebuilds the tab rather than writing into a
+half-built layout.
+
+**Row positions are re-read every run**, never cached, and matched by ticker —
+the full job regenerates the tab wholesale, so every row moves.
+
+**Sections are tracked, not inferred.** An ORDERS row holds the account in
+column B and the side in C, so `171 | SELL` reads exactly like a ticker with an
+account beside it. The scanner follows `POSITIONS` / `ORDERS` markers and only
+collects inside a positions block; without that it wrote prices into the orders
+table.
+
 ### Ticker labels link to TradingView — added 2026-09-23
 
 Each block's ticker in column A is written as
