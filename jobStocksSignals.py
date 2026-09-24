@@ -389,10 +389,18 @@ def main(no_push: bool = False):
     # regularMarketPrice repeats the close after hours, and costs one HTTP
     # request per ticker; Schwab answers all of them in one call and includes
     # the extended session. Non-fatal: an empty map falls back per ticker.
-    price_map = {}
+    # Raw quotes are kept, not just the prices: the orders sheet wants Day_%
+    # as well, and one fetch should serve both rather than two calls that can
+    # disagree with each other.
+    quotes, price_map = {}, {}
     try:
-        from schwab_quotes import price_map as fetch_price_map
-        price_map = fetch_price_map(get_schwab_client(), STOCK_TICKERS, log=log)
+        from schwab_quotes import fetch_quotes, extract_price
+        quotes = fetch_quotes(get_schwab_client(), STOCK_TICKERS, log=log)
+        for _sym, _entry in quotes.items():
+            _p, _ = extract_price(_entry)
+            if _p is not None:
+                price_map[_sym.upper()] = _p
+        log(f"Quotes: {len(price_map)}/{len(STOCK_TICKERS)} symbol(s) priced live")
     except Exception as e:
         log(f"⚠️  live quotes unavailable, falling back to Yahoo per ticker: {e}")
 
@@ -538,7 +546,7 @@ def main(no_push: bool = False):
         write_orders_sheet(
             client_wrapper=get_schwab_client(),
             signals_df=df, orders_df=df_orders, cash_df=df_cash,
-            positions_raw=df_positions, token_status=tok, log=log,
+            positions_raw=df_positions, quotes=quotes, token_status=tok, log=log,
         )
     except Exception as e:
         log(f"⚠️  Orders sheet step failed (non-fatal): {e}")

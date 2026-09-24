@@ -331,6 +331,15 @@ def load_reserves(log=print) -> dict:
     return out
 
 
+def _extract_price(entry):
+    """Thin wrapper so a missing schwab_quotes cannot break the sheet write."""
+    try:
+        from schwab_quotes import extract_price
+        return extract_price(entry)
+    except Exception:
+        return None, None
+
+
 def _scrub(v):
     """NaN/NaT/None -> "". Anything else passes through untouched.
 
@@ -385,7 +394,8 @@ ORD_HDR = ["Acct", "Side", "Type", "Qty", "Limit_Price", "Stop_Price",
 DASH_WIDTH = 1 + len(POS_HDR)          # column A holds the ticker label
 
 
-def build_dashboard(positions: pd.DataFrame, orders_df=None) -> tuple[list, dict]:
+def build_dashboard(positions: pd.DataFrame, orders_df=None,
+                    quotes: dict | None = None) -> tuple[list, dict]:
     """
     One block per ticker: the positions mini-table, then the live Schwab orders
     for that ticker.
@@ -419,11 +429,22 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None) -> tuple[list, dict
     for ticker in sorted(positions["Ticker"].unique()):
         grp = positions[positions["Ticker"] == ticker]
 
+        # Fill the price columns here rather than leaving them blank for
+        # orders_sheet_prices.py. The job already holds the quotes, and a
+        # rebuild that blanks them leaves the tab priceless until the next
+        # updater tick — which, with no cron yet, meant indefinitely.
+        px = pct = None
+        if quotes:
+            entry = quotes.get(ticker) or quotes.get(ticker.upper())
+            if entry:
+                px, pct = _extract_price(entry)
+
         marks["ticker"].append(add([ticker, "POSITIONS"]))
         marks["header"].append(add([""] + POS_HDR))
         for _, r in grp.iterrows():
             add(["", r["Ticker"], r["Acct"], r["Qty"], r["Avg_Cost"],
-                 "", "",                      # Live_Price, Day_% — see below
+                 px if px is not None else "",
+                 round(pct, 2) if pct is not None else "",
                  r["Market_Value"], r["Unrealized_PL"], r["Has_Stop"],
                  r["Has_Trim"], r["Has_Dip"], r["Has_Breakout"], r["Seed_Reserved"]])
 
@@ -522,7 +543,8 @@ def _paint(ws, marks, log):
         log(f"⚠️  dashboard formatting skipped (data is fine): {e}")
 
 
-def write_dashboard(book, positions: pd.DataFrame, orders_df=None, log=print) -> int:
+def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
+                    quotes: dict | None = None, log=print) -> int:
     if positions is None or positions.empty:
         return 0
     try:
@@ -530,7 +552,7 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None, log=print) ->
     except Exception:
         ws = book.add_worksheet(title="Dashboard", rows=1000, cols=DASH_WIDTH + 2)
 
-    rows, marks = build_dashboard(positions, orders_df)
+    rows, marks = build_dashboard(positions, orders_df, quotes)
     ws.clear()
     ws.update(values=rows, range_name=f"A1:{_last_col()}{len(rows)}")
     ws.freeze(rows=0)
@@ -541,7 +563,7 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None, log=print) ->
 
 def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
                        cash_df=None, reserves=None, token_status=None,
-                       positions_raw=None, log=print) -> None:
+                       positions_raw=None, quotes=None, log=print) -> None:
     """
     Refresh Positions, Cash and the header block. Never touches columns A-K of
     Orders — those are the human's.
@@ -562,7 +584,7 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
 
     n_pos = _put(book.worksheet("Positions"), positions, POSITIONS_COLS, log)
     n_cash = _put(book.worksheet("Cash"), cash, CASH_COLS, log)
-    n_dash = write_dashboard(book, positions, orders_df, log=log)
+    n_dash = write_dashboard(book, positions, orders_df, quotes, log=log)
 
     # ---- header block. LAST POLL is the health check: if this stops moving,
     # ---- whatever runs this module has died.
