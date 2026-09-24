@@ -72,7 +72,12 @@ def main() -> int:
             print("   " + "  ".join(f"{n:<22}" for n in allpub[i:i + 6]))
         print("\nIf a quote method is in that list under another name, say which.")
         return 1
-    print(f"quote/price-ish attributes: {names}\n")
+    # Try `quotes` before `quote` before anything else. Alphabetical order put
+    # `price_history` first, which answered HTTP 200 to a comma-joined string by
+    # treating the whole thing as one symbol and returning empty candles —
+    # a success code for a useless answer.
+    names.sort(key=lambda n: (n != "quotes", n != "quote", n))
+    print(f"quote/price-ish attributes (in probe order): {names}\n")
 
     # Try the plausible shapes, in order. One comma-joined string is how
     # `types` had to be passed for transactions, so it is the first guess.
@@ -104,6 +109,13 @@ def main() -> int:
                     continue
             else:
                 print(f"  {name}: {label:<22} -> {type(resp).__name__}")
+
+            # A quote response is keyed BY SYMBOL. price_history answers 200
+            # with {'symbol','empty','candles'} — a success code for the wrong
+            # question. Require the symbols back before believing it.
+            if isinstance(body, dict) and not (set(body) & set(SYMBOLS)):
+                print(f"      200 but not a quote map (keys: {list(body)[:5]}) — skipping")
+                continue
 
             if isinstance(body, dict) and body:
                 print(f"\n  ✅ WORKS: {name} with {label}")
