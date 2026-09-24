@@ -555,6 +555,37 @@ Until then this is manual: ask "what's open?" and this section reports it.
 
 ## 7. Infrastructure defects (cross-cutting)
 
+### 🟡 IN PROGRESS — email warning before the Schwab token dies
+`token_watch.py`, added 2026-09-24. Reads `schwab_auth.status()` and emails
+when fewer than `TOKEN_WARN_DAYS` (default 2) remain, or on
+`EXPIRED`/`MISSING`/`UNKNOWN`/`RENEW_NOW`. The message carries the expiry, the
+safe re-auth windows, and **the authorize link itself**, so the phone flow
+starts from the email rather than an ops-sheet round trip. A marker file
+suppresses re-sends inside 20 hours, so it stays a reminder and not noise.
+
+**The key fact it exists to exploit:** re-authorizing early gives a full fresh
+7 days. `expires = refresh_issued + REFRESH_TTL` and `install()` stamps
+`refresh_token_issued` to *now*, so day 6 buys 7 more days, not 1. This is
+unlike *refreshing*, which extends nothing — the 7-day cap is from issue and
+was measured 2026-09-08.
+
+**Remaining:** SMTP credentials and the cron entry on Pi 1. Needs a Google
+**App Password** (plain account passwords are refused by Gmail SMTP) for
+`geniusact@keep-empowering.com`, plus `ALERT_TO`. `--dry-run` prints the email
+and needs no credentials at all.
+
+Suggested cron — twice daily, well clear of the stocks job:
+
+```cron
+30 8,18 * * * cd /home/rchak007/github/myTrading && set -a && . ./.env && set +a && timeout 120 .venv/bin/python token_watch.py >> /home/rchak007/.local/state/myTrading/token_watch.log 2>&1
+```
+
+### ❓ OPEN QUESTION — should re-auth be a calendar habit instead?
+Given an early re-auth resets the full window, a standing Sunday-evening
+two-minute job would mean the token never gets near expiry and the email never
+fires. The watcher then becomes a backstop rather than the mechanism. Worth
+deciding once the email is proven.
+
 ### 🐞 DEFECT (latent) — the job's `timeout` outlives its own cron gap
 Measured 2026-09-19: a full `jobStocksSignals.py` cycle takes **~9-10 minutes**.
 The active crontab line is
