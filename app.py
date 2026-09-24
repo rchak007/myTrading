@@ -111,13 +111,13 @@ STOCK_TICKERS = [
     "CEG",  "CFG", "CIEN", "CLSK", "COIN","COHR","COPX", "CORZ", "CRCL", "CRDO","CRWV", "CRWD", "CTVA",
     "DELL", "DPRO",
     "ETHA", "FIG", "GEV", "GLD", "GLXY", "GLW",  "GOOG",
-    "HIMS", "HODL","HOOD","IBIT", "IBM", "IDR","INOD","INVA", "IONQ", "IRDM",  "IREN", "KTOS",
+    "HIMS", "HODL","HOOD","IBIT", "IBM", "IDR","INOD","INVA", "IONQ", "IRDM",  "IREN", "JOBY", "KTOS",
     "LEU","LITE", "LMT", "LRCX","LTBR" , "LUNR",
     "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX", "MTSI",  "MU", "MXL",
     "NBIS", "NBR", "NEE", "NET", "NOC", "NPK", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL", 
     "PANW", "PBLS", "PL", "PLTR",
     "QBTS","QUBT","RCAT", "RDDT", "RGTI", "RIOT", "RKLB", "RTX",
-    "SATS", "SE", "SIMO", "SITM", "SLV", "SOFI", "SPY", "SMCI", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC", "STX",
+    "SATS", "SE", "SIMO", "SITM", "SKHY", "SLV", "SOFI", "SPY", "SMCI", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC", "STX",
     "TEM",  "TER", "TLN",  "TSLA","TSM","UMAC", "UPXI","VRT", "VST", "WDC", "WTI", "XLE"  
 ]
 
