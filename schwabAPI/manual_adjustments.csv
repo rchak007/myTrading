@@ -24,6 +24,11 @@
 #
 # Seeded from the 21 mismatches as of 2026-09-24. Delete a line rather than
 # guessing if you would rather leave a ticker visibly wrong.
+#
+# PREFER manual_transactions.csv when you have the full Schwab history for a
+# ticker: it replaces the API rows outright and gets realized P&L exactly right.
+# This file only nets the share count, which is the fallback for when the real
+# trades are not recoverable.
 symbol,date,qty,proceeds,note
 AEHR,,109,,gap 2023-10..2024-08
 AMD,,90,,
@@ -37,7 +42,7 @@ NFLX,,8,,
 BYND,,22,,
 TDOC,,100,,
 GDYN,,52,,
-SOFI,,315,,TDA era
+# SOFI — superseded by the full history in manual_transactions.csv
 METV,,175,,TDA era
 AI,,100,,
 BITO,,294,,TDA era

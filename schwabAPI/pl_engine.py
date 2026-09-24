@@ -40,6 +40,7 @@ HERE = Path(__file__).resolve().parent
 CORP_ACTIONS_FILE = HERE / "corporate_actions.json"
 MANUAL_BASIS_FILE = HERE / "manual_basis.csv"
 MANUAL_ADJ_FILE = HERE / "manual_adjustments.csv"
+MANUAL_TXN_FILE = HERE / "manual_transactions.csv"
 
 EPS = 1e-6
 
@@ -98,6 +99,41 @@ def load_manual_adjustments() -> pd.DataFrame:
     df["proceeds"] = pd.to_numeric(df["proceeds"], errors="coerce")
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     return df[df["qty"].notna() & (df["qty"] > 0)][cols]
+
+
+def load_manual_transactions() -> pd.DataFrame:
+    """manual_transactions.csv: symbol,date,action,qty,amount,account,note
+
+    A COMPLETE, hand-entered history for one ticker, taken from Schwab's own
+    account pages. Any symbol appearing here has ALL its API rows replaced by
+    these — the file is authoritative, not additive, so there is no way to
+    double-count.
+
+    This is stronger than manual_adjustments.csv and is the right tool when the
+    API is missing BUYS as well as sells. SOFI is the example: the API gap of
+    2023-10..2024-08 swallowed three sells (70, 350, 367) and a buy (142), so
+    netting the share difference would have left realized P&L wrong even once
+    the quantity was right.
+
+    qty is always POSITIVE; `action` carries the direction. `amount` is the
+    signed cash exactly as Schwab shows it — negative on a buy, positive on a
+    sell — so it can be copied straight off the screen without arithmetic.
+    Internal transfer pairs that net to zero within one account are omitted.
+    """
+    cols = ["symbol", "date", "action", "qty", "amount", "account", "note"]
+    if not MANUAL_TXN_FILE.exists():
+        return pd.DataFrame(columns=cols)
+    df = pd.read_csv(MANUAL_TXN_FILE, comment="#")
+    for c in cols:
+        if c not in df.columns:
+            df[c] = None
+    df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
+    df["action"] = df["action"].astype(str).str.strip().str.upper()
+    df["qty"] = pd.to_numeric(df["qty"], errors="coerce").abs()
+    df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    ok = df["qty"].notna() & df["date"].notna() & df["action"].isin(["BUY", "SELL"])
+    return df[ok][cols]
 
 
 # ------------------------------------------------------------------ lots
@@ -267,6 +303,35 @@ def compute_pl(ledger: pd.DataFrame):
     interest_total = float(led[led["action"] == "INTEREST"]["cash"].sum())
 
     trades = led[~led["action"].isin(["JOURNAL_IN", "JOURNAL_OUT", "DIVIDEND", "INTEREST"])]
+
+    # Hand-entered complete histories REPLACE the API rows for those symbols.
+    # Authoritative, not additive — the API rows for an overridden symbol are
+    # dropped entirely, so nothing can be counted twice.
+    man = load_manual_transactions()
+    if not man.empty:
+        overridden = sorted(man["symbol"].unique())
+        trades = trades[~trades["symbol"].isin(overridden)]
+        rows = []
+        for _, m in man.iterrows():
+            qty = float(m["qty"]) * (1 if m["action"] == "BUY" else -1)
+            cash = float(m["amount"]) if pd.notna(m["amount"]) else 0.0
+            rows.append(dict(
+                date=m["date"], account_number=str(m.get("account") or "MANUAL"),
+                account_hash="MANUAL",
+                activity_id=f"man:{m['symbol']}:{m['date']:%Y%m%d}:{m['qty']:g}",
+                txn_type="MANUAL", action=m["action"],
+                symbol=m["symbol"], asset_type="EQUITY", underlying=m["symbol"],
+                qty=qty, price=0.0, gross=cash, fees=0.0, cash=cash,
+                description=str(m.get("note") or "hand-entered from Schwab"),
+                basis_known=True))
+        trades = pd.concat([trades, pd.DataFrame(rows)], ignore_index=True)
+        logger.info("Manual histories override %d symbol(s): %s",
+                    len(overridden), ", ".join(overridden))
+        for sym in overridden:
+            anomalies.append(dict(
+                symbol=sym, date="", issue="manual_history",
+                detail="API rows replaced by hand-entered history",
+                description=""))
 
     # Shares Schwab's API never reported leaving. Appended as synthetic rows so
     # they flow through the same FIFO path as a real sell — no special case in
