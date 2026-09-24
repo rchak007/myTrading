@@ -68,40 +68,44 @@ def main() -> int:
         print(net.to_string())
         print("\nIf these netted to zero per symbol the discard would be safe.")
 
-    # Which tickers are mismatched, straight from the report.
-    anom = REPORT_DIR / "anomalies.csv"
-    if not anom.exists():
-        print(f"\n{anom} not found — run build_pl_report.py first")
+    # The mismatched tickers come from ticker_pl_summary.csv, NOT anomalies.csv
+    # — the first version read anomalies.csv, which holds the 26 UNKNOWN_BASIS
+    # entries and none of the 23 quantity gaps.
+    summ = REPORT_DIR / "ticker_pl_summary.csv"
+    if not summ.exists():
+        print(f"\n{summ} not found — run build_pl_report.py first")
         return 1
-    a = pd.read_csv(anom)
-    col = next((c for c in ("symbol", "Symbol") if c in a.columns), None)
-    mis = next((c for c in ("qty_mismatch", "mismatch") if c in a.columns), None)
-    if not col:
-        print(f"\nunexpected anomalies.csv columns: {list(a.columns)}")
+    a = pd.read_csv(summ)
+    if "qty_mismatch" not in a.columns:
+        print(f"\nunexpected columns: {list(a.columns)}")
         return 1
-    bad = a[[col] + ([mis] if mis else [])].copy()
+    bad = a[a["qty_mismatch"].abs() > 0.005][["symbol", "qty_mismatch",
+                                              "open_qty", "schwab_qty"]]
+    print(f"\n=== {len(bad)} ticker(s) where our count != Schwab's ===\n")
 
-    print("\n=== per mismatched ticker: net qty by action ===")
-    print("(dropped JOURNAL rows are marked *)\n")
     for _, row in bad.iterrows():
-        sym = str(row[col])
-        s = led[led["symbol"] == sym]
-        if s.empty:
-            continue
-        gap = row[mis] if mis else None
-        net = s.groupby("action")["qty"].sum()
-        parts = ", ".join(
-            f"{'*' if k.startswith('JOURNAL') else ''}{k}={v:+.2f}"
-            for k, v in net.items())
-        jrn = net.get("JOURNAL_OUT", 0.0) + net.get("JOURNAL_IN", 0.0)
-        verdict = ""
-        if gap is not None and abs(jrn) > 0.005:
-            verdict = ("   <-- dropped journals EXPLAIN the gap"
-                       if abs(abs(jrn) - abs(float(gap))) < 0.01
-                       else f"   (dropped journals net {jrn:+.2f})")
-        print(f"{sym:<18} mismatch={float(gap):>9.2f}{verdict}" if gap is not None
-              else f"{sym:<18}")
+        sym = str(row["symbol"])
+        s_rows = led[led["symbol"] == sym]
+        gap = float(row["qty_mismatch"])
+        net = s_rows.groupby("action")["qty"].sum()
+        parts = ", ".join(f"{k}={v:+.2f}" for k, v in net.items())
+        print(f"{sym:<20} ours={row['open_qty']:>10.2f}  "
+              f"schwab={row['schwab_qty']:>10.2f}  gap={gap:+.2f}")
         print(f"    {parts}")
+
+        # The raw wording is the thing that decides classification, so print it
+        # for every non-trade row. An unrecognised description falls through to
+        # SPLIT_ADD/SPLIT_REMOVE, which is how a transfer-out or a ticker
+        # rename can be silently booked as a corporate action.
+        nt = s_rows[~s_rows["action"].isin(["BUY", "SELL", "DIVIDEND", "INTEREST"])]
+        for _, r in nt.iterrows():
+            print(f"      {str(r['date'])[:10]}  {r['action']:<14} "
+                  f"qty={r['qty']:>10.2f}  type={r['txn_type']:<20} "
+                  f"{str(r['description'])[:70]}")
+        if nt.empty:
+            print("      (no non-trade rows at all — the exit was never recorded"
+                  " in any form)")
+        print()
     return 0
 
 
