@@ -460,13 +460,12 @@ produces, Pi 2 reads.
    github.com/rchak007/botsMyTrading  ──────────┘
 ```
 
-### 💡 IDEA — read-only access for Pi 2 to both repos
-`jobMyTrading` and `botsMyTrading`. **Read-only is a deliberate constraint, not
-a convenience** — Pi 2 must not be able to write to the repos that drive
-execution. Use a deploy key per repo (read-only checkbox) or a fine-grained PAT
-scoped to contents:read on exactly those two. Pi 2's existing `github-agents`
-SSH identity has *write* access to `myTrading`, so this needs separate
-credentials rather than reusing that one.
+### ✅ RESOLVED — read-only access for Pi 2 to both repos (verified 2026-09-23)
+`jobMyTrading` and `botsMyTrading` are both cloned on Pi 2 behind per-repo
+read-only deploy keys, via SSH host aliases `github-jobmytrading-ro` and
+`github-botsmytrading-ro`, and both pull cleanly. Separate from Pi 2's
+`github-agents` identity, which has write on `myTrading` — read-only here was a
+deliberate constraint, not a convenience.
 
 ### 💡 IDEA — daily log scan and failure report
 Parse the logs, decide what "failing" means, report. First make it work by hand
@@ -625,7 +624,19 @@ only from the environment. So `authorize_url()` and `install()` raise
 escapes `run_verb` into `main()`, crashes the poll cycle *after* the row was
 marked `RUNNING`, and strands that row forever (non-empty Status = "already
 handled"). `token_status` is unaffected — `status()` reads only the token file.
-*Fix:* load `.env` in `run_pyverb` and wrap the whole body.
+**Half mitigated.** The cron entry does `set -a && . ./.env && set +a`, so the
+credentials *are* in the environment when the poller runs — the "missing in
+.env" half does not fire in practice. Running `remote_ops.py` by hand without
+sourcing `.env` first still hits it.
+
+**Still live:** `run_pyverb` has no `try/except`, so any exception escapes into
+`main()`, kills the poll cycle *after* the row was marked `RUNNING`, and strands
+that row forever. Small fix, and it protects the flow that matters most — the
+refresh token expires every 7 days, and phone re-auth is the whole point of
+these verbs. Confirmed relevant 2026-09-23, when the token expired and re-auth
+had to be done over SSH instead.
+
+*Fix:* wrap the body of `run_pyverb`, and load `.env` inside it as a belt.
 
 ### ✅ RESOLVED 2026-09-18 — `schwab_auth.py` now uses `tokens.db`
 Both directions were wrong, not just `--status`. It read *and wrote*
