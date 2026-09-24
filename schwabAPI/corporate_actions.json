@@ -1,26 +1,31 @@
 {
-    "_notes": [
-      "symbol_map remaps an OLD ticker onto its SUCCESSOR ticker before the FIFO",
-      "engine runs. Once remapped, the '-X of old / +Y of new' pair becomes a",
-      "same-symbol share-count change, which the engine treats as basis-preserving.",
-      "",
-      "Seeded from mergers/renames actually present in the Schwab history.",
-      "Anything the engine cannot explain lands in anomalies.csv -- add it here."
-    ],
-  
-    "symbol_map": {
-      "STPK": "STEM",
-      "CYFRF": "STKE",
-      "BRPHD": "GLXY"
-    },
-  
-    "unmapped_cusips_to_confirm": {
-      "512807108": "likely LRCX (Lam Research) - confirm before adding to symbol_map",
-      "25058X105": "unknown - appears only in internal transfers, nets to zero",
-      "G8251L105": "unknown (Bermuda/Cayman CUSIP) - internal transfer only",
-      "G8252P105": "unknown - internal transfer only",
-      "G82514103": "unknown - internal transfer only",
-      "G7483N129": "unknown - internal transfer only",
-      "46185L103": "unknown - internal transfer only"
-    }
+  "_notes": [
+    "symbol_map remaps an OLD ticker onto its SUCCESSOR ticker before the FIFO",
+    "engine runs. Once remapped, the '-X of old / +Y of new' pair becomes a",
+    "same-symbol share-count change, which the engine treats as basis-preserving.",
+    "",
+    "A CUSIP appears here when Schwab books a merger by REMOVING the position",
+    "under its ticker and RE-ADDING it under a CUSIP. The subsequent sale is then",
+    "recorded against the CUSIP, so without the mapping the old ticker keeps a",
+    "phantom position holding the real cost, while the CUSIP realizes the whole",
+    "proceeds against zero basis. Wrong in both directions at once.",
+    "",
+    "Seeded from mergers/renames actually present in the Schwab history.",
+    "Anything the engine cannot explain lands in anomalies.csv -- add it here."
+  ],
+  "symbol_map": {
+    "STPK": "STEM",
+    "CYFRF": "STKE",
+    "BRPHD": "GLXY",
+    "862945102": "ASST"
+  },
+  "unmapped_cusips_to_confirm": {
+    "512807108": "likely LRCX (Lam Research) - confirm before adding to symbol_map",
+    "G8251L105": "unknown (Bermuda/Cayman CUSIP) - internal transfer only",
+    "G8252P105": "unknown - internal transfer only",
+    "G82514103": "unknown - internal transfer only",
+    "G7483N129": "unknown - internal transfer only",
+    "46185L103": "unknown - internal transfer only",
+    "25058X105": "unknown - 180 sh transferred in 2022-04-28, 145 sh unexplained. Not a merger pair."
   }
+}

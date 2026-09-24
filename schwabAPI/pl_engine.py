@@ -200,6 +200,34 @@ def _collapse_adjustments(g: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values(["date", "activity_id"])
 
 
+def drop_cancelling_corp_actions(led: pd.DataFrame) -> pd.DataFrame:
+    """Remove SPLIT_ADD/SPLIT_REMOVE rows that cancel out on one symbol and date.
+
+    After symbol_map collapses a merger onto one symbol, the pair becomes
+    "-420 then +420 on 2025-09-15" — the position never actually changed, only
+    its label did. Feeding that to _rescale() is wrong twice over: rescaling to
+    zero fails outright (f <= 0), and the surviving +420 then DOUBLES the
+    position it is applied to.
+
+    So when same-symbol, same-date split rows sum to zero, they are a relabel:
+    drop them and let the surrounding BUY/SELL rows do the accounting. A real
+    split does not cancel, so it still reaches _rescale() untouched.
+    """
+    if led.empty or "action" not in led.columns:
+        return led
+
+    mask = led["action"].isin(["SPLIT_ADD", "SPLIT_REMOVE"])
+    if not mask.any():
+        return led
+
+    drop_idx = []
+    for (_sym, _day), grp in led[mask].groupby(
+            ["symbol", led.loc[mask, "date"].dt.date]):
+        if abs(float(grp["qty"].sum())) < EPS and len(grp) > 1:
+            drop_idx.extend(grp.index.tolist())
+    return led.drop(index=drop_idx) if drop_idx else led
+
+
 def compute_pl(ledger: pd.DataFrame):
     """Returns (summary_df, transactions_df, open_lots_df, anomalies_df)."""
     symbol_map = load_symbol_map()
@@ -208,6 +236,10 @@ def compute_pl(ledger: pd.DataFrame):
     led = ledger.copy()
     for col in ("symbol", "underlying"):
         led[col] = led[col].astype(str).str.upper().map(lambda s: symbol_map.get(s, s))
+
+    # Must run AFTER the remap: the two legs only share a symbol once the
+    # merger CUSIP has been folded onto its ticker.
+    led = drop_cancelling_corp_actions(led)
 
     anomalies: List[Dict] = []
     txn_rows: List[Dict] = []

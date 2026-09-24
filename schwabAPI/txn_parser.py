@@ -42,6 +42,12 @@ RE_SPLIT = re.compile(r"SPLIT", re.I)
 RE_XFER_EXT = re.compile(r"Transfer of Security or Option (In|Out)", re.I)
 RE_XFER_INT = re.compile(r"Internal Transfer between accounts", re.I)
 RE_EXPIRE = re.compile(r"Removed due to Expiration|Expiration", re.I)
+# An assigned or exercised option leaves the account the same way an expired
+# one does: the contract is gone and the premium is already realized on the
+# opening trade. Without this it fell through to SPLIT_ADD/SPLIT_REMOVE and
+# _rescale() was asked to take a -1 short call to zero, which it refuses
+# (f <= 0) — leaving MSTR 260417C00165000 stuck at -1 forever.
+RE_ASSIGN = re.compile(r"Removed due to Assignment|Assignment|Exercise", re.I)
 RE_MERGER = re.compile(r"Mandatory|Merger|Exchange|Redemption of|Reorganization", re.I)
 # Schwab books account consolidations as TRADE with netAmount==0 and the COST
 # BASIS (positive) sitting in `cost`. It never reports the outgoing leg.
@@ -70,7 +76,7 @@ def _underlying(symbol: str) -> str:
 
 def _classify_zero_cash(desc: str, qty: float) -> str:
     d = desc or ""
-    if RE_EXPIRE.search(d):
+    if RE_EXPIRE.search(d) or RE_ASSIGN.search(d):
         return "OPT_EXPIRE"
     if RE_XFER_INT.search(d):
         return "JOURNAL_IN" if qty > 0 else "JOURNAL_OUT"
