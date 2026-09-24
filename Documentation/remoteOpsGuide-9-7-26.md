@@ -207,6 +207,21 @@ directly.
 Token states: `OK`, `RENEW_NOW` (past day 6 of 7), `EXPIRED`, `MISSING`
 (no token file), `UNKNOWN` (file exists but no issue stamp found).
 
+#### Failure handling
+
+`run_pyverb` never raises. Any exception from an in-process verb becomes exit 1
+with the message in column I, and the row reads `FAIL`.
+
+This matters because the row is stamped `RUNNING` *before* the verb runs. An
+escaping exception used to kill the whole poll cycle and leave that row looking
+handled — stuck on `RUNNING`, skipped forever, with nothing visible anywhere
+except a poller that quietly died every 10 minutes. `auth_url` was the worst
+case: it is what you reach for when the token has expired, which is exactly
+when everything else is failing too.
+
+It also calls `load_dotenv()` itself, so running `remote_ops.py` by hand
+without sourcing `.env` first still works.
+
 #### `seed` — fencing cash without SSH
 
 ```

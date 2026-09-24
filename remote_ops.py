@@ -223,6 +223,36 @@ def _run_seed(arg: str) -> tuple[int, str]:
 
 
 def run_pyverb(verb: str, arg: str) -> tuple[int, str]:
+    """Dispatch an in-process verb. NEVER raises.
+
+    Every exception becomes an exit code and a message, because the caller has
+    already stamped the row RUNNING by the time this is invoked. An escaping
+    exception killed the whole poll cycle and left that row looking handled —
+    stuck on RUNNING, skipped forever, no error anywhere the user would see,
+    and the poller dying again every 10 minutes.
+
+    `auth_url` was the worst case: it is what you reach for when the token has
+    expired, which is precisely when everything else is failing too.
+    """
+    # Belt for running by hand. The cron sources .env before invoking us, but
+    # someone at a terminal will not, and schwab_auth reads credentials from
+    # the environment only.
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(REPO / ".env")
+    except Exception:
+        pass                              # absent dotenv is not fatal
+
+    try:
+        return _run_pyverb(verb, arg)
+    except Exception as e:
+        audit(event="pyverb_error", verb=verb, error=f"{type(e).__name__}: {e}")
+        return 1, (f"{type(e).__name__}: {e}\n\n"
+                   f"The verb failed but the poller is fine — this row is "
+                   f"marked FAIL rather than left stranded on RUNNING.")
+
+
+def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
     import schwab_auth
 
     if verb == "seed":

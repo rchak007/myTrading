@@ -616,6 +616,19 @@ unaffected.
 
 
 
+### ✅ RESOLVED 2026-09-23 — in-process verbs can no longer kill the poller
+`run_pyverb` now wraps its whole body: every exception becomes exit 1 plus the
+message in column I, and the row reads `FAIL` instead of being stranded on
+`RUNNING`. It also loads `.env` itself, so running `remote_ops.py` by hand
+without sourcing it first no longer fails.
+
+Reproduced before fixing — on a box without credentials, `auth_url` raised
+`RuntimeError: missing in .env: app_key, app_secret, callback_url`, which under
+the old code escaped `run_verb`, escaped `main()`, and killed the cycle after
+the row was claimed. Verified after: exit 1, message returned, poller intact.
+
+<details><summary>Original report</summary>
+
 ### 🐞 DEFECT — `auth_url` / `auth_code` verbs fail from the sheet
 `remote_ops.py` has no `dotenv` import, and `schwab_auth.py` reads credentials
 only from the environment. So `authorize_url()` and `install()` raise
@@ -637,6 +650,7 @@ these verbs. Confirmed relevant 2026-09-23, when the token expired and re-auth
 had to be done over SSH instead.
 
 *Fix:* wrap the body of `run_pyverb`, and load `.env` inside it as a belt.
+</details>
 
 ### ✅ RESOLVED 2026-09-18 — `schwab_auth.py` now uses `tokens.db`
 Both directions were wrong, not just `--status`. It read *and wrote*
