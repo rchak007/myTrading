@@ -28,6 +28,57 @@ six Schwab accounts, with incremental updates so it stays current.
 **5,816 transactions, 2020-03 → 2026-09, six accounts.** Numbers are NOT yet
 trustworthy; see the defects.
 
+### 🟡 IN PROGRESS — 21 tickers where our share count exceeds Schwab's
+**Root cause found 2026-09-24, and it is Schwab's, not ours.** The transactions
+API returns NOTHING for account `...171` between 2023-10 and 2024-08 while the
+web UI shows trades throughout. A full refetch from 2019 returned byte-identical
+data.
+
+Four causes were tested and excluded, in order:
+1. **Journals dropped by the engine** — disproved. `JOURNAL_IN`/`JOURNAL_OUT`
+   are 8 rows each and net to exactly zero (+4415/−4415). Discarding them is safe.
+2. **Corporate actions mishandled** — real, and fixed (`feb58f8`), but only
+   explained 2 of 23. See below.
+3. **A failed chunk leaving a permanent hole** — a genuine latent bug, fixed
+   (`6e9db19`), but not this cause: the refetch returned identical data.
+4. **The `types` filter hiding `SECURITY_TRANSFER`** — disproved by
+   `probe_types_param.py`. Fetching with and without `types` returns identical
+   results, so the rows are not being filtered out; they are not there.
+
+**Remedy: reconcile rather than recover** (`88e085a`).
+`schwabAPI/manual_adjustments.csv` lists shares known to have left; they become
+synthetic `MANUAL_EXIT` rows through the normal FIFO path. Without a proceeds
+figure they exit **at cost**, so share counts and unrealized P&L become correct
+while realized P&L gains nothing invented. Every applied row appears in
+`anomalies.csv`. Seeded with all 21, proceeds blank.
+
+*Still to do:* fill in `proceeds` from statements, ticker by ticker, biggest
+first — SOFI 315, BITO 294, METV 175, AEHR 109. Each one filled makes that
+ticker exact.
+
+### ✅ RESOLVED 2026-09-24 — corporate actions booked as splits (`feb58f8`)
+Schwab books a merger by REMOVING the position under its ticker and RE-ADDING
+it under a CUSIP, with the later sale recorded against the CUSIP. Without a
+mapping the old ticker kept a phantom position holding the real cost while the
+CUSIP realized the whole proceeds against zero basis — wrong in both directions.
+`862945102 -> ASST` added to `symbol_map`; ASST now books its real ≈$31 gain
+instead of a fabricated $2,136. Confirmed against Chakravarti's account history.
+
+Also: "Removed due to Assignment" matched no regex and fell through to
+`SPLIT_ADD`, so `_rescale()` was asked to take a −1 short call to zero and
+refused. Assignment and exercise now classify as `OPT_EXPIRE`.
+
+### ✅ RESOLVED 2026-09-24 — a failed chunk could erase a year (`6e9db19`)
+`_fetch_chunk` returned `[]` on any non-200, indistinguishable from "no
+transactions in this window". `fetch_range` walked on, `_save_state` wrote a
+watermark past data never fetched, and since the watermark only moves forward
+the hole was permanent and invisible. There was also no retry on a non-200, so
+one 429 during a cold start erased a year. Now 429/5xx retry with backoff and a
+persistent failure raises. `--full-refetch` added to recover a gap — there had
+been no mechanism at all.
+
+<details><summary>Original report</summary>
+
 ### 🐞 DEFECT — 23 tickers where our share count exceeds Schwab's
 The error is always in one direction: we hold *more* than reality, never less.
 Thirteen tickers show Schwab at zero while the engine still has open lots
@@ -44,6 +95,7 @@ realized, so **realized P&L is understated**.
 *Next step:* the action histogram from `ticker_txns.csv` — if `TRANSFER_OUT` is
 absent while thirteen tickers went to zero, confirmed. Then find the new type
 name.
+</details>
 
 ### 🐞 DEFECT — 26 tickers with no cost basis (`UNKNOWN_BASIS`)
 Transferred in from another broker, so Schwab reports cost 0 and their P&L is
