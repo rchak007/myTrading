@@ -109,16 +109,16 @@ STOCK_TICKERS = [
     "AAPL","AAOI","ABTC", "AEHR",  "ALAB", "AMAT", "AMD", "AMZN", "APH","APLD","APP","ARKB", "ARM" , "ASML", "ASTS", "AVAV", "AVGO",
     "BABA", "BE", "BKR", "BMNR", "BOTZ", "BWXT", "CBRS",
     "CEG",  "CFG", "CIEN", "CLSK", "COIN","COHR","COPX", "CORZ", "CRCL", "CRDO","CRWV", "CRWD", "CTVA",
-    "DELL", "DPRO",
-    "ETHA", "FIG", "GEV", "GLD", "GLXY", "GLW",  "GOOG",
-    "HIMS", "HODL","HOOD","IBIT", "IBM", "IDR","INOD","INVA", "IONQ", "IRDM",  "IREN", "JOBY", "KTOS",
+    "DELL", "DPRO", "DRAM",
+    "ETHA", "FCEL", "FIG", "GEV", "GLD", "GLXY", "GLW",  "GOOG",
+    "HHH", "HIMS", "HODL","HOOD","IBIT", "IBM", "IDR","INOD","INVA", "IONQ", "IRDM",  "IREN", "JOBY", "KTOS",
     "LEU","LITE", "LMT", "LRCX","LTBR" , "LUNR",
     "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX", "MTSI",  "MU", "MXL",
-    "NBIS", "NBR", "NEE", "NET", "NOC", "NPK", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL", 
+    "NBIS", "NBR", "NEE", "NET", "NOC", "NPK", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL", "OUST",
     "PANW", "PBLS", "PL", "PLTR",
     "QBTS","QUBT","RCAT", "RDDT", "RGTI", "RIOT", "RKLB", "RTX",
-    "SATS", "SE", "SIMO", "SITM", "SKHY", "SLV", "SOFI", "SPY", "SMCI", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC", "STX",
-    "TEM",  "TER", "TLN",  "TSLA","TSM","UMAC", "UPXI","VRT", "VST", "WDC", "WTI", "XLE"  
+    "SATS", "SE", "SIMO", "SITM", "SKHY", "SLV", "SOFI", "SPCX", "SPY", "SMCI", "SMR", "SNA", "SNDK", "SSK","STKE", "STRC", "STX",
+    "TEM",  "TER", "TLN",  "TSLA","TSM","UMAC", "UPXI","VCX", "VRT", "VST", "VUG", "WDC", "WTI", "XLE"  
 ]
 
 

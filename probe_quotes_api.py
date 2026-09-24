@@ -31,12 +31,33 @@ def main() -> int:
 
     import jobStocksSignals as job
     client = job.get_schwab_client()
-    inner = getattr(client, "client", client)     # unwrap our helper if present
 
-    print(f"\nclient type: {type(inner)}")
+    # data.schwab.schwab_helper.SchwabClient wraps schwabdev.Client and stores
+    # it as _client (underscore). The first version of this probe looked for
+    # `.client`, found the wrapper itself, and reported "NONE FOUND" — the
+    # wrapper has no quote methods because it only forwards what it was asked
+    # to forward. Unwrap properly, and say which object is being probed.
+    inner = client
+    for attr in ("_client", "client", "schwab", "_schwab"):
+        cand = getattr(client, attr, None)
+        if cand is not None and cand is not client:
+            inner = cand
+            print(f"unwrapped via .{attr}")
+            break
+
+    print(f"\nwrapper type: {type(client)}")
+    print(f"probing type: {type(inner)}")
+
     names = sorted(n for n in dir(inner)
                    if "quote" in n.lower() or "price" in n.lower())
-    print(f"quote/price-ish attributes: {names or 'NONE FOUND'}\n")
+    if not names:
+        print("\nno quote/price attribute names. Full public surface:")
+        allpub = sorted(n for n in dir(inner) if not n.startswith("_"))
+        for i in range(0, len(allpub), 6):
+            print("   " + "  ".join(f"{n:<22}" for n in allpub[i:i + 6]))
+        print("\nIf a quote method is in that list under another name, say which.")
+        return 1
+    print(f"quote/price-ish attributes: {names}\n")
 
     # Try the plausible shapes, in order. One comma-joined string is how
     # `types` had to be passed for transactions, so it is the first guess.
