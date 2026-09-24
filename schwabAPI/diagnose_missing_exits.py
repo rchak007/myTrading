@@ -8,22 +8,22 @@ Confirm why our FIFO share count exceeds Schwab's on 23 tickers.
 
 Read-only. Offline — uses the cached transactions, calls Schwab for nothing.
 
-THE HYPOTHESIS
-    ticker_txns.csv (what the engine kept) shows 25 TRANSFER_IN and 17
-    XFER_IN_BASIS, with ZERO of either OUT. A "System transfer" moves shares
-    between two of your own accounts: one leg +N, the other -N. Seventeen ins
-    and no outs cannot be real.
+WHAT WE KNOW SO FAR
+    The first hypothesis — that the engine's discarding of JOURNAL_IN/OUT was
+    losing out-legs — is DISPROVED. There are 8 of each and they net to exactly
+    zero (+4415 / -4415), per symbol as well as overall. Discarding them is safe.
 
-    pl_engine.py:232 drops JOURNAL_IN/JOURNAL_OUT entirely, on the reasoning
-    that a move between your own accounts nets to zero. That holds only if
-    BOTH legs are classified as journals. If the in-leg arrives as a TRADE
-    ("System transfer", zero net cash -> XFER_IN_BASIS) while the out-leg
-    arrives as a JOURNAL, the in-leg is counted and the out-leg is thrown
-    away — shares added, never removed.
+    The real gap is that there are **zero** TRANSFER_OUT and **zero**
+    XFER_OUT_BASIS rows, against 25 TRANSFER_IN and 17 XFER_IN_BASIS. Positions
+    that left the household — ACATS out to another broker, a closed account —
+    have no out-leg in any form the engine recognises.
 
-    That would explain every symptom: the error is always in one direction,
-    the amounts are round numbers, and realized P&L is understated because
-    the basis stays in open_cost_basis instead of being realized.
+    Two ways that can happen, and the descriptions tell them apart:
+      * the out-leg exists but its wording is not matched by RE_XFER_EXT /
+        RE_SYS_XFER, so _classify_zero_cash falls through to SPLIT_REMOVE and
+        the shares leave WITHOUT realizing P&L; or
+      * the out-leg was never fetched at all, in which case nothing non-trade
+        appears for that symbol.
 
 WHAT THIS PRINTS
     The action histogram BEFORE the engine drops anything, then per mismatched
