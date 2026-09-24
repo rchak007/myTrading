@@ -15,7 +15,7 @@ responses:
 Finished items move to [§8 Done](#8-done) rather than being deleted — the
 history of what was fixed is worth as much as the list of what is left.
 
-Last updated: 2026-09-22
+Last updated: 2026-09-24
 
 ---
 
@@ -737,6 +737,38 @@ Schwab-impersonation phishing, not account access.
 ## 8. Done
 
 Kept for history — what was fixed, and when.
+
+**2026-09-24 — live prices everywhere, and the ticker list caught up**
+- **`Current Price` was never current.** `data/stocks.fetch_current_price()`
+  read Yahoo's `regularMarketPrice`, the *regular session* price, so after the
+  close it simply repeated `Last Close` — AAPL 337.02/337.02. Now one Schwab
+  `quotes` call for all 133 tickers, real-time and extended-hours aware, which
+  also replaces 133 sequential HTTP requests with one (`4693360`). Asked for
+  long ago and never fixed until the cause was found.
+- Price logic centralised in `schwab_quotes.py` so the Dashboard and
+  `stocks_signals.csv` cannot disagree about what "current price" means.
+- **Newest block wins.** Preferring `quote` gave the stale close after hours
+  (AMD 614.61 vs the 608.00 overnight print); preferring `extended` would be
+  wrong mid-session. It compares `tradeTime`/`quoteTime` (`8a5605e`).
+- `orders_sheet_prices.py` added — one quotes call, two columns, seconds not
+  minutes, so prices refresh every 5 min instead of every 35 (`0d644d6`). Cron
+  added 2026-09-24. Sheet-only: no files, no git.
+- The full job now fills `Live_Price` itself, rather than blanking it and
+  waiting for the updater (`9b6955c`).
+- Dashboard tickers link to the saved TradingView layout (`7a74a4e`), styled
+  blue so they read as links (`8a5605e`).
+- **`ticker_audit.py`** found 9 holdings absent from `STOCK_TICKERS` — they had
+  no RSI, no Supertrend and no exit signal, while the Dashboard showed them
+  because it reads Schwab directly. Seven added; CALA and VYGVQ left out as
+  bankrupt (`edea77a`, `da254df`).
+- **`run_pyverb` can no longer kill the poller** (`9dc0586`). Only `auth_code`
+  had a try/except; any other verb's exception escaped into `main()`, killed
+  the cycle *after* the row was stamped `RUNNING`, and stranded it forever.
+- `token_watch.py` added (`b1e114b`) — emails before the token dies, with the
+  authorize link in the message. Awaiting SMTP credentials.
+- **Measured:** an early re-auth grants a *full fresh 7 days*, not one extra
+  day — `expires = refresh_issued + TTL` and `install()` restamps the issue
+  time. So re-authing on day 5 or 6 removes the expiry problem entirely.
 
 **2026-09-19 — Orders sheet phase 1 live, and Pi 2 can read it**
 - `Dashboard` tab built: one block per ticker, positions and live Schwab orders
