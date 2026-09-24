@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 HERE = Path(__file__).resolve().parent
 CORP_ACTIONS_FILE = HERE / "corporate_actions.json"
 MANUAL_BASIS_FILE = HERE / "manual_basis.csv"
+MANUAL_ADJ_FILE = HERE / "manual_adjustments.csv"
 
 EPS = 1e-6
 
@@ -67,6 +68,36 @@ def load_manual_basis() -> Dict[str, float]:
         if px > 0:
             out[str(r["symbol"]).strip().upper()] = px
     return out
+
+
+def load_manual_adjustments() -> pd.DataFrame:
+    """manual_adjustments.csv: symbol,date,qty,proceeds,note
+
+    Shares that left the account without Schwab's transactions API ever
+    reporting it. Measured 2026-09-24: the API returns nothing for account
+    ...171 between 2023-10 and 2024-08 while the web UI shows trades all
+    through it, and a full refetch from 2019 returned byte-identical data. The
+    rows are simply not obtainable — not a chunk failure, not a watermark gap,
+    not the `types` filter, all four excluded by measurement.
+
+    `qty` is POSITIVE — how many shares to remove. `proceeds` is the total cash
+    received; leave it BLANK when unknown and the shares exit at cost, which
+    makes the share count and unrealized P&L correct while adding nothing false
+    to realized P&L. Every applied row is reported in anomalies.csv, so an
+    approximate figure can never quietly pass for a measured one.
+    """
+    cols = ["symbol", "date", "qty", "proceeds", "note"]
+    if not MANUAL_ADJ_FILE.exists():
+        return pd.DataFrame(columns=cols)
+    df = pd.read_csv(MANUAL_ADJ_FILE, comment="#")
+    for c in cols:
+        if c not in df.columns:
+            df[c] = None
+    df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
+    df["qty"] = pd.to_numeric(df["qty"], errors="coerce")
+    df["proceeds"] = pd.to_numeric(df["proceeds"], errors="coerce")
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    return df[df["qty"].notna() & (df["qty"] > 0)][cols]
 
 
 # ------------------------------------------------------------------ lots
@@ -200,34 +231,6 @@ def _collapse_adjustments(g: pd.DataFrame) -> pd.DataFrame:
     return out.sort_values(["date", "activity_id"])
 
 
-def drop_cancelling_corp_actions(led: pd.DataFrame) -> pd.DataFrame:
-    """Remove SPLIT_ADD/SPLIT_REMOVE rows that cancel out on one symbol and date.
-
-    After symbol_map collapses a merger onto one symbol, the pair becomes
-    "-420 then +420 on 2025-09-15" — the position never actually changed, only
-    its label did. Feeding that to _rescale() is wrong twice over: rescaling to
-    zero fails outright (f <= 0), and the surviving +420 then DOUBLES the
-    position it is applied to.
-
-    So when same-symbol, same-date split rows sum to zero, they are a relabel:
-    drop them and let the surrounding BUY/SELL rows do the accounting. A real
-    split does not cancel, so it still reaches _rescale() untouched.
-    """
-    if led.empty or "action" not in led.columns:
-        return led
-
-    mask = led["action"].isin(["SPLIT_ADD", "SPLIT_REMOVE"])
-    if not mask.any():
-        return led
-
-    drop_idx = []
-    for (_sym, _day), grp in led[mask].groupby(
-            ["symbol", led.loc[mask, "date"].dt.date]):
-        if abs(float(grp["qty"].sum())) < EPS and len(grp) > 1:
-            drop_idx.extend(grp.index.tolist())
-    return led.drop(index=drop_idx) if drop_idx else led
-
-
 def compute_pl(ledger: pd.DataFrame):
     """Returns (summary_df, transactions_df, open_lots_df, anomalies_df)."""
     symbol_map = load_symbol_map()
@@ -237,9 +240,11 @@ def compute_pl(ledger: pd.DataFrame):
     for col in ("symbol", "underlying"):
         led[col] = led[col].astype(str).str.upper().map(lambda s: symbol_map.get(s, s))
 
-    # Must run AFTER the remap: the two legs only share a symbol once the
-    # merger CUSIP has been folded onto its ticker.
-    led = drop_cancelling_corp_actions(led)
+    # NOTE: the merger pair is netted by _collapse_adjustments() further down,
+    # which nets same-day SPLIT_ADD/SPLIT_REMOVE per symbol and was already
+    # doing this correctly. The ASST bug was purely the missing symbol_map
+    # entry: until 862945102 folded onto ASST the two legs were different
+    # symbols, so they could never net. One mechanism, not two.
 
     anomalies: List[Dict] = []
     txn_rows: List[Dict] = []
@@ -262,6 +267,40 @@ def compute_pl(ledger: pd.DataFrame):
     interest_total = float(led[led["action"] == "INTEREST"]["cash"].sum())
 
     trades = led[~led["action"].isin(["JOURNAL_IN", "JOURNAL_OUT", "DIVIDEND", "INTEREST"])]
+
+    # Shares Schwab's API never reported leaving. Appended as synthetic rows so
+    # they flow through the same FIFO path as a real sell — no special case in
+    # the loop, and they appear in ticker_txns.csv where they can be seen.
+    adj = load_manual_adjustments()
+    if not adj.empty and not trades.empty:
+        extra = []
+        for _, a in adj.iterrows():
+            sym = a["symbol"]
+            g = trades[trades["symbol"] == sym]
+            if g.empty:
+                anomalies.append(dict(
+                    symbol=sym, date="", issue="manual_adjustment_unused",
+                    detail=f"{a['qty']:g} sh listed but no transactions for {sym}",
+                    description=str(a.get("note") or "")[:60]))
+                continue
+            # Undated rows land after everything else for that symbol, which is
+            # the only ordering that cannot consume lots opened later.
+            when = a["date"] if pd.notna(a["date"]) else g["date"].max()
+            proceeds = 0.0 if pd.isna(a["proceeds"]) else float(a["proceeds"])
+            extra.append(dict(
+                date=when, account_number="MANUAL", account_hash="MANUAL",
+                activity_id=f"manual:{sym}:{a['qty']:g}",
+                txn_type="MANUAL", action="MANUAL_EXIT",
+                symbol=sym, asset_type=g["asset_type"].iloc[0],
+                underlying=g["underlying"].iloc[0],
+                qty=-abs(float(a["qty"])), price=0.0,
+                gross=proceeds, fees=0.0, cash=proceeds,
+                description=str(a.get("note") or "manual adjustment"),
+                basis_known=pd.notna(a["proceeds"]),
+            ))
+        if extra:
+            trades = pd.concat([trades, pd.DataFrame(extra)], ignore_index=True)
+            logger.info("Applied %d manual adjustment(s)", len(extra))
 
     for sym, g in trades.groupby("symbol", sort=False):
         g = _collapse_adjustments(g.sort_values(["date", "activity_id"]))
@@ -325,6 +364,27 @@ def compute_pl(ledger: pd.DataFrame):
                 anomalies.append(dict(
                     symbol=sym, date=str(date.date()), issue="transfer_out",
                     detail=f"{abs(qty):g} sh left Schwab; no P&L realized",
+                    description=desc[:60]))
+
+            elif action == "MANUAL_EXIT":
+                # Known to have left, proceeds possibly unknown. With a figure
+                # it closes like a sell; without one it exits AT COST, so the
+                # share count and unrealized P&L become right while realized
+                # P&L gains nothing invented. Always flagged.
+                if abs(gross) > EPS:
+                    row_realized, leftover, unk = _close_fifo(lots, qty, gross)
+                    realized += row_realized
+                    if unk:
+                        basis_flag = "UNKNOWN_BASIS"
+                else:
+                    _remove_fifo(lots, qty)
+                sold += abs(qty)
+                anomalies.append(dict(
+                    symbol=sym, date=str(date.date()), issue="manual_adjustment",
+                    detail=(f"{abs(qty):g} sh removed by hand; "
+                            + (f"proceeds ${gross:,.2f}" if abs(gross) > EPS
+                               else "NO proceeds given — exited at cost, "
+                                    "realized P&L understated")),
                     description=desc[:60]))
 
             else:  # BUY / SELL / OPT_EXPIRE
