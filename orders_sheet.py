@@ -500,11 +500,20 @@ def _paint(ws, marks, log):
     title = {"backgroundColor": {"red": 0.20, "green": 0.25, "blue": 0.35},
              "textFormat": {"bold": True, "fontSize": 12,
                             "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}}}
+    # Column A carries the TradingView HYPERLINK. Sheets styles a link blue and
+    # underlined, but a later textFormat write silently replaces that with the
+    # cell's own colour — so the link stayed clickable while looking like plain
+    # text, and therefore looked broken. Style A explicitly, B separately.
+    cyan_link = {"backgroundColor": cyan["backgroundColor"],
+                 "textFormat": {"bold": True, "underline": True,
+                                "foregroundColor": {"red": 0.05, "green": 0.25,
+                                                    "blue": 0.75}}}
     try:
         if marks.get("title"):
             ws.format([f"A{r}:{_last_col()}{r}" for r in marks["title"]], title)
         if marks["ticker"]:
-            ws.format([f"A{r}:B{r}" for r in marks["ticker"]], cyan)
+            ws.format([f"A{r}" for r in marks["ticker"]], cyan_link)
+            ws.format([f"B{r}" for r in marks["ticker"]], cyan)
         if marks["label"]:
             ws.format([f"B{r}" for r in marks["label"]], yellow)
         if marks["header"]:

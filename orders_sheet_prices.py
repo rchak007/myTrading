@@ -73,20 +73,45 @@ def extract_price(entry: dict) -> tuple[float | None, float | None]:
     ext = entry.get("extended") or {}
     reg = entry.get("regular") or {}
 
-    price = None
-    for src, key in ((q, "lastPrice"), (q, "mark"),
-                     (reg, "regularMarketLastPrice"),
-                     (ext, "lastPrice"), (ext, "mark"),
-                     (q, "closePrice")):
-        v = _num(src.get(key))
-        if v and v > 0:
-            price = v
-            break
+    def _stamp(src) -> float:
+        """Most recent activity in this block, epoch ms."""
+        return max(_num(src.get("tradeTime")) or 0,
+                   _num(src.get("quoteTime")) or 0)
 
+    def _last(src):
+        for key in ("lastPrice", "mark"):
+            v = _num(src.get(key))
+            if v and v > 0:
+                return v
+        return None
+
+    # Pick the block that traded MOST RECENTLY, rather than a fixed order.
+    #
+    # Preferring `quote` first was wrong after hours: at 23:54 PT it still held
+    # the 16:00 close (AMD 614.61) while `extended` had the live overnight
+    # print (608.00). Preferring `extended` first would be equally wrong during
+    # the session, when it holds the stale pre-market number. The timestamp is
+    # the only thing that answers "which of these is the latest price".
+    candidates = [(_stamp(ext), _last(ext)), (_stamp(q), _last(q))]
+    candidates = [(t, p) for t, p in candidates if p]
+    price = max(candidates, key=lambda c: c[0])[1] if candidates else None
+
+    if price is None:                       # nothing live; fall back to closes
+        for src, key in ((reg, "regularMarketLastPrice"), (q, "closePrice")):
+            v = _num(src.get(key))
+            if v and v > 0:
+                price = v
+                break
+
+    # Percent moves with whichever block the price came from, so an overnight
+    # price is not paired with the regular session's move.
     pct = None
-    for src, key in ((q, "netPercentChange"),
-                     (reg, "regularMarketPercentChange"),
-                     (ext, "netPercentChange")):
+    from_ext = bool(candidates) and price == _last(ext) and _stamp(ext) >= _stamp(q)
+    order = ((ext, "netPercentChange"), (q, "netPercentChange"),
+             (reg, "regularMarketPercentChange")) if from_ext else \
+            ((q, "netPercentChange"), (reg, "regularMarketPercentChange"),
+             (ext, "netPercentChange"))
+    for src, key in order:
         v = _num(src.get(key))
         if v is not None:
             pct = v
