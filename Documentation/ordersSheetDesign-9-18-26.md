@@ -305,6 +305,25 @@ as §11b — and the `Has_*` flags stay blank on it, same reason.
 Row 1 is a header carrying the tab's **own** update time, so a stale Dashboard
 is visible without cross-checking `LAST POLL` in `Orders`.
 
+### Ticker labels link to TradingView — added 2026-09-23
+
+Each block's ticker in column A is written as
+`=HYPERLINK("https://www.tradingview.com/chart/<layout>/?symbol=<TICKER>", "<TICKER>")`,
+opening Chakravarti's saved layout (`ajSFidjP`, override with
+`TRADINGVIEW_CHART`) which already carries his indicators. Same browser profile,
+so it opens signed in.
+
+**No exchange prefix.** `NASDAQ:AEHR` is the obvious form and is wrong here:
+these holdings span NASDAQ, NYSE and NYSE Arca (IBIT, ARKB, HODL), so a
+hardcoded prefix breaks every ticker not on that exchange. A bare symbol lets
+TradingView resolve the primary listing.
+
+Written by `_link_tickers()` as a **separate** batch from the table, because a
+formula needs `USER_ENTERED` while the data wants `RAW` — sending the whole
+table as `USER_ENTERED` would let Sheets reinterpret values it has no business
+touching, such as an order's `Entered` timestamp becoming a date. Best-effort
+like `_paint()`: a link is a convenience, the data is not.
+
 ### Read-only by construction
 
 Nothing a human types lives here. That is what lets it be regenerated wholesale

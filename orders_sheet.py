@@ -427,6 +427,47 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None) -> tuple[list, dict
     return rows, marks
 
 
+# Chakravarti's saved TradingView layout — it already carries his indicators,
+# so the link only has to hand it a symbol. Override if the layout changes.
+TV_CHART = os.getenv("TRADINGVIEW_CHART", "ajSFidjP")
+
+
+def _tv_url(ticker: str) -> str:
+    """No exchange prefix on purpose.
+
+    The obvious form is NASDAQ:AEHR, but these holdings span NASDAQ, NYSE and
+    NYSE Arca (IBIT, ARKB, HODL...), and a hardcoded prefix breaks every ticker
+    that is not on that exchange. A bare symbol lets TradingView resolve the
+    primary listing itself.
+    """
+    return f"https://www.tradingview.com/chart/{TV_CHART}/?symbol={ticker}"
+
+
+def _link_tickers(ws, rows, marks, log):
+    """Turn each block's ticker label into a TradingView hyperlink.
+
+    Written separately from the bulk update, and only over the ticker cells,
+    because a formula needs USER_ENTERED while the data wants RAW — sending the
+    whole table as USER_ENTERED would let Sheets reinterpret values it has no
+    business touching, such as an order's Entered timestamp becoming a date.
+
+    Best-effort, like _paint: a link is a convenience, the data is not.
+    """
+    try:
+        payload = []
+        for r in marks.get("ticker", []):
+            t = str(rows[r - 1][0]).strip()
+            if not t:
+                continue
+            payload.append({"range": f"A{r}",
+                            "values": [[f'=HYPERLINK("{_tv_url(t)}","{t}")']]})
+        if payload:
+            ws.batch_update(payload, value_input_option="USER_ENTERED")
+            log(f"Dashboard: {len(payload)} ticker(s) linked to TradingView")
+    except Exception as e:
+        log(f"⚠️  dashboard TradingView links skipped (data is fine): {e}")
+
+
 def _paint(ws, marks, log):
     """Cosmetics. Best-effort — never let a formatting call lose the data."""
     cyan = {"backgroundColor": {"red": 0.80, "green": 0.95, "blue": 1.0},
@@ -462,7 +503,8 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None, log=print) ->
     ws.clear()
     ws.update(values=rows, range_name=f"A1:L{len(rows)}")
     ws.freeze(rows=0)
-    _paint(ws, marks, log)
+    _link_tickers(ws, rows, marks, log)
+    _paint(ws, marks, log)          # after the links, so the cyan survives
     return len(marks["ticker"])
 
 
