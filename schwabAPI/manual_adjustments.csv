@@ -1,0 +1,48 @@
+# manual_adjustments.csv — shares that left without Schwab's API reporting it.
+#
+# WHY THIS FILE EXISTS
+#   Measured 2026-09-24. Schwab's transactions API returns NOTHING for account
+#   ...171 between 2023-10 and 2024-08, while the web UI shows trades all the
+#   way through. A full refetch from 2019 returned byte-identical data. Four
+#   causes were tested and excluded: a failed chunk, the forward-only
+#   watermark, the `types` filter, and the parser. The rows are not obtainable.
+#
+# HOW TO USE
+#   qty       POSITIVE — how many shares to remove. Take it from qty_mismatch
+#             in ticker_pl_summary.csv; that is our count minus Schwab's, and
+#             Schwab's is authoritative.
+#   date      when it left. Blank = after that ticker's last known transaction,
+#             which is the only ordering that cannot consume later lots.
+#   proceeds  TOTAL cash received, not per share. LEAVE BLANK IF UNKNOWN: the
+#             shares then exit at cost, so the share count and unrealized P&L
+#             become correct and realized P&L gains nothing invented.
+#   note      free text.
+#
+#   Every applied row appears in anomalies.csv, so an estimate can never
+#   quietly pass for a measured figure. Fill in proceeds from a statement when
+#   you have one and that ticker becomes exact.
+#
+# Seeded from the 21 mismatches as of 2026-09-24. Delete a line rather than
+# guessing if you would rather leave a ticker visibly wrong.
+symbol,date,qty,proceeds,note
+AEHR,,109,,gap 2023-10..2024-08
+AMD,,90,,
+NVDA,,33,,
+TSLA,,36,,
+MRVL,,30,,
+COIN,,40,,
+TSM,,11,,
+MSFT,,16,,
+NFLX,,8,,
+BYND,,22,,
+TDOC,,100,,
+GDYN,,52,,
+SOFI,,315,,TDA era
+METV,,175,,TDA era
+AI,,100,,
+BITO,,294,,TDA era
+XYZ,,14,,
+SNOW,,65,,
+ROKU,,50,,
+25058X105,,145,,unidentified CUSIP
+86800U104,,12,,unidentified CUSIP

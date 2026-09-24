@@ -54,6 +54,14 @@ transactions_cache/
 !**/*.py
 !**/__init__.py
 
+# ...and the hand-maintained CONFIG files, which are inputs, not outputs.
+# manual_basis.csv survived only because it was tracked before the *.csv rule
+# existed; manual_adjustments.csv was silently skipped by `git add -A` and
+# never reached Pi 1, so the reconciliation appeared to do nothing.
+!manual_basis.csv
+!manual_adjustments.csv
+!corporate_actions.json
+
 # =========================
 # Token / auth artifacts
 # =========================
