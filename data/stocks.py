@@ -144,14 +144,22 @@ def build_stocks_signals_table(
     adxr_low_threshold: float = 20.0,
     adxr_flat_eps: float = 1e-6,
     include_scoring: bool = True,
+    price_map: dict | None = None,
 ) -> pd.DataFrame:
     """
     Build stocks signals table with optional 45° trend scoring and earnings alerts.
-    
+
     Parameters:
     -----------
     include_scoring : bool, default True
         If True, includes "Score" and "Earnings_Alert" columns
+    price_map : dict | None
+        {SYMBOL: price} to use for "Current Price", injected by the caller.
+        Intended for Schwab quotes — real-time, extended-hours aware, and one
+        API call for every ticker. Without it each row falls back to
+        fetch_current_price(), which is a separate Yahoo request per ticker
+        and returns the REGULAR SESSION price, so after the close "Current
+        Price" simply repeats "Last Close".
     """
     rows = []
     
@@ -218,8 +226,13 @@ def build_stocks_signals_table(
         # Fetch market cap — always, graceful N/A on failure (no crypto, stocks only)
         market_cap = fetch_market_cap(t)
 
-        # Fetch current price for display
-        current_price = fetch_current_price(t)
+        # Current price. An injected map (Schwab quotes, real-time and
+        # extended-hours aware) wins; Yahoo is the fallback for when the
+        # caller has no Schwab client — its regularMarketPrice is the REGULAR
+        # SESSION price, so after the close it just repeats Last Close.
+        current_price = (price_map or {}).get(t.upper())
+        if current_price is None:
+            current_price = fetch_current_price(t)
 
         row = {
             "Ticker": t,

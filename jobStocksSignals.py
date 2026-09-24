@@ -385,8 +385,20 @@ def main(no_push: bool = False):
 
     # ── 1. Build signals (using centralized params) ─────────────────────────────
     log("Computing stock signals...")
+    # Live prices first, so "Current Price" is genuinely current. Yahoo's
+    # regularMarketPrice repeats the close after hours, and costs one HTTP
+    # request per ticker; Schwab answers all of them in one call and includes
+    # the extended session. Non-fatal: an empty map falls back per ticker.
+    price_map = {}
+    try:
+        from schwab_quotes import price_map as fetch_price_map
+        price_map = fetch_price_map(get_schwab_client(), STOCK_TICKERS, log=log)
+    except Exception as e:
+        log(f"⚠️  live quotes unavailable, falling back to Yahoo per ticker: {e}")
+
     df_signals = build_stocks_signals_table(
         STOCK_TICKERS,
+        price_map=price_map,
         **INDICATOR_PARAMS,
     )
     log(f"Signals built: {len(df_signals)} rows")
