@@ -66,6 +66,9 @@ def fetch_market_prices(client) -> tuple[dict, dict]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--offline", action="store_true", help="use the on-disk cache, do not call Schwab")
+    ap.add_argument("--full-refetch", action="store_true",
+                    help="ignore watermarks and re-pull every account from the "
+                         "cold-start date; heals gaps a failed chunk left behind")
     ap.add_argument("--no-prices", action="store_true", help="skip live quotes (unrealized will be blank)")
     ap.add_argument("--out", default=None, help="override output directory")
     args = ap.parse_args()
@@ -85,7 +88,7 @@ def main() -> int:
         accounts = txn_cache.get_linked_accounts(client)
         hash_to_acct = {a["hash"]: a["account_number"] for a in accounts}
         logger.info("Syncing %d accounts ...", len(accounts))
-        cache = txn_cache.sync_all(client)
+        cache = txn_cache.sync_all(client, full=args.full_refetch)
 
     if cache.empty:
         logger.error("No transactions. Nothing to do.")

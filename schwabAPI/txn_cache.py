@@ -118,6 +118,16 @@ def _fetch_chunk(client, account_hash: str, start: date, end: date) -> List[Dict
         try:
             resp = client.transactions(account_hash, start_str, end_str, TYPES_PARAM)
             if resp.status_code != 200:
+                # NEVER return [] here. An empty list is indistinguishable from
+                # "this window genuinely had no transactions", so fetch_range
+                # walks on and _save_state writes a watermark PAST data that was
+                # never fetched. Because the watermark only moves forward, that
+                # hole is permanent and silent.
+                #
+                # Measured 2026-09-24: account A9D5532F had 11 consecutive empty
+                # months (2023-10 .. 2024-08) hiding AEHR's -109 transfer, plus
+                # its 2023-10 and 2024 trades. CE1E434C had 17. Three years of
+                # incremental runs could never heal it.
                 logger.error(
                     "HTTP %s hash=%s %s..%s body=%s",
                     resp.status_code,
@@ -126,7 +136,19 @@ def _fetch_chunk(client, account_hash: str, start: date, end: date) -> List[Dict
                     end,
                     getattr(resp, "text", "")[:300],
                 )
-                return []
+                last_err = RuntimeError(
+                    f"HTTP {resp.status_code} for {account_hash[:8]} "
+                    f"{start}..{end}: {getattr(resp, 'text', '')[:200]}")
+                # 429 and 5xx are transient — retry. 4xx otherwise will not fix
+                # itself, but must still raise rather than fake an empty window.
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    if attempt < max_tries:
+                        logger.warning("retrying %d/%d after HTTP %s",
+                                       attempt, max_tries, resp.status_code)
+                        time.sleep(backoff)
+                        backoff = min(backoff * 2, 30)
+                        continue
+                raise last_err
             data = resp.json() or []
             if isinstance(data, list):
                 return data
@@ -260,14 +282,23 @@ def merge_and_save(h: str, new_df: pd.DataFrame) -> pd.DataFrame:
     return combined
 
 
-def sync_account(client, account_hash: str, cold_start: str = COLD_START) -> pd.DataFrame:
+def sync_account(client, account_hash: str, cold_start: str = COLD_START,
+                 full: bool = False) -> pd.DataFrame:
     """
     Bring one account's cache fully up to date.
     Cold start: pulls everything from `cold_start` to today.
     Warm start: re-pulls the last OVERLAP_DAYS and merges.
+    full=True:  ignores the watermark and re-pulls from `cold_start`.
+
+    `full` exists because the watermark only ever moves FORWARD, so a window
+    that was missed cannot be recovered by any number of incremental runs. The
+    merge de-duplicates on activity id, so a full re-pull adds what is missing
+    and changes nothing else.
     """
     today = date.today()
-    last = _load_state(account_hash)
+    last = None if full else _load_state(account_hash)
+    if full:
+        logger.info("FULL REFETCH %s — ignoring watermark", account_hash[:8])
 
     if last is None:
         start = datetime.strptime(cold_start, "%Y-%m-%d").date()
@@ -287,11 +318,15 @@ def sync_account(client, account_hash: str, cold_start: str = COLD_START) -> pd.
     return combined
 
 
-def sync_all(client) -> pd.DataFrame:
-    """Sync every linked account; return the concatenated ledger with account_number."""
+def sync_all(client, full: bool = False) -> pd.DataFrame:
+    """Sync every linked account; return the concatenated ledger with account_number.
+
+    full=True re-pulls each account from COLD_START, ignoring watermarks. Use it
+    to heal gaps left by a chunk that failed during an earlier run.
+    """
     frames = []
     for acc in get_linked_accounts(client):
-        df = sync_account(client, acc["hash"])
+        df = sync_account(client, acc["hash"], full=full)
         if df.empty:
             continue
         df = df.copy()
