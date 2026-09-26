@@ -51,6 +51,14 @@ import order_canonical as oc                            # noqa: E402
 import order_exec_config as cfg                         # noqa: E402
 
 DATA_START_ROW = 9          # Orders tab: header block 1-6, banner 7, cols 8
+
+# Engine-owned cells, by letter. Named rather than inlined: the columns shifted
+# once already when Confirm_Token took L, and a write-back aimed at the wrong
+# column silently overwrites a different field.
+COL_STATUS = "N"
+COL_STATUS_DATE = "O"
+COL_ENGINE_NOTE = "V"
+COL_LAST_CHECKED = "W"
 SHEET_COLS = ["Row_ID", "Date", "Acct", "Ticker", "Action", "Trigger_Price",
               "Limit_Price", "Qty", "Qty_Unit", "After_Close", "Expires_On",
               "Confirm_Token"]
@@ -503,10 +511,13 @@ def main() -> int:
     # record, the sheet is a view of it.
     try:
         payload = []
+        stamp = _now().strftime("%Y-%m-%d %H:%M:%S %Z")
         for u in updates:
-            payload.append({"range": f"M{u['row']}:O{u['row']}",
-                            "values": [[u["state"], u["note"][:400],
-                                        _now().strftime("%Y-%m-%d %H:%M:%S %Z")]]})
+            r = u["row"]
+            payload.append({"range": f"{COL_STATUS}{r}:{COL_STATUS_DATE}{r}",
+                            "values": [[u["state"], stamp]]})
+            payload.append({"range": f"{COL_ENGINE_NOTE}{r}:{COL_LAST_CHECKED}{r}",
+                            "values": [[u["note"][:400], stamp]]})
         if payload:
             ws.batch_update(payload, value_input_option="RAW")
     except Exception as e:
