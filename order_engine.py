@@ -17,19 +17,32 @@ THE ONE THING TO UNDERSTAND
     need the fill at that close, this is the wrong mechanism — use a resting
     order at Schwab (After_Close = N).
 
+NO SIGNING KEY. Decided 2026-09-26. Intents are typed straight into the sheet
+from a phone; requiring a laptop to sign each one defeats the point of having a
+sheet. The accepted risk is that sheet access implies the ability to cause
+TRADES — not to move money out, which a brokerage order cannot do.
+
 WHAT PROTECTS YOU, IN ORDER OF HOW MUCH IT MATTERS
     1. LIVE_TRADING defaults to FALSE. Nothing reaches Schwab until someone
        sets ORDER_ENGINE_LIVE=1 on Pi 1, deliberately.
     2. The kill switch file blocks every submission, checked immediately before
        each one rather than once at startup.
-    3. Every row needs a Confirm_Token minted by arm_order.py. The sheet cannot
-       authorise a trade by itself; editing any intent cell invalidates it.
-    4. Caps on notional per order, per day, and submissions per day.
-    5. Account and ticker allowlists, failing CLOSED when unset.
-    6. Write-ahead to the ledger before any submit, so a crash mid-call is
+    3. Hard caps on notional per order, per day, and submissions per day. With
+       no signature these are the primary control, so they start small.
+    4. Guards that read the ACTUAL account: never sell more than is held,
+       never trade a symbol that is neither held nor watched, never place a
+       buy that exceeds free cash. A mis-typed quantity fails these.
+    5. Account allowlist, failing CLOSED when unset.
+    6. A validation line written back into the sheet EVERY cycle, so a bad row
+       says so within minutes of being typed rather than at the close.
+    7. Write-ahead to the ledger before any submit, so a crash mid-call is
        detectable rather than silently repeatable.
-    7. Triggers fire on a completed daily CLOSE, never an intrabar touch —
+    8. Triggers fire on a completed daily CLOSE, never an intrabar touch —
        matching the HHLL/pivot analysis, which is close-based throughout.
+
+THE REALISTIC FAILURE is a mis-typed cell, not a break-in: a formula
+autofilling down, 10 becoming 100, a paste landing one row off. Guards 3, 4
+and 6 exist for that.
 
 Runs on Pi 1.
 """
@@ -47,23 +60,23 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-import order_canonical as oc                            # noqa: E402
+import order_intent as oc                            # noqa: E402
 import order_exec_config as cfg                         # noqa: E402
 
 DATA_START_ROW = 9          # Orders tab: header block 1-6, banner 7, cols 8
 
 # Engine-owned cells, by letter. Named rather than inlined: the columns shifted
-# once already when Confirm_Token took L, and a write-back aimed at the wrong
-# column silently overwrites a different field.
-COL_STATUS = "N"
-COL_STATUS_DATE = "O"
-COL_ENGINE_NOTE = "V"
-COL_LAST_CHECKED = "W"
+# named rather than inlined because a write-back aimed at the wrong column
+# silently overwrites a different field.
+COL_STATUS = "M"
+COL_STATUS_DATE = "N"
+COL_VALIDATION = "O"
+COL_ENGINE_NOTE = "U"
+COL_LAST_CHECKED = "V"
 SHEET_COLS = ["Row_ID", "Date", "Acct", "Ticker", "Action", "Trigger_Price",
-              "Limit_Price", "Qty", "Qty_Unit", "After_Close", "Expires_On",
-              "Confirm_Token"]
+              "Limit_Price", "Qty", "Qty_Unit", "After_Close", "Expires_On"]
 
-LEDGER_COLS = ["ts", "row_id", "token", "state", "note", "acct", "ticker",
+LEDGER_COLS = ["ts", "row_id", "fingerprint", "state", "note", "acct", "ticker",
                "action", "qty", "trigger_price", "limit_price", "trigger_close",
                "idem_key", "submit_attempted", "schwab_order_id"]
 
@@ -148,11 +161,6 @@ def preflight(force_time: bool) -> list[str]:
                         f"{h:02d}:{m:02d} PT (now {now:%H:%M})")
         if now.weekday() >= 5:
             stop.append("weekend — no daily bar to evaluate")
-
-    try:
-        oc.load_secret()
-    except oc.IntentError as e:
-        stop.append(f"HMAC key unusable: {e}")
 
     if not cfg.ACCOUNT_ALLOWLIST:
         stop.append("ORDER_ACCOUNT_ALLOWLIST is empty — every row would be "
@@ -268,15 +276,83 @@ def cross_check(close: float, ticker: str, log=print) -> str | None:
     return None
 
 
+def _known_tickers() -> set[str]:
+    """STOCK_TICKERS out of app.py without importing it."""
+    try:
+        import ast
+        import re as _re
+        src = (HERE / "app.py").read_text(encoding="utf-8")
+        m = _re.search(r"STOCK_TICKERS\s*=\s*\[(.*?)\]", src, _re.S)
+        return {str(t).strip().upper()
+                for t in ast.literal_eval("[" + m.group(1) + "]")} if m else set()
+    except Exception:
+        return set()
+
+
+def fp_of(rec: dict) -> str:
+    """Fingerprint, or "" when the row is too malformed to have one.
+
+    finish() is called for MALFORMED rows too, so this must never raise —
+    losing the audit line would be worse than losing the fingerprint.
+    """
+    try:
+        return oc.fingerprint(rec)
+    except Exception:
+        return ""
+
+
 def triggered(action: str, close: float, trigger: float) -> bool:
     _side, direction = oc.ACTIONS[action]
     return close > trigger if direction == "CLOSE_ABOVE" else close < trigger
 
 
 # ─────────────────────────────────────────────────────────── guards
-def check_guards(n: dict, close: float, submitted_today: int,
-                 notional_today: float) -> str | None:
-    """The reason this must NOT be submitted, or None."""
+def account_state(client_wrapper, log=print) -> dict:
+    """What the account ACTUALLY holds, per (acct, ticker), plus free cash.
+
+    Without a signature this is the real protection. A mis-typed "sell 1000"
+    is caught here — not because 1000 looks odd, but because the account holds
+    26 and the engine can see that.
+    """
+    out = {"positions": {}, "cash": {}, "tickers": set()}
+    try:
+        from orders_sheet import fetch_positions_detailed
+        pos = fetch_positions_detailed(client_wrapper, log=lambda *a: None)
+        for _, r in pos.iterrows():
+            out["positions"][(str(r["Acct"]), str(r["Ticker"]).upper())] = float(r["Qty"])
+            out["tickers"].add(str(r["Ticker"]).upper())
+    except Exception as e:
+        log(f"⚠️  could not read positions: {e}")
+        return {}                      # empty means "unknown" -> fail closed
+
+    try:
+        import pandas as pd
+        cash_csv = Path.home() / "github" / "jobMyTrading" / "cash.csv"
+        if cash_csv.exists():
+            df = pd.read_csv(cash_csv)
+            for _, r in df.iterrows():
+                acct = str(r.get("Account") or "").strip().upper()
+                if not acct or acct == "TOTAL":
+                    continue
+                key = acct[-3:] if len(acct) >= 3 else acct
+                val = r.get("Cash_After_Open_Orders", r.get("Cash"))
+                try:
+                    out["cash"][key] = float(str(val).replace(",", "").replace("$", ""))
+                except (TypeError, ValueError):
+                    pass
+    except Exception as e:
+        log(f"⚠️  could not read cash.csv: {e}")
+    return out
+
+
+def check_guards(n: dict, close: float | None, submitted_today: int,
+                 notional_today: float, acct_state: dict | None = None) -> str | None:
+    """The reason this must NOT be submitted, or None.
+
+    `close` may be None during validation, before any price is known; the
+    price-dependent checks are then skipped and everything else still runs, so
+    a bad row is reported the moment it is typed.
+    """
     if cfg.kill_switch_on():
         return f"KILL_SWITCH: {cfg.KILL_SWITCH} exists"
 
@@ -288,7 +364,8 @@ def check_guards(n: dict, close: float, submitted_today: int,
         return f"TICKER_NOT_ALLOWED: {n['Ticker']}"
 
     if not n["Limit_Price"] and not cfg.ALLOW_MARKET_ORDERS:
-        return "MARKET_ORDERS_REFUSED: no limit price given"
+        return "NO_LIMIT_PRICE: market orders are refused — a gap open turns " \
+               "'buy above 245' into a fill at 261"
 
     if n["Qty_Unit"] != "SHARES":
         return (f"UNSUPPORTED_QTY_UNIT: {n['Qty_Unit']} — v1 handles SHARES "
@@ -297,6 +374,7 @@ def check_guards(n: dict, close: float, submitted_today: int,
     qty = float(n["Qty"])
     px = float(n["Limit_Price"] or n["Trigger_Price"])
     notional = qty * px
+    side, _direction = oc.ACTIONS[n["Action"]]
 
     if notional > cfg.MAX_NOTIONAL_PER_ORDER:
         return (f"CAP_PER_ORDER: ${notional:,.2f} exceeds "
@@ -308,15 +386,45 @@ def check_guards(n: dict, close: float, submitted_today: int,
         return (f"CAP_SUBMISSIONS: {submitted_today} already today, max "
                 f"{cfg.MAX_SUBMISSIONS_PER_DAY}")
 
-    # The setup that was intended no longer exists.
-    side, _ = oc.ACTIONS[n["Action"]]
-    lim = float(n["Limit_Price"]) if n["Limit_Price"] else None
-    if lim:
-        through = ((close - lim) / lim * 100) if side == "BUY" else \
-                  ((lim - close) / lim * 100)
-        if through > cfg.GAP_THROUGH_PCT:
-            return (f"GAPPED_THROUGH: close {close:.2f} is {through:.1f}% "
-                    f"past the {side} limit {lim:.2f}")
+    # ---- guards that read the real account ----------------------------
+    if acct_state is not None:
+        if not acct_state:
+            return "ACCOUNT_UNKNOWN: could not read positions — refusing to act blind"
+
+        held = acct_state["positions"].get((n["Acct"], n["Ticker"]))
+
+        if side == "SELL":
+            if held is None:
+                return (f"NOTHING_TO_SELL: no {n['Ticker']} position in "
+                        f"{n['Acct']}")
+            if qty > held + 1e-6:
+                return (f"OVERSELL: {qty:g} shares but only {held:g} held in "
+                        f"{n['Acct']} — check for a typo")
+
+        if side == "BUY":
+            # Unheld and unwatched is almost always a mistyped symbol.
+            if held is None and n["Ticker"] not in acct_state["tickers"]:
+                # Parsed, not imported: app.py pulls in Streamlit, which is
+                # absent on some machines, and the import failing would
+                # silently skip this check rather than announcing itself.
+                known = _known_tickers()
+                if known and n["Ticker"] not in known:
+                    return (f"UNKNOWN_TICKER: {n['Ticker']} is neither held nor "
+                            f"in STOCK_TICKERS — likely a typo")
+            free = acct_state["cash"].get(n["Acct"])
+            if free is not None and notional > free:
+                return (f"INSUFFICIENT_CASH: ${notional:,.2f} needed, "
+                        f"${free:,.2f} available in {n['Acct']}")
+
+    # ---- price-dependent, only once a close is known ------------------
+    if close is not None:
+        lim = float(n["Limit_Price"]) if n["Limit_Price"] else None
+        if lim:
+            through = ((close - lim) / lim * 100) if side == "BUY" else \
+                      ((lim - close) / lim * 100)
+            if through > cfg.GAP_THROUGH_PCT:
+                return (f"GAPPED_THROUGH: close {close:.2f} is {through:.1f}% "
+                        f"past the {side} limit {lim:.2f}")
     return None
 
 
@@ -395,7 +503,22 @@ def main() -> int:
         return 1
 
     import jobStocksSignals as job
-    client = None
+    client = job.get_schwab_client()
+
+    # Read the real account ONCE. Every guard that catches a mis-typed cell
+    # depends on knowing what is actually held.
+    acct_state = account_state(client, log=_log)
+    if acct_state:
+        _log(f"account: {len(acct_state['positions'])} position(s), "
+             f"cash known for {len(acct_state['cash'])} account(s)")
+    else:
+        _log("⚠️  account state unknown — every row will be held, not acted on")
+
+    after_close = args.force_time or \
+        (_now().hour, _now().minute) >= cfg.EVALUATE_AFTER_PT
+    if not after_close:
+        _log("before 13:15 PT — validating rows only, not evaluating triggers")
+
     updates: list[dict] = []
 
     for rec in rows:
@@ -405,8 +528,14 @@ def main() -> int:
         if prior.get("state") in cfg.TERMINAL_STATES:
             continue                       # history still sitting in the sheet
 
+        def note_only(validation: str):
+            """Feedback without a state change — the whole point of running
+            often. A bad row says so within minutes of being typed instead of
+            failing silently at the close."""
+            updates.append(dict(row=rec["_sheet_row"], validation=validation))
+
         def finish(state: str, note: str, **extra):
-            append_ledger(dict(row_id=rec["Row_ID"], token=rec["Confirm_Token"],
+            append_ledger(dict(row_id=rec["Row_ID"], fingerprint=fp_of(rec),
                                state=state, note=note, acct=rec["Acct"],
                                ticker=rec["Ticker"], action=rec["Action"],
                                qty=rec["Qty"], trigger_price=rec["Trigger_Price"],
@@ -422,29 +551,35 @@ def main() -> int:
             finish("VOID", f"MALFORMED: {e}")
             continue
 
-        # 2. Does the token prove someone armed this exact intent?
-        if not rec["Confirm_Token"]:
-            finish("VOID", "NO_TOKEN: arm it with arm_order.py first")
-            continue
-        try:
-            if not oc.verify(rec, rec["Confirm_Token"]):
-                finish("VOID", "BAD_TOKEN: intent was edited after arming, or "
-                               "never armed. Re-arm rather than editing.")
-                continue
-        except oc.IntentError as e:
-            finish("VOID", f"CANNOT_VERIFY: {e}")
-            continue
+        fp = oc.fingerprint(rec)
 
-        # 3. Replay: a live row whose token changed is a mutated intent.
+        # 2. Has a row we already acted on since been EDITED? Without a
+        #    signature this is what stops an executed intent quietly becoming a
+        #    second, different order under the same Row_ID.
         if prior and prior.get("state") in cfg.LIVE_STATES \
-                and prior.get("token") and prior["token"] != rec["Confirm_Token"]:
-            finish("VOID", "INTENT_MUTATED: token differs from the ledger")
+                and prior.get("fingerprint") and prior["fingerprint"] != fp:
+            finish("VOID", "INTENT_CHANGED: this row was edited after the "
+                           "engine acted on it. Use a new Row_ID rather than "
+                           "editing a live row.")
             continue
 
-        # 4. Expiry.
+        # 3. Expiry.
         why = expired(n)
         if why:
             finish("EXPIRED" if why.startswith("EXPIRED") else "VOID", why)
+            continue
+
+        # 4. Validate NOW, price-independently, and say so in the sheet. This
+        #    is what replaced the signing key: a row that could never execute
+        #    announces itself immediately rather than at the close.
+        problem = check_guards(n, None, n_sub, notional_today, acct_state)
+        if problem:
+            note_only(f"⛔ {problem}")
+            _log(f"   {rid:<26} WOULD BLOCK  {problem}")
+            continue
+        note_only(f"✅ {oc.describe(rec)}")
+
+        if not after_close:
             continue
 
         # 5. Resting orders are not this engine's job.
@@ -454,8 +589,6 @@ def main() -> int:
             continue
 
         # 6. The close.
-        if client is None:
-            client = job.get_schwab_client()
         close, note = daily_close(client, n["Ticker"])
         if close is None:
             # Leave it ARMED. Never advance a row on a price we could not read.
@@ -474,16 +607,16 @@ def main() -> int:
                  f"{float(n['Trigger_Price']):.2f}")
             continue
 
-        # 7. Triggered. Now every guard, immediately before acting.
-        block = check_guards(n, close, n_sub, notional_today)
+        # 7. Triggered. Every guard again, now with the close.
+        block = check_guards(n, close, n_sub, notional_today, acct_state)
         if block:
             finish("BLOCKED", block, trigger_close=f"{close:.2f}")
             continue
 
         # 8. Write-ahead BEFORE the call, so a crash mid-submit is detectable
         #    rather than silently repeatable.
-        idem = oc.idempotency_key(n["Row_ID"], rec["Confirm_Token"])
-        append_ledger(dict(row_id=n["Row_ID"], token=rec["Confirm_Token"],
+        idem = oc.idempotency_key(n["Row_ID"], fp)
+        append_ledger(dict(row_id=n["Row_ID"], fingerprint=fp,
                            state="TRIGGERED", note=f"close {close:.2f}",
                            acct=n["Acct"], ticker=n["Ticker"], action=n["Action"],
                            qty=n["Qty"], trigger_price=n["Trigger_Price"],
@@ -514,10 +647,15 @@ def main() -> int:
         stamp = _now().strftime("%Y-%m-%d %H:%M:%S %Z")
         for u in updates:
             r = u["row"]
-            payload.append({"range": f"{COL_STATUS}{r}:{COL_STATUS_DATE}{r}",
-                            "values": [[u["state"], stamp]]})
-            payload.append({"range": f"{COL_ENGINE_NOTE}{r}:{COL_LAST_CHECKED}{r}",
-                            "values": [[u["note"][:400], stamp]]})
+            if "validation" in u:
+                payload.append({"range": f"{COL_VALIDATION}{r}",
+                                "values": [[u["validation"][:400]]]})
+            if "state" in u:
+                payload.append({"range": f"{COL_STATUS}{r}:{COL_STATUS_DATE}{r}",
+                                "values": [[u["state"], stamp]]})
+                payload.append({"range": f"{COL_ENGINE_NOTE}{r}:{COL_LAST_CHECKED}{r}",
+                                "values": [[u["note"][:400], stamp]]})
+            payload.append({"range": f"{COL_LAST_CHECKED}{r}", "values": [[stamp]]})
         if payload:
             ws.batch_update(payload, value_input_option="RAW")
     except Exception as e:

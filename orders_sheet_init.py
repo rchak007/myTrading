@@ -16,8 +16,7 @@ Layout per Documentation/ordersSheetDesign-9-18-26.md:
     Orders      rows 1-6  status header, written by Pi 1 every cycle
                 row  7    ownership banner
                 row  8    column headers
-                row  9+   DATA. You own A-K, arm_order.py fills L
-                          (Confirm_Token), Pi 1 owns M-W, X+ is free text.
+                row  9+   DATA. You own A-K, Pi 1 owns L-V, W+ is free text.
     Positions   Pi 1 only
     Cash        Pi 1 only
     History     Pi 1 only, append-only
@@ -44,11 +43,6 @@ DATA_START_ROW = 9
 ORDERS_HUMAN = [
     "Row_ID", "Date", "Acct", "Ticker", "Action", "Trigger_Price",
     "Limit_Price", "Qty", "Qty_Unit", "After_Close", "Expires_On",
-    # Column L. Minted by arm_order.py, pasted with the row. The engine
-    # recomputes it and refuses any row where it does not match, so editing an
-    # intent cell after arming disarms the row rather than changing the trade.
-    # Nothing else in A-L authorises anything on its own.
-    "Confirm_Token",
 ]
 ORDERS_ENGINE = [
     "Venue", "Status", "Status_Date", "Validation", "Current_Price",
@@ -78,9 +72,8 @@ HEADER_BLOCK = [
     ["ALERTS", "—"],
 ]
 
-BANNER = ("▼ YOU FILL A-K ▼", "", "", "", "", "", "", "", "", "",
-          "", "▲ arm_order.py ▲",
-          "▼ PI 1 FILLS M-W — DO NOT TYPE HERE ▼")
+BANNER = ("▼ YOU FILL A-K ▼", "", "", "", "", "", "", "", "", "", "",
+          "▼ PI 1 FILLS L-V — DO NOT TYPE HERE ▼")
 
 ACTIONS = "SELL-TRIM | SELL-STOPLOSS | BUY-DIP | BUY-BREAKOUT | (blank = nothing to do)"
 
@@ -136,8 +129,7 @@ def build_orders(ws, dry: bool) -> None:
     ws.format(f"A8:{last}8", {"textFormat": {"bold": True}})
     ws.format("A1:B6", {"textFormat": {"bold": True}})
     # Tint the engine-owned block so typing there feels wrong.
-    # Engine region starts at M now that Confirm_Token occupies L.
-    ws.format("M1:W1000", {"backgroundColor": {"red": 0.96, "green": 0.96, "blue": 0.96}})
+    ws.format("L1:V1000", {"backgroundColor": {"red": 0.96, "green": 0.96, "blue": 0.96}})
     ws.update(values=[[f"Actions: {ACTIONS}"]], range_name=f"{col_letter(len(ORDERS_COLS))}1")
 
 

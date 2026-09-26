@@ -1,57 +1,35 @@
 #!/usr/bin/env python3
 """
-order_canonical.py
-==================
-The canonical string for an order intent, and the HMAC token over it.
+order_intent.py
+===============
+Validate and normalise one order row from the sheet.
 
-Imported by BOTH `arm_order.py` (which mints tokens) and `order_engine.py`
-(which verifies them). One implementation on purpose: two would drift, and
-every row would fail verification with no obvious cause.
+NO SIGNING. Decided 2026-09-26: Chakravarti types intents straight into the
+Orders tab from a phone, and requiring a laptop to mint an HMAC defeats the
+purpose of having a sheet at all.
 
-WHAT THE TOKEN IS FOR
-    The sheet is untrusted input. Anyone — or anything — with edit access to the
-    spreadsheet could otherwise type a row that spends money. The token proves
-    an intent was authored by someone holding the secret, which lives only on
-    Pi 1 and the Dell, never in git, never in the sheet, never in a cloud secret
-    store.
+    The risk that buys: someone with edit access to the spreadsheet can cause
+    TRADES. They cannot move money out — a brokerage order can only ever buy or
+    sell inside the account. Bounded, and a deliberate call.
 
-    Change ANY intent cell after arming and the token no longer matches, so the
-    row is refused rather than executed. That is the point: a typo, a stray
-    paste, or a compromised sheet cannot become an order.
+    What replaces the token: guards that understand the actual account (see
+    order_engine.check_guards) — hard caps on notional, a refusal to sell more
+    than is held, a refusal to trade a ticker that is not held or watched, and
+    a validation line written back into the sheet on every cycle so a bad row
+    announces itself long before the close.
 
-    See Documentation/orderExecutionDesign-9-7-26.md §6.2.
+    The realistic failure here is not a break-in, it is a mis-typed cell: a
+    formula autofilling down, 10 becoming 100, a paste landing one row off.
+    Everything below exists to catch that.
 
-CANONICAL FORM
-    Pipe-delimited, fixed field order, taken from the columns the Orders tab
-    actually has:
-
-        Row_ID|Acct|Ticker|Action|Trigger_Price|Limit_Price|Qty|Qty_Unit|After_Close|Expires_On
-
-    The design doc lists separate Side / Trigger_Type / Bar / Order_Type / TIF
-    columns. Our sheet does not need them: `Action` already encodes side AND
-    direction (see ACTIONS below), `Limit_Price` is given outright rather than
-    derived from an offset, `Bar` is DAILY in v1, and TIF follows from
-    After_Close. Fewer cells to mistype is a safety property, not a shortcut.
-
-    Formatting rules, which both sides must apply identically:
-      * strings stripped and uppercased, EXCEPT Row_ID and Expires_On
-      * floats to exactly 2 decimals
-      * an empty optional field renders as an empty segment
+`Action` encodes side AND direction (see ACTIONS), so the sheet needs no
+separate Side / Trigger_Type / Order_Type / TIF columns. Fewer cells to mistype
+is a safety property, not a shortcut.
 """
 from __future__ import annotations
 
-import hmac
-import os
 import re
 from hashlib import sha256
-from pathlib import Path
-
-# Where the shared secret lives. 32 random bytes, mode 0400, root-owned.
-#   sudo sh -c 'head -c 32 /dev/urandom | base64 > /etc/myTrading/order_hmac.key'
-#   sudo chmod 0400 /etc/myTrading/order_hmac.key
-HMAC_KEY_FILE = Path(os.getenv("ORDER_HMAC_KEY", "/etc/myTrading/order_hmac.key"))
-
-TOKEN_LEN = 12          # hex chars kept; 48 bits is ample against typing attacks
 
 # Action -> (side, trigger direction). This is the whole reason the sheet needs
 # fewer columns than the design doc assumed.
@@ -166,61 +144,25 @@ def normalize(intent: dict) -> dict:
     return out
 
 
-def canonical(intent: dict) -> str:
-    """The exact string the token is computed over."""
+def fingerprint(intent: dict) -> str:
+    """A short stable id for this exact intent.
+
+    Not a security control — there is no secret in it. It is how the engine
+    notices that a row it has already acted on has since been EDITED, so an
+    executed row cannot quietly become a second, different order.
+    """
     n = normalize(intent)
-    return "|".join(n[f] for f in FIELDS)
+    canon = "|".join(n[f] for f in FIELDS)
+    return sha256(canon.encode("utf-8")).hexdigest()[:12]
 
 
-def load_secret(path: Path | None = None) -> bytes:
-    """Read the shared secret, refusing a world-readable one.
-
-    Fails closed and loudly: a missing or sloppy key must stop the engine, not
-    silently downgrade it to trusting the sheet.
-    """
-    p = path or HMAC_KEY_FILE
-    if not p.exists():
-        raise IntentError(
-            f"HMAC key not found at {p}. Create it once:\n"
-            f"  sudo mkdir -p {p.parent}\n"
-            f"  sudo sh -c 'head -c 32 /dev/urandom | base64 > {p}'\n"
-            f"  sudo chmod 0400 {p}")
-    mode = p.stat().st_mode & 0o077
-    if mode:
-        raise IntentError(
-            f"{p} is readable by group or others (mode {oct(p.stat().st_mode)[-3:]}). "
-            f"chmod 0400 it — a shared secret anyone can read is not a secret.")
-    data = p.read_bytes().strip()
-    if len(data) < 16:
-        raise IntentError(f"{p} is too short to be a 32-byte key")
-    return data
-
-
-def token_for(intent: dict, secret: bytes | None = None) -> str:
-    """The Confirm_Token for this intent."""
-    s = secret if secret is not None else load_secret()
-    mac = hmac.new(s, canonical(intent).encode("utf-8"), sha256)
-    return mac.hexdigest()[:TOKEN_LEN]
-
-
-def verify(intent: dict, supplied: str, secret: bytes | None = None) -> bool:
-    """Constant-time check that `supplied` matches this intent.
-
-    compare_digest rather than ==: a timing side channel here is far-fetched,
-    but the cost of using it is nil and the habit is worth keeping.
-    """
-    want = token_for(intent, secret)
-    got = _s(supplied, upper=False).lower()
-    return hmac.compare_digest(want, got)
-
-
-def idempotency_key(row_id: str, token: str) -> str:
-    """Deterministic key recorded BEFORE a submit is attempted (§6.4).
+def idempotency_key(row_id: str, fp: str) -> str:
+    """Deterministic key recorded BEFORE a submit is attempted.
 
     Derived rather than random so a crash between write-ahead and submit can be
     reconciled: the same intent always produces the same key.
     """
-    return sha256(f"{row_id}{token}".encode("utf-8")).hexdigest()[:16]
+    return sha256(f"{row_id}{fp}".encode("utf-8")).hexdigest()[:16]
 
 
 def describe(intent: dict) -> str:
