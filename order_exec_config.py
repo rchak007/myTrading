@@ -72,9 +72,19 @@ MAX_ARMED_ROWS = int(os.getenv("MAX_ARMED_ROWS", "200"))
 # a typo, not to force short-dated intents.
 MAX_EXPIRY_DAYS = int(os.getenv("MAX_EXPIRY_DAYS", "180"))
 
-# A market order on a thin open after an overnight gap is exactly how
-# "buy above 245" becomes a fill at 261.
-ALLOW_MARKET_ORDERS = False
+# Blank Limit_Price means a MARKET order. Allowed from 2026-09-26, because for
+# an EXIT that is usually what is wanted: if the trigger fired, you want out,
+# and a limit order that does not fill leaves you holding a position that is
+# still falling.
+#
+# The reverse is true for entries — see WARN_MARKET_BUY. A buy has no urgency:
+# missing a gapped-up setup costs nothing, paying 355 for one you wanted at 322
+# costs real money.
+ALLOW_MARKET_ORDERS = os.getenv("ALLOW_MARKET_ORDERS", "1") == "1"
+
+# A market BUY is almost never what you meant. Warn loudly rather than refuse:
+# it is a judgement call, not an error.
+WARN_MARKET_BUY = True
 
 # If the price has already run this far past the limit in the adverse
 # direction, the setup that was intended no longer exists. Block and let a

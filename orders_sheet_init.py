@@ -80,7 +80,10 @@ BANNER = ("▼ YOU FILL A-J ▼", "", "", "", "", "", "", "", "", "",
           "▼ PI 1 FILLS K-T — DO NOT TYPE HERE ▼")
 
 ACTIONS = ("Side: BUY | SELL   ·   Close_Is: ABOVE | BELOW   ·   "
-           "every row fires on a completed DAILY CLOSE. "
+           "every row fires on a completed DAILY CLOSE, and submits the NEXT "
+           "MORNING.   Limit_Price blank = MARKET (usually right for an exit: "
+           "a limit that does not fill leaves you holding). Set a limit on a "
+           "BUY so a gap up cannot make you overpay.   "
            "Plain limit orders belong at Schwab, not here.")
 
 

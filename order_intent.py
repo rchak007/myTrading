@@ -163,7 +163,8 @@ def describe(intent: dict) -> str:
     """One line a human can check against what they meant."""
     n = normalize(intent)
     qty = f"{float(n['Qty']):g}"
-    lim = f", limit ${n['Limit_Price']}" if n["Limit_Price"] else ", NO LIMIT PRICE"
+    lim = (f", limit ${n['Limit_Price']}" if n["Limit_Price"]
+           else ", MARKET (fills at the open, whatever it is)")
     exp = f", expires {n['Expires_On']}" if n["Expires_On"] else ", no expiry"
     return (f"{n['Side']} {qty} sh of {n['Ticker']} in {n['Acct']} when the "
             f"DAILY CLOSE is {n['Close_Is']} ${n['Trigger_Price']}{lim}{exp}")

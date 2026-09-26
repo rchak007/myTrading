@@ -374,8 +374,8 @@ def check_guards(n: dict, close: float | None, submitted_today: int,
         return f"TICKER_NOT_ALLOWED: {n['Ticker']}"
 
     if not n["Limit_Price"] and not cfg.ALLOW_MARKET_ORDERS:
-        return "NO_LIMIT_PRICE: market orders are refused — a gap open turns " \
-               "'buy above 245' into a fill at 261"
+        return ("NO_LIMIT_PRICE: market orders are disabled "
+                "(ALLOW_MARKET_ORDERS=0)")
 
     qty = float(n["Qty"])
     px = float(n["Limit_Price"] or n["Trigger_Price"])
@@ -593,7 +593,16 @@ def main() -> int:
             note_only(f"⛔ {problem}")
             _log(f"   {rid:<26} WOULD BLOCK  {problem}")
             continue
-        note_only(f"✅ {oc.describe(rec)}")
+        msg = f"✅ {oc.describe(rec)}"
+        if not n["Limit_Price"] and n["Side"] == "BUY" and cfg.WARN_MARKET_BUY:
+            # Not an error, but the one place a blank limit usually is a
+            # mistake: an entry has no urgency, so chasing a gap up is all
+            # cost and no benefit.
+            msg += ("  ⚠️ MARKET BUY — will pay whatever it opens at. A gap up "
+                    "means overpaying for a setup that no longer exists. "
+                    "Consider a limit.")
+            _log(f"   {rid:<26} ⚠️  market BUY with no limit price")
+        note_only(msg)
 
         if not after_close:
             continue
