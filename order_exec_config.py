@@ -67,10 +67,10 @@ WARN_SUBMISSIONS_PER_DAY = int(os.getenv("WARN_SUBMISSIONS_PER_DAY", "8"))
 # purpose: it should never fire during normal use.
 MAX_ARMED_ROWS = int(os.getenv("MAX_ARMED_ROWS", "200"))
 
-# A blank Expires_On already means "no expiry", so this only bounds a date you
-# typed deliberately. Generous rather than absent: a 2099 expiry is a typo, and
-# refusing it is worth more than honouring it.
-MAX_EXPIRY_DAYS = int(os.getenv("MAX_EXPIRY_DAYS", "3650"))
+# Six months, Chakravarti's call. A blank Expires_On still means "no expiry",
+# so this only bounds a date typed deliberately — it is there to catch 2099 as
+# a typo, not to force short-dated intents.
+MAX_EXPIRY_DAYS = int(os.getenv("MAX_EXPIRY_DAYS", "180"))
 
 # A market order on a thin open after an overnight gap is exactly how
 # "buy above 245" becomes a fill at 261.

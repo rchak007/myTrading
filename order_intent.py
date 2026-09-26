@@ -22,28 +22,33 @@ purpose of having a sheet at all.
     formula autofilling down, 10 becoming 100, a paste landing one row off.
     Everything below exists to catch that.
 
-`Action` encodes side AND direction (see ACTIONS), so the sheet needs no
-separate Side / Trigger_Type / Order_Type / TIF columns. Fewer cells to mistype
-is a safety property, not a shortcut.
+THE SHEET CARRIES ONLY CLOSE-TRIGGERED ORDERS. Anything Schwab can already
+express — a limit to buy a dip, a limit to trim into strength — belongs at
+Schwab, where it does not depend on a Raspberry Pi being awake. Chakravarti's
+call 2026-09-26, and it matches the sheet design's own rule: use the watched
+path only where the condition cannot be expressed as a resting order.
+
+So every row here means the same shape of thing:
+
+    <SIDE> <QTY> of <TICKER> in <ACCT> when the DAILY CLOSE is <ABOVE|BELOW> <PRICE>
+
+which is why there is no After_Close column any more — it would be Y on every
+row — and no Order_Type or TIF.
 """
 from __future__ import annotations
 
 import re
 from hashlib import sha256
 
-# Action -> (side, trigger direction). This is the whole reason the sheet needs
-# fewer columns than the design doc assumed.
-ACTIONS = {
-    "SELL-TRIM":     ("SELL", "CLOSE_ABOVE"),   # take profit into strength
-    "SELL-STOPLOSS": ("SELL", "CLOSE_BELOW"),   # protection
-    "BUY-DIP":       ("BUY",  "CLOSE_BELOW"),   # buy the pullback
-    "BUY-BREAKOUT":  ("BUY",  "CLOSE_ABOVE"),   # buy strength
-}
+# Side and direction are separate columns now, replacing the old single Action
+# with its four hyphenated names. Chakravarti's call 2026-09-26: BUY/SELL x
+# ABOVE/BELOW is mechanical and unambiguous, where "SELL-TRIM" carried an
+# implied motive that did not always match what the row was for.
+SIDES = {"BUY", "SELL"}
+DIRECTIONS = {"ABOVE", "BELOW"}
 
-QTY_UNITS = {"SHARES", "PCT_POS", "USD"}
-
-FIELDS = ["Row_ID", "Acct", "Ticker", "Action", "Trigger_Price",
-          "Limit_Price", "Qty", "Qty_Unit", "After_Close", "Expires_On"]
+FIELDS = ["Row_ID", "Acct", "Ticker", "Side", "Close_Is", "Trigger_Price",
+          "Limit_Price", "Qty", "Expires_On"]
 
 # Row_ID is the replay key, so it must be a stable, typeable identity.
 RE_ROW_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")
@@ -99,10 +104,17 @@ def normalize(intent: dict) -> dict:
         raise IntentError(f"Ticker {tkr!r} is not a plausible symbol")
     out["Ticker"] = tkr
 
-    action = _s(intent.get("Action"))
-    if action not in ACTIONS:
-        raise IntentError(f"Action {action!r} must be one of {sorted(ACTIONS)}")
-    out["Action"] = action
+    side = _s(intent.get("Side"))
+    if side not in SIDES:
+        raise IntentError(f"Side {side!r} must be BUY or SELL")
+    out["Side"] = side
+
+    dirn = _s(intent.get("Close_Is"))
+    if dirn not in DIRECTIONS:
+        raise IntentError(
+            f"Close_Is {dirn!r} must be ABOVE or BELOW — the condition is "
+            f"'act when the daily close is ABOVE/BELOW Trigger_Price'")
+    out["Close_Is"] = dirn
 
     trig = _f2(intent.get("Trigger_Price"))
     if not trig or float(trig) <= 0:
@@ -118,28 +130,10 @@ def normalize(intent: dict) -> dict:
         raise IntentError("Qty must be greater than zero")
     out["Qty"] = qty
 
-    unit = _s(intent.get("Qty_Unit")) or "SHARES"
-    if unit not in QTY_UNITS:
-        raise IntentError(f"Qty_Unit {unit!r} must be one of {sorted(QTY_UNITS)}")
-    out["Qty_Unit"] = unit
-
-    ac = _s(intent.get("After_Close")) or "N"
-    if ac not in ("Y", "N"):
-        raise IntentError("After_Close must be Y or N")
-    out["After_Close"] = ac
-
     exp = _s(intent.get("Expires_On"), upper=False)
     if exp and not RE_DATE.match(exp):
         raise IntentError(f"Expires_On {exp!r} must be YYYY-MM-DD or blank")
     out["Expires_On"] = exp
-
-    # A SELL-STOPLOSS that waits for Pi 1 to notice is a contradiction: the one
-    # order whose job is protecting you must not depend on a Raspberry Pi being
-    # alive. Sheet design §7 states this; refusing it here makes it true.
-    if out["Action"] == "SELL-STOPLOSS" and out["After_Close"] == "Y":
-        raise IntentError(
-            "SELL-STOPLOSS must have After_Close = N so the order rests at "
-            "Schwab. A watched stop stops protecting you the moment Pi 1 dies.")
 
     return out
 
@@ -168,13 +162,8 @@ def idempotency_key(row_id: str, fp: str) -> str:
 def describe(intent: dict) -> str:
     """One line a human can check against what they meant."""
     n = normalize(intent)
-    side, direction = ACTIONS[n["Action"]]
-    unit = {"SHARES": "sh", "PCT_POS": "% of position", "USD": "USD"}[n["Qty_Unit"]]
-    when = ("when the DAILY CLOSE is "
-            + ("above " if direction == "CLOSE_ABOVE" else "below ")
-            + f"${n['Trigger_Price']}"
-            ) if n["After_Close"] == "Y" else (
-        f"resting at Schwab, trigger ${n['Trigger_Price']}")
+    qty = f"{float(n['Qty']):g}"
     lim = f", limit ${n['Limit_Price']}" if n["Limit_Price"] else ", NO LIMIT PRICE"
-    exp = f", expires {n['Expires_On']}" if n["Expires_On"] else ", NO EXPIRY"
-    return f"{side} {n['Qty']} {unit} of {n['Ticker']} in {n['Acct']} — {when}{lim}{exp}"
+    exp = f", expires {n['Expires_On']}" if n["Expires_On"] else ", no expiry"
+    return (f"{n['Side']} {qty} sh of {n['Ticker']} in {n['Acct']} when the "
+            f"DAILY CLOSE is {n['Close_Is']} ${n['Trigger_Price']}{lim}{exp}")

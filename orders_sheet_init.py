@@ -16,7 +16,7 @@ Layout per Documentation/ordersSheetDesign-9-18-26.md:
     Orders      rows 1-6  status header, written by Pi 1 every cycle
                 row  7    ownership banner
                 row  8    column headers
-                row  9+   DATA. You own A-K, Pi 1 owns L-V, W+ is free text.
+                row  9+   DATA. You own A-J, Pi 1 owns K-T, U+ is free text.
     Positions   Pi 1 only
     Cash        Pi 1 only
     History     Pi 1 only, append-only
@@ -40,12 +40,16 @@ DATA_START_ROW = 9
 
 # --------------------------------------------------------------------- Orders
 # A-K are yours. L-V are Pi 1's. Nothing straddles.
+# Every row means: <SIDE> <QTY> of <TICKER> in <ACCT> when the DAILY CLOSE is
+# <ABOVE|BELOW> <TRIGGER>. Anything Schwab can already express as a resting
+# order belongs at Schwab, not here — so there is no After_Close column (it
+# would be Y on every row) and no order type or TIF.
 ORDERS_HUMAN = [
-    "Row_ID", "Date", "Acct", "Ticker", "Action", "Trigger_Price",
-    "Limit_Price", "Qty", "Qty_Unit", "After_Close", "Expires_On",
+    "Row_ID", "Date", "Acct", "Ticker", "Side", "Close_Is",
+    "Trigger_Price", "Limit_Price", "Qty", "Expires_On",
 ]
 ORDERS_ENGINE = [
-    "Venue", "Status", "Status_Date", "Validation", "Current_Price",
+    "Status", "Status_Date", "Validation", "Current_Price",
     "Schwab_Order_ID", "Filled_Qty", "Fill_Price", "Seed_Left",
     "Engine_Note", "Last_Checked",
 ]
@@ -72,10 +76,12 @@ HEADER_BLOCK = [
     ["ALERTS", "—"],
 ]
 
-BANNER = ("▼ YOU FILL A-K ▼", "", "", "", "", "", "", "", "", "", "",
-          "▼ PI 1 FILLS L-V — DO NOT TYPE HERE ▼")
+BANNER = ("▼ YOU FILL A-J ▼", "", "", "", "", "", "", "", "", "",
+          "▼ PI 1 FILLS K-T — DO NOT TYPE HERE ▼")
 
-ACTIONS = "SELL-TRIM | SELL-STOPLOSS | BUY-DIP | BUY-BREAKOUT | (blank = nothing to do)"
+ACTIONS = ("Side: BUY | SELL   ·   Close_Is: ABOVE | BELOW   ·   "
+           "every row fires on a completed DAILY CLOSE. "
+           "Plain limit orders belong at Schwab, not here.")
 
 
 def col_letter(n: int) -> str:
@@ -129,7 +135,7 @@ def build_orders(ws, dry: bool) -> None:
     ws.format(f"A8:{last}8", {"textFormat": {"bold": True}})
     ws.format("A1:B6", {"textFormat": {"bold": True}})
     # Tint the engine-owned block so typing there feels wrong.
-    ws.format("L1:V1000", {"backgroundColor": {"red": 0.96, "green": 0.96, "blue": 0.96}})
+    ws.format("K1:T1000", {"backgroundColor": {"red": 0.96, "green": 0.96, "blue": 0.96}})
     ws.update(values=[[f"Actions: {ACTIONS}"]], range_name=f"{col_letter(len(ORDERS_COLS))}1")
 
 

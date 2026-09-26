@@ -14,8 +14,16 @@ model of orderExecutionDesign-9-7-26.md §6.
 THE ONE THING TO UNDERSTAND
     A close trigger submits the NEXT TRADING MORNING. The daily bar has to be
     final before it can be evaluated, and by then the market is shut. If you
-    need the fill at that close, this is the wrong mechanism — use a resting
-    order at Schwab (After_Close = N).
+    need the fill at that close, this is the wrong mechanism.
+
+WHAT BELONGS HERE, AND WHAT DOES NOT
+    Here:     "buy AVGO if it CLOSES above 245" — Schwab cannot express that.
+    Not here: "buy AVGO at 245" — that is a resting limit order. Place it at
+              Schwab, where it works whether or not Pi 1 is awake.
+
+    The difference is real: a limit order fills the instant price TOUCHES the
+    level, wick included. A close trigger waits for the bar to finish, so a
+    spike that reverses does not fire it.
 
 NO SIGNING KEY. Decided 2026-09-26. Intents are typed straight into the sheet
 from a phone; requiring a laptop to sign each one defeats the point of having a
@@ -68,17 +76,17 @@ DATA_START_ROW = 9          # Orders tab: header block 1-6, banner 7, cols 8
 # Engine-owned cells, by letter. Named rather than inlined: the columns shifted
 # named rather than inlined because a write-back aimed at the wrong column
 # silently overwrites a different field.
-COL_STATUS = "M"
-COL_STATUS_DATE = "N"
-COL_VALIDATION = "O"
-COL_ENGINE_NOTE = "U"
-COL_LAST_CHECKED = "V"
-SHEET_COLS = ["Row_ID", "Date", "Acct", "Ticker", "Action", "Trigger_Price",
-              "Limit_Price", "Qty", "Qty_Unit", "After_Close", "Expires_On"]
+COL_STATUS = "K"
+COL_STATUS_DATE = "L"
+COL_VALIDATION = "M"
+COL_ENGINE_NOTE = "S"
+COL_LAST_CHECKED = "T"
+SHEET_COLS = ["Row_ID", "Date", "Acct", "Ticker", "Side", "Close_Is",
+              "Trigger_Price", "Limit_Price", "Qty", "Expires_On"]
 
 LEDGER_COLS = ["ts", "row_id", "fingerprint", "state", "note", "acct", "ticker",
-               "action", "qty", "trigger_price", "limit_price", "trigger_close",
-               "idem_key", "submit_attempted", "schwab_order_id"]
+               "side", "close_is", "qty", "trigger_price", "limit_price",
+               "trigger_close", "idem_key", "submit_attempted", "schwab_order_id"]
 
 
 def _now():
@@ -301,9 +309,11 @@ def fp_of(rec: dict) -> str:
         return ""
 
 
-def triggered(action: str, close: float, trigger: float) -> bool:
-    _side, direction = oc.ACTIONS[action]
-    return close > trigger if direction == "CLOSE_ABOVE" else close < trigger
+def triggered(close_is: str, close: float, trigger: float) -> bool:
+    """Strictly through the level. A close exactly ON the trigger does not
+    fire — "above 245" means above, and equality is the one case where doing
+    nothing is always defensible."""
+    return close > trigger if close_is == "ABOVE" else close < trigger
 
 
 # ─────────────────────────────────────────────────────────── guards
@@ -367,14 +377,10 @@ def check_guards(n: dict, close: float | None, submitted_today: int,
         return "NO_LIMIT_PRICE: market orders are refused — a gap open turns " \
                "'buy above 245' into a fill at 261"
 
-    if n["Qty_Unit"] != "SHARES":
-        return (f"UNSUPPORTED_QTY_UNIT: {n['Qty_Unit']} — v1 handles SHARES "
-                f"only, so 'trim 25%' still needs a share count")
-
     qty = float(n["Qty"])
     px = float(n["Limit_Price"] or n["Trigger_Price"])
     notional = qty * px
-    side, _direction = oc.ACTIONS[n["Action"]]
+    side = n["Side"]
 
     if notional > cfg.MAX_NOTIONAL_PER_ORDER:
         return (f"CAP_PER_ORDER: ${notional:,.2f} exceeds "
@@ -546,7 +552,8 @@ def main() -> int:
         def finish(state: str, note: str, **extra):
             append_ledger(dict(row_id=rec["Row_ID"], fingerprint=fp_of(rec),
                                state=state, note=note, acct=rec["Acct"],
-                               ticker=rec["Ticker"], action=rec["Action"],
+                               ticker=rec["Ticker"], side=rec["Side"],
+                               close_is=rec["Close_Is"],
                                qty=rec["Qty"], trigger_price=rec["Trigger_Price"],
                                limit_price=rec["Limit_Price"], **extra))
             audit(row_id=rec["Row_ID"], state=state, note=note)
@@ -591,13 +598,7 @@ def main() -> int:
         if not after_close:
             continue
 
-        # 5. Resting orders are not this engine's job.
-        if n["After_Close"] != "Y":
-            _log(f"   {rid:<26} SKIP       After_Close=N — belongs at Schwab, "
-                 f"not here (phase 2)")
-            continue
-
-        # 6. The close.
+        # 5. The close.
         close, note = daily_close(client, n["Ticker"])
         if close is None:
             # Leave it ARMED. Never advance a row on a price we could not read.
@@ -609,25 +610,26 @@ def main() -> int:
             _log(f"   {rid:<26} ARMED      {dis}")
             continue
 
-        if not triggered(n["Action"], close, float(n["Trigger_Price"])):
-            _side, direction = oc.ACTIONS[n["Action"]]
-            _log(f"   {rid:<26} ARMED      {close:.2f} has not gone "
-                 f"{'above' if direction=='CLOSE_ABOVE' else 'below'} "
-                 f"{float(n['Trigger_Price']):.2f}")
+        if not triggered(n["Close_Is"], close, float(n["Trigger_Price"])):
+            _log(f"   {rid:<26} ARMED      close {close:.2f} is not "
+                 f"{n['Close_Is'].lower()} {float(n['Trigger_Price']):.2f}")
+            note_only(f"⏳ waiting — close {close:.2f}, needs "
+                      f"{n['Close_Is'].lower()} {float(n['Trigger_Price']):.2f}")
             continue
 
-        # 7. Triggered. Every guard again, now with the close.
+        # 6. Triggered. Every guard again, now with the close.
         block = check_guards(n, close, n_sub, notional_today, acct_state)
         if block:
             finish("BLOCKED", block, trigger_close=f"{close:.2f}")
             continue
 
-        # 8. Write-ahead BEFORE the call, so a crash mid-submit is detectable
+        # 7. Write-ahead BEFORE the call, so a crash mid-submit is detectable
         #    rather than silently repeatable.
         idem = oc.idempotency_key(n["Row_ID"], fp)
         append_ledger(dict(row_id=n["Row_ID"], fingerprint=fp,
                            state="TRIGGERED", note=f"close {close:.2f}",
-                           acct=n["Acct"], ticker=n["Ticker"], action=n["Action"],
+                           acct=n["Acct"], ticker=n["Ticker"], side=n["Side"],
+                           close_is=n["Close_Is"],
                            qty=n["Qty"], trigger_price=n["Trigger_Price"],
                            limit_price=n["Limit_Price"],
                            trigger_close=f"{close:.2f}", idem_key=idem,
