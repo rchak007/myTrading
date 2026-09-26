@@ -2,15 +2,18 @@
 """
 order_exec_config.py
 ====================
-Every limit the order engine will not exceed.
+What the order engine will and will not do.
 
-Deliberately CODE, not config the sheet can reach. The sheet is the untrusted
-side of this system; a cap that could be raised from the sheet is not a cap.
-Changing anything here means an SSH to Pi 1 and a deliberate edit, which is the
-friction we want in front of real money.
+DOLLAR CAPS ARE OFF by default — Chakravarti's call, 2026-09-26. The limits
+that matter here are the account's own and are enforced in
+order_engine.check_guards: a sell cannot exceed the shares held, a buy cannot
+exceed the free cash. Those scale with the portfolio and catch a mis-typed
+quantity regardless of its dollar value, which a fixed ceiling does not.
 
-Start small. These are not the numbers you will end on — they are the numbers
-that make the first live weeks survivable if something is wrong.
+Everything here is CODE, not anything the sheet can reach, so a cap can never
+be raised by editing a spreadsheet. Several values read an env var, which means
+a ceiling can be imposed for a while — during a change, say — without editing
+code.
 """
 from __future__ import annotations
 
@@ -28,23 +31,39 @@ KILL_SWITCH = Path(os.getenv("TRADING_DISABLED_FILE",
 LIVE_TRADING = os.getenv("ORDER_ENGINE_LIVE", "0") == "1"
 
 # ─────────────────────────────────────────────────────── caps
-# Per ORDER. $250 buys roughly one share of several holdings, which is enough
-# to prove the pipeline end to end while capping a bug at the price of a
-# cheap lesson.
-MAX_NOTIONAL_PER_ORDER = float(os.getenv("MAX_NOTIONAL_PER_ORDER", "250"))
+# OFF by default, at Chakravarti's request 2026-09-26. A fixed dollar ceiling
+# would block legitimate trades in a portfolio this size, and it is not what
+# actually catches a mis-typed cell.
+#
+# The real limits are the account's own, enforced in order_engine.check_guards
+# and impossible to exceed:
+#     a SELL cannot exceed the shares actually held in that account
+#     a BUY cannot exceed that account's free cash
+# Those scale with the portfolio and catch "1000 instead of 100" regardless of
+# the dollar amount, which a fixed ceiling does not.
+#
+# The machinery stays wired so a ceiling can be imposed from .env at any time
+# without a code change — e.g. while testing something new:
+#     MAX_NOTIONAL_PER_ORDER=250
+MAX_NOTIONAL_PER_ORDER = float(os.getenv("MAX_NOTIONAL_PER_ORDER", "inf"))
+MAX_NOTIONAL_PER_DAY = float(os.getenv("MAX_NOTIONAL_PER_DAY", "inf"))
 
-# Per DAY, across every row. A loop that fires repeatedly hits this and stops.
-MAX_NOTIONAL_PER_DAY = float(os.getenv("MAX_NOTIONAL_PER_DAY", "500"))
+# Also uncapped. Note what this one was catching that nothing else does: a
+# RUNAWAY LOOP — the engine re-firing the same intent because of a bug rather
+# than a typo. The ledger guards that already (a terminal Row_ID is never
+# re-evaluated), so this is belt to that brace, not the only brace.
+MAX_SUBMISSIONS_PER_DAY = int(os.getenv("MAX_SUBMISSIONS_PER_DAY", "0")) or 10**9
 
-# Count cap as well as dollar cap: many tiny wrong orders are also a failure.
-MAX_SUBMISSIONS_PER_DAY = int(os.getenv("MAX_SUBMISSIONS_PER_DAY", "3"))
+# Not a money limit — a sanity stop. If the sheet ever holds this many intent
+# rows something has gone wrong with it (a formula filled down, a bad paste),
+# and the engine should stop rather than work through them. Generous on
+# purpose: it should never fire during normal use.
+MAX_ARMED_ROWS = int(os.getenv("MAX_ARMED_ROWS", "200"))
 
-# A sheet with 200 armed rows is a sheet nobody is reading.
-MAX_ARMED_ROWS = 25
-
-# No row lives forever. An intent from eight months ago is about a different
-# market than the one it will fire into.
-MAX_EXPIRY_DAYS = 90
+# A blank Expires_On already means "no expiry", so this only bounds a date you
+# typed deliberately. Generous rather than absent: a 2099 expiry is a typo, and
+# refusing it is worth more than honouring it.
+MAX_EXPIRY_DAYS = int(os.getenv("MAX_EXPIRY_DAYS", "3650"))
 
 # A market order on a thin open after an overnight gap is exactly how
 # "buy above 245" becomes a fill at 261.
@@ -99,11 +118,17 @@ def summary() -> str:
     mode = "🔴 LIVE — orders WILL be placed" if LIVE_TRADING else \
            "🟢 DRY RUN — nothing will be submitted"
     ks = " · ⛔ KILL SWITCH IS ON" if kill_switch_on() else ""
+    def _cap(v, money=True):
+        if v == float("inf") or v >= 10**9:
+            return "no limit"
+        return f"${v:,.2f}" if money else f"{v:g}"
+
     return (
         f"{mode}{ks}\n"
-        f"  per order   ${MAX_NOTIONAL_PER_ORDER:,.2f}\n"
-        f"  per day     ${MAX_NOTIONAL_PER_DAY:,.2f}, max "
-        f"{MAX_SUBMISSIONS_PER_DAY} submission(s)\n"
+        f"  per order   {_cap(MAX_NOTIONAL_PER_ORDER)}\n"
+        f"  per day     {_cap(MAX_NOTIONAL_PER_DAY)}, submissions "
+        f"{_cap(MAX_SUBMISSIONS_PER_DAY, money=False)}\n"
+        f"  real limit  shares held (sells) · free cash (buys)\n"
         f"  accounts    {sorted(ACCOUNT_ALLOWLIST) or 'NONE — every row will be blocked'}\n"
         f"  tickers     {sorted(TICKER_ALLOWLIST) or 'any in STOCK_TICKERS'}\n"
         f"  market ord  {'allowed' if ALLOW_MARKET_ORDERS else 'refused'}"
