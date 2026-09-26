@@ -48,11 +48,18 @@ LIVE_TRADING = os.getenv("ORDER_ENGINE_LIVE", "0") == "1"
 MAX_NOTIONAL_PER_ORDER = float(os.getenv("MAX_NOTIONAL_PER_ORDER", "inf"))
 MAX_NOTIONAL_PER_DAY = float(os.getenv("MAX_NOTIONAL_PER_DAY", "inf"))
 
-# Also uncapped. Note what this one was catching that nothing else does: a
-# RUNAWAY LOOP — the engine re-firing the same intent because of a bug rather
-# than a typo. The ledger guards that already (a terminal Row_ID is never
-# re-evaluated), so this is belt to that brace, not the only brace.
-MAX_SUBMISSIONS_PER_DAY = int(os.getenv("MAX_SUBMISSIONS_PER_DAY", "0")) or 10**9
+# The one cap kept, because it catches something no other guard does: a RUNAWAY
+# LOOP — the engine re-firing because of a bug rather than a typo. Position and
+# cash guards cannot see that; every individual order looks perfectly sane.
+#
+# 15 is far above a normal day, so hitting it means something is wrong rather
+# than that you were busy. It does not fail quietly: WARN_SUBMISSIONS_PER_DAY
+# logs loudly on the way up, and the cap itself says plainly how to raise it.
+MAX_SUBMISSIONS_PER_DAY = int(os.getenv("MAX_SUBMISSIONS_PER_DAY", "15"))
+
+# Start warning here, well before the cap, so a busy day is visible in the log
+# before it becomes a blocked order.
+WARN_SUBMISSIONS_PER_DAY = int(os.getenv("WARN_SUBMISSIONS_PER_DAY", "8"))
 
 # Not a money limit — a sanity stop. If the sheet ever holds this many intent
 # rows something has gone wrong with it (a formula filled down, a bad paste),
@@ -126,8 +133,9 @@ def summary() -> str:
     return (
         f"{mode}{ks}\n"
         f"  per order   {_cap(MAX_NOTIONAL_PER_ORDER)}\n"
-        f"  per day     {_cap(MAX_NOTIONAL_PER_DAY)}, submissions "
-        f"{_cap(MAX_SUBMISSIONS_PER_DAY, money=False)}\n"
+        f"  per day     {_cap(MAX_NOTIONAL_PER_DAY)}, max "
+        f"{MAX_SUBMISSIONS_PER_DAY} submissions "
+        f"(warn from {WARN_SUBMISSIONS_PER_DAY})\n"
         f"  real limit  shares held (sells) · free cash (buys)\n"
         f"  accounts    {sorted(ACCOUNT_ALLOWLIST) or 'NONE — every row will be blocked'}\n"
         f"  tickers     {sorted(TICKER_ALLOWLIST) or 'any in STOCK_TICKERS'}\n"

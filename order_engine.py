@@ -383,8 +383,10 @@ def check_guards(n: dict, close: float | None, submitted_today: int,
         return (f"CAP_PER_DAY: ${notional_today:,.2f} already + ${notional:,.2f} "
                 f"exceeds ${cfg.MAX_NOTIONAL_PER_DAY:,.2f}")
     if submitted_today >= cfg.MAX_SUBMISSIONS_PER_DAY:
-        return (f"CAP_SUBMISSIONS: {submitted_today} already today, max "
-                f"{cfg.MAX_SUBMISSIONS_PER_DAY}")
+        return (f"CAP_SUBMISSIONS: {submitted_today} orders already placed "
+                f"today, limit is {cfg.MAX_SUBMISSIONS_PER_DAY}. This guards "
+                f"against a runaway loop, so check the ledger before raising "
+                f"it. To raise: MAX_SUBMISSIONS_PER_DAY=25 in .env")
 
     # ---- guards that read the real account ----------------------------
     if acct_state is not None:
@@ -514,6 +516,13 @@ def main() -> int:
     else:
         _log("⚠️  account state unknown — every row will be held, not acted on")
 
+    if n_sub >= cfg.WARN_SUBMISSIONS_PER_DAY:
+        _log(f"⚠️  {n_sub} order(s) already placed today — the cap is "
+             f"{cfg.MAX_SUBMISSIONS_PER_DAY}. Normal days are well under this; "
+             f"if you did not expect it, read {cfg.LEDGER}")
+        audit(event="submission_warning", count=n_sub,
+              cap=cfg.MAX_SUBMISSIONS_PER_DAY)
+
     after_close = args.force_time or \
         (_now().hour, _now().minute) >= cfg.EVALUATE_AFTER_PT
     if not after_close:
@@ -634,6 +643,9 @@ def main() -> int:
         oid, snote = submit(client, n, idem)
         if oid:
             n_sub += 1
+            if n_sub >= cfg.WARN_SUBMISSIONS_PER_DAY:
+                _log(f"⚠️  that was order {n_sub} of a possible "
+                     f"{cfg.MAX_SUBMISSIONS_PER_DAY} today")
             notional_today += float(n["Qty"]) * float(n["Limit_Price"] or close)
             finish("SUBMITTED", snote, trigger_close=f"{close:.2f}",
                    idem_key=idem, schwab_order_id=oid, submit_attempted="1")
