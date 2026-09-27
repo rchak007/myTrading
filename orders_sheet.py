@@ -55,6 +55,11 @@ CASH_COLS = [
 
 TOTAL = "TOTAL"
 YES, NO, BLANK = "Y", "N", ""
+# Arranged, but weaker than YES. A sheet intent fires only on a completed daily
+# CLOSE and only if Pi 1 is alive, where a resting Schwab order fires the
+# instant price touches the level. Worth seeing as a distinct state rather than
+# flattening both into "covered".
+PENDING = "P"
 
 
 # ───────────────────────────────────────────────────────────── helpers
@@ -126,49 +131,66 @@ def fetch_positions_detailed(client_wrapper, log=print) -> pd.DataFrame:
 
 
 # ────────────────────────────────────────────────────── coverage flags
+def _classify(side: str, px: float, price: float) -> str:
+    """Which coverage slot a leg at `px` fills, given the current price.
+
+    One rule for both sources, mirroring sell_guard.py: a SELL BELOW the
+    current price is protection, a SELL ABOVE it is a profit target. The same
+    order is a stop or a trim depending only on which side of the price it
+    sits, which is why this cannot be read off the order type alone.
+    """
+    is_sell = str(side).upper().startswith("SELL")
+    if is_sell:
+        return "Has_Stop" if px < price else "Has_Trim"
+    return "Has_Dip" if px <= price else "Has_Breakout"
+
+
 def coverage_for(ticker: str, acct: str, price: float | None,
-                 orders_df: pd.DataFrame | None) -> dict:
+                 orders_df: pd.DataFrame | None,
+                 intents_df: pd.DataFrame | None = None) -> dict:
     """
     Which of the four protective/entry orders exist for this pair.
 
-    Classification mirrors sell_guard.py: a SELL below the current price is
-    protection, a SELL above it is a profit target. Reads live Schwab orders,
-    not the Orders tab — the question is "is this position protected", not
-    "did the sheet arrange it", and orders get placed by hand too.
+    TWO SOURCES, DELIBERATELY DISTINGUISHED:
+        Y  a live order resting at Schwab. Fires the moment price touches it,
+           and keeps working if every machine here is off.
+        P  an intent typed into the Orders tab. Fires only on a completed
+           DAILY CLOSE, and only if Pi 1 is alive to notice.
+        N  nothing at all.
+
+    Both are arranged protection and both belong on the Dashboard, but calling
+    them the same thing would overstate the second. A `P` stop does not protect
+    against an intraday collapse; that is the trade you accept when the
+    condition is "closes below" rather than "touches".
+
+    Y wins where both exist — the stronger claim is the true one.
     """
     out = {"Has_Stop": NO, "Has_Trim": NO, "Has_Dip": NO, "Has_Breakout": NO}
-    if orders_df is None or getattr(orders_df, "empty", True) or not price:
-        return {k: BLANK for k in out} if not price else out
+    if not price:
+        return {k: BLANK for k in out}
 
-    m = (orders_df["Ticker"].astype(str).str.upper() == ticker)
-    if "Account" in orders_df.columns:
-        m &= orders_df["Account"].map(acct_key) == acct
-    legs = orders_df[m]
-    if legs.empty:
-        return out
-
-    for _, o in legs.iterrows():
-        side = str(o.get("Side", "")).upper()
-        stop = _num(o.get("Stop_Price"))
-        limit = _num(o.get("Limit_Price"))
-        px = stop if stop else limit
-        if not px:
+    # Weaker source first, so a resting Schwab order overwrites a sheet intent
+    # for the same slot rather than the other way round.
+    for df, mark, pxcols in ((intents_df, PENDING, ("Trigger_Price",)),
+                             (orders_df, YES, ("Stop_Price", "Limit_Price"))):
+        if df is None or getattr(df, "empty", True):
             continue
-        is_sell = side.startswith("SELL")
-        if is_sell and px < price:
-            out["Has_Stop"] = YES          # downside protection
-        elif is_sell and px >= price:
-            out["Has_Trim"] = YES          # profit target
-        elif not is_sell and px <= price:
-            out["Has_Dip"] = YES           # buy the pullback
-        elif not is_sell and px > price:
-            out["Has_Breakout"] = YES      # buy strength
+        m = (df["Ticker"].astype(str).str.upper() == ticker)
+        if "Account" in df.columns:
+            m &= df["Account"].map(acct_key) == acct
+        for _, o in df[m].iterrows():
+            px = next((_num(o.get(c)) for c in pxcols if _num(o.get(c))), None)
+            if not px:
+                continue
+            slot = _classify(o.get("Side", ""), px, price)
+            if out[slot] != YES:            # never downgrade Y to P
+                out[slot] = mark
     return out
 
 
 # ──────────────────────────────────────────────────── positions table
 def build_positions_table(positions_df, signals_df=None, orders_df=None,
-                          reserves=None, log=print) -> pd.DataFrame:
+                          reserves=None, intents_df=None, log=print) -> pd.DataFrame:
     """
     Per (ticker, account), plus a TOTAL row for any ticker held in more than
     one account. Avg_Cost on a TOTAL row is QUANTITY-WEIGHTED — a mean of the
@@ -194,7 +216,7 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
         grp = positions_df[positions_df["Ticker"] == ticker].sort_values("Acct")
         px = prices.get(ticker)
         for _, r in grp.iterrows():
-            flags = coverage_for(ticker, r["Acct"], px, orders_df)
+            flags = coverage_for(ticker, r["Acct"], px, orders_df, intents_df)
             out.append({
                 "Ticker": ticker, "Acct": r["Acct"], "Qty": r["Qty"],
                 "Avg_Cost": r["Avg_Cost"], "Market_Value": r["Market_Value"],
@@ -221,7 +243,7 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
             })
 
     df = pd.DataFrame(out, columns=POSITIONS_COLS)
-    bare = df[(df["Acct"] != TOTAL) & (df["Has_Stop"] == NO)]
+    bare = df[(df["Acct"] != TOTAL) & (df["Has_Stop"] == NO)]   # P counts as covered
     # Unique tickers, not rows — a ticker held in three accounts is one
     # problem listed three times, and the header line counts uniques too.
     names = sorted(bare["Ticker"].unique())
@@ -338,6 +360,58 @@ def _extract_price(entry):
         return extract_price(entry)
     except Exception:
         return None, None
+
+
+# Orders tab: header block 1-6, banner 7, column headers 8, data from 9.
+ORDERS_DATA_START = 9
+INTENT_COLS = ["Row_ID", "Date", "Acct", "Ticker", "Side", "Close_Is",
+               "Trigger_Price", "Limit_Price", "Qty", "Expires_On", "Notes"]
+# Engine columns start here; a row whose Status is terminal is history.
+INTENT_STATUS_IDX = len(INTENT_COLS)
+
+
+def read_intents(book, log=print) -> pd.DataFrame:
+    """Live intents typed into the Orders tab, shaped for coverage_for().
+
+    An intent you have typed IS arranged protection, even though no order
+    exists at Schwab yet — so the Dashboard must count it, or it reports a
+    position as naked while a sell for it sits right there in the sheet.
+
+    Only rows that could still act are returned. A row already filled,
+    cancelled, expired or voided is history and protects nothing.
+    """
+    cols = ["Ticker", "Account", "Side", "Trigger_Price", "Row_ID"]
+    try:
+        ws = book.worksheet("Orders")
+        values = ws.get_all_values()
+    except Exception as e:
+        log(f"⚠️  could not read the Orders tab — sheet intents ignored: {e}")
+        return pd.DataFrame(columns=cols)
+
+    dead = {"FILLED", "CANCELLED", "EXPIRED", "VOID", "REJECTED"}
+    rows = []
+    for i, raw in enumerate(values, start=1):
+        if i < ORDERS_DATA_START:
+            continue
+        cells = list(raw) + [""] * (INTENT_STATUS_IDX + 2)
+        rec = {c: str(cells[j]).strip() for j, c in enumerate(INTENT_COLS)}
+        if not rec["Ticker"] or not rec["Side"]:
+            continue
+        if str(cells[INTENT_STATUS_IDX]).strip().upper() in dead:
+            continue
+        trig = _num(rec["Trigger_Price"])
+        if not trig:
+            continue
+        rows.append({"Ticker": rec["Ticker"].upper(),
+                     "Account": acct_key(rec["Acct"]),
+                     "Side": rec["Side"].upper(),
+                     "Trigger_Price": trig,
+                     "Row_ID": rec["Row_ID"]})
+
+    df = pd.DataFrame(rows, columns=cols)
+    if not df.empty:
+        log(f"Sheet intents: {len(df)} live row(s) in the Orders tab")
+    return df
 
 
 def load_fenced(log=print) -> set:
@@ -500,7 +574,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
             # rather than N — coverage has no honest aggregate — so it is
             # skipped here without needing a special case.
             for field in ("Has_Stop", "Has_Trim"):
-                if str(r.get(field, "")).strip().upper() == NO:
+                if str(r.get(field, "")).strip().upper() == NO:   # P is arranged
                     marks["warn"].append(f"{col_of(field)}{len(rows)}")
 
         add([])
@@ -647,7 +721,9 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     # same frame); one Schwab round-trip is worth avoiding.
     pos_raw = (positions_raw if positions_raw is not None
                else fetch_positions_detailed(client_wrapper, log=log))
-    positions = build_positions_table(pos_raw, signals_df, orders_df, reserves, log=log)
+    intents = read_intents(book, log=log)
+    positions = build_positions_table(pos_raw, signals_df, orders_df, reserves,
+                                      intents_df=intents, log=log)
     cash = build_cash_rows(cash_df, reserves, log=log)
 
     n_pos = _put(book.worksheet("Positions"), positions, POSITIONS_COLS, log)
@@ -662,6 +738,8 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     free = cash["Free_To_Deploy"].sum() if not cash.empty else 0.0
     naked = positions[(positions["Acct"] != TOTAL)
                       & (positions["Has_Stop"] == NO)]["Ticker"].nunique()
+    pend = positions[(positions["Acct"] != TOTAL)
+                     & (positions["Has_Stop"] == PENDING)]["Ticker"].nunique()
 
     over = (cash[cash["Free_To_Deploy"] < 0]["Acct"].tolist()
             if not cash.empty else [])
@@ -670,6 +748,9 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     alerts = []
     if naked:
         alerts.append(f"{naked} holding(s) with no protective stop")
+    if pend:
+        alerts.append(f"{pend} relying on a CLOSE-triggered stop (no intraday "
+                      f"protection)")
     if over:
         alerts.append(f"OVER-FENCED: {', '.join(over)} reserved beyond cash")
 

@@ -377,10 +377,40 @@ balance-derived flag would show nothing for exactly the holdings that need
 marking. Blank on `TOTAL` rows for the same reason `Has_Stop` is: fencing is
 per (ticker, account) and there is no honest aggregate.
 
+### Coverage has two sources — added 2026-09-27
+
+`Has_Stop` and friends read **both** live Schwab orders and the intents typed
+into the `Orders` tab, and say which:
+
+| | meaning |
+|---|---|
+| `Y` | a live order resting at Schwab. Fires the moment price touches it, and keeps working with every machine here switched off |
+| `P` | an intent in the `Orders` tab. Fires only on a completed DAILY CLOSE, and only if Pi 1 is alive to notice |
+| `N` | nothing |
+
+Before this, a sell typed into the sheet left the Dashboard reporting the
+position as naked — reporting a holding unprotected while a sell for it sat two
+tabs away.
+
+**Why not just `Y` for both.** A `P` stop does not protect against an intraday
+collapse. That is the trade you accept when the condition is "closes below"
+rather than "touches", and it should be visible rather than flattened into the
+same symbol. `Y` wins where both exist — the stronger claim is the true one.
+
+Classification is one rule for both sources (`_classify`), mirroring
+`sell_guard.py`: a SELL **below** the current price is protection, a SELL
+**above** it is a profit target. The same order is a stop or a trim depending
+only on which side of the price it sits, which is why this cannot be read off
+the order type.
+
+The header `ALERTS` row counts them separately, so relying on a close-triggered
+stop is stated rather than hidden.
+
 ### Missing protection is painted yellow — added 2026-09-27
 
-On any real (ticker, account) row, a `Has_Stop` or `Has_Trim` of `N` gets a
-yellow cell. Chakravarti's reason, and the right one: *"so I handle it, so I am
+On any real (ticker, account) row, a `Has_Stop` or `Has_Trim` of **`N`** gets a
+yellow cell. `P` does not — it is arranged, merely weaker, and flagging it
+would train the eye to ignore the colour. Chakravarti's reason, and the right one: *"so I handle it, so I am
 disciplined."* An unprotected holding should be impossible to scroll past.
 
 Per CELL rather than per row, so the two are distinguishable at a glance — a
