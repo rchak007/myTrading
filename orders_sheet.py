@@ -436,7 +436,15 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     one batch afterwards.
     """
     rows: list[list] = []
-    marks = {"ticker": [], "label": [], "header": [], "title": []}
+    # "warn" holds individual A1 refs to paint yellow — a missing stop or a
+    # missing trim on a position actually held. The point is discipline: an
+    # unprotected holding should be impossible to scroll past.
+    marks = {"ticker": [], "label": [], "header": [], "title": [], "warn": []}
+
+    def col_of(field: str) -> str:
+        """Column letter for a POS_HDR field. Derived, because these shift:
+        Live_Price, Day_% and Fenced have each been inserted since."""
+        return chr(ord("B") + POS_HDR.index(field))
 
     def add(vals):
         # Scrub NaN the way _put() does. Google's API rejects the entire
@@ -488,6 +496,12 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                  r["Has_Trim"], r["Has_Dip"], r["Has_Breakout"],
                  "🔒" if (str(r["Acct"]), ticker) in fenced else "",
                  r["Seed_Reserved"]])
+            # Flag only real (ticker, account) rows. A TOTAL row carries BLANK
+            # rather than N — coverage has no honest aggregate — so it is
+            # skipped here without needing a special case.
+            for field in ("Has_Stop", "Has_Trim"):
+                if str(r.get(field, "")).strip().upper() == NO:
+                    marks["warn"].append(f"{col_of(field)}{len(rows)}")
 
         add([])
         marks["label"].append(add(["", "ORDERS"]))
@@ -580,6 +594,18 @@ def _paint(ws, marks, log):
             ws.format([f"B{r}" for r in marks["label"]], yellow)
         if marks["header"]:
             ws.format([f"B{r}:{_last_col()}{r}" for r in marks["header"]], bold)
+
+        # Missing protection, cell by cell. Painted LAST so it survives: the
+        # header and ticker passes above write whole ranges, and a later write
+        # to an overlapping range replaces the earlier formatting rather than
+        # merging with it.
+        if marks.get("warn"):
+            ws.format(marks["warn"], {
+                "backgroundColor": {"red": 1.0, "green": 0.92, "blue": 0.45},
+                "textFormat": {"bold": True,
+                               "foregroundColor": {"red": 0.45, "green": 0.25,
+                                                   "blue": 0.0}}})
+            log(f"Dashboard: {len(marks['warn'])} unprotected cell(s) flagged")
     except Exception as e:
         log(f"⚠️  dashboard formatting skipped (data is fine): {e}")
 

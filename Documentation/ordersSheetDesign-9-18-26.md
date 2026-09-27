@@ -377,6 +377,24 @@ balance-derived flag would show nothing for exactly the holdings that need
 marking. Blank on `TOTAL` rows for the same reason `Has_Stop` is: fencing is
 per (ticker, account) and there is no honest aggregate.
 
+### Missing protection is painted yellow — added 2026-09-27
+
+On any real (ticker, account) row, a `Has_Stop` or `Has_Trim` of `N` gets a
+yellow cell. Chakravarti's reason, and the right one: *"so I handle it, so I am
+disciplined."* An unprotected holding should be impossible to scroll past.
+
+Per CELL rather than per row, so the two are distinguishable at a glance — a
+position with a stop but no trim shows one mark, not the same alarm as one with
+neither.
+
+`TOTAL` rows carry BLANK rather than `N`, so they are skipped without needing a
+special case — which is the same property that makes the blank meaningful in
+the first place.
+
+Painted last in `_paint()`. The header and ticker passes write whole ranges,
+and a later write to an overlapping range REPLACES earlier formatting rather
+than merging, so order matters here.
+
 ### Read-only by construction
 
 Nothing a human types lives here. That is what lets it be regenerated wholesale
