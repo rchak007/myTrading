@@ -352,11 +352,28 @@ Chakravarti wants to be able to ask, on demand rather than on a schedule:
 2. **Where I have seed money left, is a BUY actually resting** for that ticker,
    or is the reserve idle?
 
-Now possible without pasting screenshots: **Pi 2 got read-only Sheets access on
-2026-09-19** (`mytrading-reader@mytrading-sheets.iam.gserviceaccount.com`,
-Viewer on both sheets; key at `~/.config/myTrading/gsheets-reader.json`, IDs in
-Pi 2's gitignored `.env`). So Claude can read the `Dashboard`, `Positions` and
-`Cash` tabs directly and answer from live data.
+### ⏳ BLOCKED ON ONE CLICK — share both sheets with Pi 2's reader identity
+**Everything on the Pi 2 side is ready and has been since 2026-09-19**;
+the Drive share was never completed. Verified 2026-09-27: `PermissionError` on
+both sheets, for read as well as write.
+
+    Share myTrading-ORDERS-pi1 AND myTrading-ops-pi1 with
+        mytrading-reader@mytrading-sheets.iam.gserviceaccount.com
+    as VIEWER. Uncheck "Notify people" — a service account has no inbox.
+
+Note the exact address: `mytrading-reader@`, **not** `reader@`. Google's share
+dialog accepts a nonexistent principal without complaint, so a wrong address
+fails later as an opaque `PermissionError` rather than at the point of the
+mistake.
+
+Already in place on Pi 2: the key at `~/.config/myTrading/gsheets-reader.json`
+(mode 600), `gspread` + `google-auth` + `pandas` in `.venv`, and both sheet IDs
+in the gitignored `.env`.
+
+**Until this is done**, every question about live sheet state needs a
+screenshot pasted into the conversation — which is how the whole of 2026-09-19
+to 09-27 was worked. The identity is Viewer, so it can never write; the Drive
+share is the real boundary, not the OAuth scope the code requests.
 
 Question 1 is answerable **today** — `Has_Stop` / `Has_Trim` are already per
 (ticker, account) on the Dashboard, and the per-account grain is what catches a
