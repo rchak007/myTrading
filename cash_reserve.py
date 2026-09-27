@@ -368,14 +368,19 @@ def ensure_config_row(account, ticker, *, policy=DEFAULT_POLICY, seed_cash=0.0,
         df.at[i, "Seed_Cash"] = f"{_f(df.at[i, 'Seed_Cash'], 0.0) + float(seed_cash):.2f}"
         if target_capital is not None:
             df.at[i, "Target_Capital"] = f"{float(target_capital):.2f}"
-        df.at[i, "Active"] = "Y"
+        # read_config() coerces Active to bool, so this must be True, not "Y".
+        # Writing the string raises TypeError on pandas 3.x ("Invalid value 'Y'
+        # for dtype 'bool'") and only silently upcast on 2.x — so re-seeding or
+        # re-fencing an EXISTING pair would crash on a newer pandas while
+        # appearing fine on an older one.
+        df.at[i, "Active"] = True
     else:
         df = pd.concat([df, pd.DataFrame([{
             "Account": a, "Ticker": t, "Policy": policy,
             "Seed_Cash": f"{float(seed_cash):.2f}",
             "Target_Capital": "" if target_capital is None else f"{float(target_capital):.2f}",
             "Max_Order_Pct": "", "Effective_From": _now_pst(),
-            "Active": "Y", "Notes": "",
+            "Active": True, "Notes": "",
         }])], ignore_index=True)
 
     Path(config_path).parent.mkdir(parents=True, exist_ok=True)
@@ -429,11 +434,24 @@ def fence(account, ticker, *, policy=DEFAULT_POLICY, target_capital=None,
     Idempotent: fencing an already-fenced pair re-asserts the config row and
     leaves the balance untouched.
     """
+    a, t = acct_key(account), tkr_key(ticker)
+
+    # PRESERVE an existing policy and target. ensure_config_row overwrites
+    # Policy unconditionally, so fencing a pair that is already TOTAL_CAPITAL
+    # would silently downgrade it to CASH_ONLY and drop its Target_Capital —
+    # the reserve would keep its balance but stop binding against the position.
+    # Re-fencing must be a no-op on an already-fenced pair, not a reset.
+    existing = read_config(config_path, log=lambda *a, **k: None)
+    prior = existing[(existing["Account"] == a) & (existing["Ticker"] == t)]
+    if not prior.empty:
+        policy = str(prior.iloc[0]["Policy"]) or policy
+        if target_capital is None:
+            target_capital = _f(prior.iloc[0]["Target_Capital"])
+
     ensure_config_row(account, ticker, policy=policy, seed_cash=0.0,
                       target_capital=target_capital, config_path=config_path,
                       log=log)
     bal = balance_of(account, ticker, ledger_path=ledger_path)
-    a, t = acct_key(account), tkr_key(ticker)
     log(f"FENCED {a}/{t} — balance ${bal:,.2f}. Proceeds from future sales of "
         f"{t} in {a} will be held for {t} rather than released as free cash.")
     return round(bal, 2)
@@ -486,7 +504,7 @@ def close(account, ticker, *, reason="", source="cli",
     df = read_config(config_path, log)
     m = (df["Account"] == acct_key(account)) & (df["Ticker"] == tkr_key(ticker))
     if m.any():
-        df.loc[m, "Active"] = "N"
+        df.loc[m, "Active"] = False
         tmp = Path(str(config_path) + ".tmp")
         df[CONFIG_COLS].to_csv(tmp, index=False)
         os.replace(tmp, config_path)
