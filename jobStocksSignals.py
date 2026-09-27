@@ -557,7 +557,21 @@ def main(no_push: bool = False):
     # "target - 0"; passing cash gives the coverage columns something to
     # compare against.
     try:
-        from cash_reserve import build_reserves_table, write_reserve_outputs
+        from cash_reserve import (build_reserves_table, write_reserve_outputs,
+                                  fetch_fills, apply_fills)
+
+        # Consume executed trades FIRST, so the table below reflects them.
+        # A sale of a fenced ticker credits its reserve (the money stays
+        # earmarked for that ticker); a purchase debits it. Every event
+        # carries the Schwab activityId as its idempotency key, so running
+        # this every cycle cannot double-count — 7 days of overlap simply
+        # re-reads fills already in the ledger and drops them.
+        try:
+            fills = fetch_fills(get_schwab_client(), days_back=7, log=log)
+            apply_fills(fills, log=log)
+        except Exception as e:
+            log(f"⚠️  Fill application failed (reserves may lag): {e}")
+
         df_reserves = build_reserves_table(positions_df=df_positions,
                                            cash_df=df_cash, log=log)
         write_reserve_outputs(

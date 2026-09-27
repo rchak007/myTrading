@@ -58,6 +58,7 @@ Importable:
 Standalone (resolves paths/log/client by loading jobStocksSignals.py):
     python3 cash_reserve.py --list
     python3 cash_reserve.py --seed     --account 431 --ticker NVDA --amount 5000
+    python3 cash_reserve.py --fence    --account 431 --ticker NVDA
     python3 cash_reserve.py --topup    --account 431 --ticker NVDA --amount 1000
     python3 cash_reserve.py --withdraw --account 431 --ticker NVDA --amount 500
     python3 cash_reserve.py --close    --account 431 --ticker NVDA
@@ -410,6 +411,34 @@ def seed(account, ticker, amount, *, policy=DEFAULT_POLICY, target_capital=None,
     return round(bal, 2)
 
 
+def fence(account, ticker, *, policy=DEFAULT_POLICY, target_capital=None,
+          reason="", source="cli", ledger_path=LEDGER_PATH,
+          config_path=CONFIG_PATH, log=print) -> float:
+    """Register a ticker WITHOUT seeding any cash.
+
+    For a position you already own and want to keep the capital of. You have no
+    spare cash to fence today — the money is in the shares. Registering the
+    pair means that when you later trim or sell it, apply_fills() credits the
+    proceeds back to THIS ticker instead of letting them dissolve into general
+    cash.
+
+    Without a config row a sale is recorded as SKIP_SELL, "not fenced", and the
+    money is simply free. That is the right default; this is how you opt a
+    holding out of it.
+
+    Idempotent: fencing an already-fenced pair re-asserts the config row and
+    leaves the balance untouched.
+    """
+    ensure_config_row(account, ticker, policy=policy, seed_cash=0.0,
+                      target_capital=target_capital, config_path=config_path,
+                      log=log)
+    bal = balance_of(account, ticker, ledger_path=ledger_path)
+    a, t = acct_key(account), tkr_key(ticker)
+    log(f"FENCED {a}/{t} — balance ${bal:,.2f}. Proceeds from future sales of "
+        f"{t} in {a} will be held for {t} rather than released as free cash.")
+    return round(bal, 2)
+
+
 def topup(account, ticker, amount, *, reason="", source="cli",
           ledger_path=LEDGER_PATH, config_path=CONFIG_PATH, log=print) -> float:
     amount = float(amount)
@@ -665,12 +694,18 @@ def apply_fills(fills_df, *, config: pd.DataFrame | None = None,
 
 def fetch_fills(client_wrapper, *, days_back=7, log=print) -> pd.DataFrame:
     """
-    Pull executed trades from Schwab and normalise them into the shape
-    apply_fills() expects.
+    Executed trades from Schwab, shaped for apply_fills().
 
-    Schwab returns `activityId` (NOT transactionId) and `netAmount` (NOT
-    amount). Method names vary by schwabdev version, so they are probed the
-    same way stocks_cash.fetch_account_details does.
+    The signature is KNOWN, not probed (measured 2026-09-08 with
+    probe_schwab_api.py and used daily by schwabAPI/txn_cache.py):
+
+        client.linked_accounts()  ->  [{accountNumber, hashValue}, ...]
+        client.transactions(account_hash, startISO, endISO, "TRADE")
+
+    The previous version tried three method names across three kwarg shapes
+    and swallowed every exception, so a genuine failure was indistinguishable
+    from "no trades" — exactly the class of silent gap that cost us eleven
+    months of P&L history.
     """
     cols = ["Ref", "Account", "Ticker", "Side", "Fill_QTY", "Fill_Price",
             "Net_Amount", "Asset_Type", "Fill_Time"]
@@ -678,194 +713,84 @@ def fetch_fills(client_wrapper, *, days_back=7, log=print) -> pd.DataFrame:
         log("⚠️  No Schwab client supplied — skipping fills")
         return pd.DataFrame(columns=cols)
 
-    try:
-        from stocks_orders import _raw_client
-        client = _raw_client(client_wrapper)
-    except Exception as e:
-        log(f"⚠️  Could not unwrap Schwab client: {e}")
+    inner = client_wrapper
+    getter = getattr(client_wrapper, "get_client", None)
+    if callable(getter):
+        try:
+            inner = getter() or client_wrapper
+        except Exception as e:
+            log(f"⚠️  could not get the schwabdev client: {e}")
+            return pd.DataFrame(columns=cols)
+
+    if not callable(getattr(inner, "transactions", None)):
+        log("⚠️  this schwabdev exposes no transactions() — skipping fills")
         return pd.DataFrame(columns=cols)
 
-    end = datetime.utcnow()
-    start = end - timedelta(days=int(days_back))
-    payloads = []
+    end_dt = datetime.utcnow()
+    start_dt = end_dt - timedelta(days=int(days_back))
+    start_s = start_dt.strftime("%Y-%m-%dT00:00:00.000Z")
+    end_s = end_dt.strftime("%Y-%m-%dT23:59:59.999Z")
 
-    accounts = []
     try:
-        from stocks_cash import fetch_account_details
-        for a in fetch_account_details(client_wrapper, log):
-            sa = a.get("securitiesAccount", a) if isinstance(a, dict) else {}
-            if sa.get("accountNumber"):
-                accounts.append(str(sa["accountNumber"]))
+        accts = inner.linked_accounts().json()
     except Exception as e:
-        log(f"⚠️  Could not list accounts for fills: {e}")
-
-    for name in ("transactions", "account_transactions", "transactions_all"):
-        fn = getattr(client, name, None)
-        if fn is None:
-            continue
-        for acct in (accounts or [None]):
-            for kwargs in (
-                dict(accountHash=acct, startDate=start, endDate=end, types="TRADE"),
-                dict(account=acct, startDate=start, endDate=end, types="TRADE"),
-                dict(startDate=start, endDate=end),
-            ):
-                try:
-                    resp = fn(**{k: v for k, v in kwargs.items() if v is not None})
-                    data = resp.json() if hasattr(resp, "json") else resp
-                    if isinstance(data, dict):
-                        data = [data]
-                    if isinstance(data, list) and data:
-                        payloads.extend(data)
-                        break
-                except Exception:
-                    continue
-        if payloads:
-            break
-
-    if not payloads:
-        methods = [m for m in dir(client)
-                   if "transact" in m.lower() and not m.startswith("__")]
-        log(f"⚠️  No transactions returned. Candidate methods on client: {methods}")
+        log(f"⚠️  could not list linked accounts: {e}")
         return pd.DataFrame(columns=cols)
 
     rows = []
-    for tx in payloads:
-        if not isinstance(tx, dict):
+    for a in accts or []:
+        if not isinstance(a, dict):
             continue
-        if str(tx.get("type", "")).upper() not in ("TRADE", ""):
+        h, num = a.get("hashValue"), a.get("accountNumber")
+        if not h:
             continue
-        acct = tx.get("accountNumber") or tx.get("accountId") or ""
-        for leg in (tx.get("transferItems") or tx.get("transactionItems") or []):
-            if not isinstance(leg, dict):
+        try:
+            resp = inner.transactions(h, start_s, end_s, "TRADE")
+            if getattr(resp, "status_code", 200) != 200:
+                # Say so. An empty list here is indistinguishable from "no
+                # trades", and quietly returning one is how a reserve silently
+                # stops being debited.
+                log(f"⚠️  transactions HTTP {resp.status_code} for "
+                    f"{str(num)[-3:]} — fills for that account are NOT applied")
                 continue
-            inst = leg.get("instrument") or {}
-            sym = inst.get("symbol") or inst.get("underlyingSymbol")
-            if not sym:
+            data = resp.json() or []
+        except Exception as e:
+            log(f"⚠️  transactions failed for {str(num)[-3:]}: "
+                f"{type(e).__name__}: {e}")
+            continue
+
+        for t in (data if isinstance(data, list) else []):
+            if not isinstance(t, dict):
                 continue
-            amt = leg.get("amount")
-            qty = _f(amt if amt is not None else leg.get("quantity"), 0.0) or 0.0
-            side = str(leg.get("instruction") or ("SELL" if qty < 0 else "BUY")).upper()
-            rows.append({
-                "Ref": str(tx.get("activityId") or tx.get("tradeId") or ""),
-                "Account": acct,
-                "Ticker": sym,
-                "Side": side,
-                "Fill_QTY": abs(qty),
-                "Fill_Price": _f(leg.get("price"), 0.0) or 0.0,
-                "Net_Amount": _f(tx.get("netAmount")),
-                "Asset_Type": str(inst.get("assetType") or ""),
-                "Fill_Time": tx.get("tradeDate") or tx.get("time") or "",
-            })
+            aid = t.get("activityId")
+            when = t.get("tradeDate") or t.get("time") or t.get("settlementDate")
+            net = _f(t.get("netAmount"), 0.0)
+            for it in (t.get("transferItems") or []):
+                inst = it.get("instrument") or {}
+                sym = inst.get("symbol")
+                atype = inst.get("assetType")
+                if not sym or atype in (None, "CURRENCY", "CASH_EQUIVALENT"):
+                    continue
+                qty = _f(it.get("amount"), 0.0) or 0.0
+                if abs(qty) < 1e-9:
+                    continue
+                rows.append({
+                    "Ref": str(aid),
+                    "Account": acct_key(num),
+                    "Ticker": tkr_key(sym),
+                    # Sign of quantity is authoritative: a sold-to-open call
+                    # still reports positionEffect OPENING with qty < 0.
+                    "Side": "BUY" if qty > 0 else "SELL",
+                    "Fill_QTY": abs(qty),
+                    "Fill_Price": _f(it.get("price"), 0.0),
+                    "Net_Amount": net,
+                    "Asset_Type": atype,
+                    "Fill_Time": when,
+                })
 
     df = pd.DataFrame(rows, columns=cols)
-    df = df[df["Ref"].astype(str).str.strip().ne("")]
-    log(f"Fills fetched: {len(df)} leg(s) over {days_back}d")
+    log(f"Fills fetched: {len(df)} trade leg(s) over {days_back} day(s)")
     return df
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Reporting
-# ─────────────────────────────────────────────────────────────────────
-def build_reserves_table(*, positions_df=None, cash_df=None,
-                         ledger_path=LEDGER_PATH, config_path=CONFIG_PATH,
-                         log=print) -> pd.DataFrame:
-    """One row per fenced (Account, Ticker), plus a TOTAL row."""
-    cfg = read_config(config_path, log)
-    bal = fold_balances(ledger_path=ledger_path)
-
-    if cfg.empty and bal.empty:
-        return pd.DataFrame(columns=RESERVE_COLS)
-
-    # Include ledger pairs that have dropped out of the config so money is
-    # never invisible just because someone deleted a config line.
-    keys = pd.concat([
-        cfg[["Account", "Ticker"]],
-        bal[["Account", "Ticker"]] if not bal.empty else pd.DataFrame(columns=["Account", "Ticker"]),
-    ], ignore_index=True).drop_duplicates()
-
-    df = (keys.merge(cfg, on=["Account", "Ticker"], how="left")
-              .merge(bal, on=["Account", "Ticker"], how="left"))
-
-    for c in ("Reserved_Cash", "Deployed", "Returned"):
-        df[c] = pd.to_numeric(df.get(c), errors="coerce").fillna(0.0)
-    df["Policy"] = df["Policy"].fillna("").replace("", DEFAULT_POLICY)
-    df["Active"] = df["Active"].fillna(False)
-    df["Nickname"] = df["Account"].map(_nickname)
-    df["Seed_Cash"] = pd.to_numeric(df.get("Seed_Cash"), errors="coerce")
-    df["Target_Capital"] = pd.to_numeric(df.get("Target_Capital"), errors="coerce")
-    df["Last_Event_PST"] = df.get("Last_Event_PST", "").fillna("")
-
-    df["Position_Value"] = [
-        round(position_value(a, t, positions_df), 2)
-        for a, t in zip(df["Account"], df["Ticker"])
-    ]
-
-    avail, status = [], []
-    for _, r in df.iterrows():
-        res = available_to_buy(r["Account"], r["Ticker"], positions_df=positions_df,
-                               config=cfg, ledger_path=ledger_path,
-                               config_path=config_path, log=lambda *_: None)
-        avail.append(res["available"])
-        if r["Reserved_Cash"] < -_EPS:
-            status.append("BREACH")
-        elif not r["Active"]:
-            status.append("INACTIVE")
-        elif r["Reserved_Cash"] <= _EPS and r["Deployed"] <= _EPS:
-            status.append("UNFUNDED")
-        elif res["available"] <= 0:
-            status.append("EMPTY")
-        else:
-            status.append("OK")
-    df["Available_To_Buy"] = avail
-    df["Status"] = status
-
-    df = df.sort_values(["Account", "Ticker"], kind="mergesort")
-    df = df[RESERVE_COLS].reset_index(drop=True)
-
-    total = {c: None for c in RESERVE_COLS}
-    total.update({"Account": "TOTAL", "Nickname": "", "Ticker": "", "Policy": "",
-                  "Status": "", "Last_Event_PST": ""})
-    # Sum only LIVE rows. An INACTIVE pair keeps its original Seed_Cash and
-    # Target_Capital as history, and including them double-counted money that
-    # had been released — after closing 885/MU and re-seeding 171/MU the total
-    # read Seed_Cash $15,213.36 for $7,606.68 of actual reserve. Reserved_Cash
-    # was always right because it folds the ledger; the intent columns were not.
-    live = df[df["Status"].ne("INACTIVE")]
-    for c in ("Seed_Cash", "Target_Capital", "Reserved_Cash", "Deployed",
-              "Returned", "Position_Value", "Available_To_Buy"):
-        s = pd.to_numeric(live[c], errors="coerce")
-        total[c] = round(float(s.sum()), 2) if s.notna().any() else None
-    df = pd.concat([df, pd.DataFrame([total])], ignore_index=True)
-
-    if cash_df is not None and not getattr(cash_df, "empty", True):
-        for w in overcommit_warnings(df, cash_df):
-            log(w)
-
-    log(f"Reserves: {len(df) - 1} fenced pair(s) · reserved "
-        f"${total['Reserved_Cash'] or 0:,.2f} · available "
-        f"${total['Available_To_Buy'] or 0:,.2f}")
-    return df
-
-
-def overcommit_warnings(reserves_df, cash_df) -> list[str]:
-    """Fenced cash in an account must not exceed that account's spendable cash."""
-    out = []
-    try:
-        r = reserves_df[reserves_df["Account"].ne("TOTAL")]
-        per_acct = (pd.to_numeric(r["Reserved_Cash"], errors="coerce").fillna(0.0)
-                    .groupby(r["Account"]).sum())
-        c = cash_df[cash_df["Account"].astype(str).ne("TOTAL")].copy()
-        c["_k"] = c["Account"].map(acct_key)
-        col = "Cash_After_Open_Orders" if "Cash_After_Open_Orders" in c.columns else "Cash"
-        spendable = pd.to_numeric(c[col], errors="coerce").fillna(0.0).groupby(c["_k"]).sum()
-        for a, fenced in per_acct.items():
-            have = float(spendable.get(a, 0.0))
-            if fenced - have > 0.01:
-                out.append(f"⚠️  OVERCOMMIT ...{a}: ${fenced:,.2f} fenced vs "
-                           f"${have:,.2f} spendable (short ${fenced - have:,.2f})")
-    except Exception as e:
-        out.append(f"⚠️  overcommit check failed: {e}")
-    return out
 
 
 def reconcile(ledger_path=LEDGER_PATH, log=print) -> pd.DataFrame:
@@ -914,6 +839,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="Seed and manage per-ticker cash reserves")
     ap.add_argument("--list", action="store_true", help="print the reserves table")
     ap.add_argument("--seed", action="store_true")
+    ap.add_argument("--fence", action="store_true",
+                    help="register a ticker you ALREADY own, with no cash: "
+                         "future sale proceeds are then held for that ticker")
     ap.add_argument("--topup", action="store_true")
     ap.add_argument("--withdraw", action="store_true")
     ap.add_argument("--close", action="store_true")
@@ -952,7 +880,12 @@ if __name__ == "__main__":
         if missing:
             ap.error(f"missing required: {', '.join('--' + m for m in missing)}")
 
-    if args.seed:
+    if args.fence:
+        _need("account", "ticker")
+        fence(args.account, args.ticker, policy=args.policy,
+              target_capital=args.target, log=log)
+
+    elif args.seed:
         _need("account", "ticker", "amount")
         seed(args.account, args.ticker, args.amount, policy=args.policy,
              target_capital=args.target, reason=args.reason, log=log)
@@ -995,8 +928,8 @@ if __name__ == "__main__":
             sys.exit(1)
 
     if args.list or args.write or not any([
-        args.seed, args.topup, args.withdraw, args.close, args.check,
-        args.apply_fills, args.reconcile,
+        args.seed, args.fence, args.topup, args.withdraw, args.close,
+        args.check, args.apply_fills, args.reconcile,
     ]):
         cash = None
         try:

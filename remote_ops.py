@@ -153,6 +153,8 @@ PY_VERBS = {
     "auth_url":     (False, False),
     "auth_code":    (True,  True),
     "seed":         (True,  False),
+    "fence":        (True,  False),
+    "apply_fills":  (False, False),
     "reserves":     (False, False),
 }
 
@@ -257,6 +259,34 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
 
     if verb == "seed":
         return _run_seed(arg)
+
+    if verb == "fence":
+        import cash_reserve
+        parts = arg.split()
+        if len(parts) < 2:
+            return 2, ("need ACCT TICKER\n  e.g.  fence  171 MSTR\n\n"
+                       "Registers a ticker you already own. No cash moves now; "
+                       "when you later trim or sell it the proceeds are held "
+                       "for that ticker instead of becoming free cash.")
+        out = []
+        bal = cash_reserve.fence(parts[0], parts[1], source="ops_sheet",
+                                 log=out.append)
+        out.append(f"\nreserve balance for {parts[0]}/{parts[1].upper()} "
+                   f"is ${bal:,.2f}")
+        return 0, "\n".join(out)
+
+    if verb == "apply_fills":
+        import cash_reserve
+        import jobStocksSignals as job
+        out = []
+        fills = cash_reserve.fetch_fills(job.get_schwab_client(), days_back=7,
+                                         log=out.append)
+        ev = cash_reserve.apply_fills(fills, log=out.append)
+        if ev is not None and not ev.empty:
+            out.append("")
+            out.append(ev[["Account", "Ticker", "Event", "Amount", "Reason"]]
+                       .to_string(index=False))
+        return 0, "\n".join(out)
 
     if verb == "reserves":
         import cash_reserve
