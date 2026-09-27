@@ -76,13 +76,14 @@ DATA_START_ROW = 9          # Orders tab: header block 1-6, banner 7, cols 8
 # Engine-owned cells, by letter. Named rather than inlined: the columns shifted
 # named rather than inlined because a write-back aimed at the wrong column
 # silently overwrites a different field.
-COL_STATUS = "K"
-COL_STATUS_DATE = "L"
-COL_VALIDATION = "M"
-COL_ENGINE_NOTE = "S"
-COL_LAST_CHECKED = "T"
+COL_STATUS = "L"
+COL_STATUS_DATE = "M"
+COL_VALIDATION = "N"
+COL_ENGINE_NOTE = "T"
+COL_LAST_CHECKED = "U"
 SHEET_COLS = ["Row_ID", "Date", "Acct", "Ticker", "Side", "Close_Is",
-              "Trigger_Price", "Limit_Price", "Qty", "Expires_On"]
+              "Trigger_Price", "Limit_Price", "Qty", "Expires_On", "Notes"]
+COL_ROW_ID = "A"
 
 LEDGER_COLS = ["ts", "row_id", "fingerprint", "state", "note", "acct", "ticker",
                "side", "close_is", "qty", "trigger_price", "limit_price",
@@ -282,6 +283,37 @@ def cross_check(close: float, ticker: str, log=print) -> str | None:
         return (f"PRICE_DISAGREEMENT: Schwab {close:.2f} vs signals {other:.2f} "
                 f"({diff:.1f}% apart) — not acting")
     return None
+
+
+def stamp_row_ids(rows: list[dict]) -> list[dict]:
+    """Give every un-stamped row a permanent Row_ID.
+
+    You leave column A blank; Pi 1 fills it once and never changes it. That id
+    — not the row's position — is the row's identity everywhere else, which is
+    what makes inserting new rows at the TOP safe. Sheet positions shift; ids
+    do not.
+
+    Deterministic: the same blank row regenerates the same id next cycle, so a
+    failed write-back does not produce a duplicate under a second name.
+    """
+    taken = {r["Row_ID"] for r in rows if r["Row_ID"]}
+    for rec in rows:
+        if rec["Row_ID"] or not rec.get("Ticker"):
+            continue
+        day = (rec.get("Date") or date.today().isoformat())[:10]
+        try:                                    # tolerate 9/26/2026 etc.
+            day = datetime.fromisoformat(day).date().isoformat()
+        except ValueError:
+            day = date.today().isoformat()
+        base = f"{day}-{rec['Ticker'].strip().upper()}"
+        for i in range(1, 100):
+            cand = f"{base}-{i:02d}"
+            if cand not in taken:
+                rec["Row_ID"] = cand
+                rec["_new_id"] = True
+                taken.add(cand)
+                break
+    return rows
 
 
 def _known_tickers() -> set[str]:
@@ -505,6 +537,22 @@ def main() -> int:
         _log(f"⛔ cannot read the Orders tab: {type(e).__name__}: {e}")
         return 1
 
+    rows = stamp_row_ids(rows)
+    fresh = [r for r in rows if r.get("_new_id")]
+    if fresh:
+        # Write the ids back FIRST and separately. Everything downstream keys
+        # on Row_ID, so a row without one in the sheet would be re-stamped and
+        # re-evaluated as if it were new on the next cycle.
+        try:
+            ws.batch_update([{"range": f"{COL_ROW_ID}{r['_sheet_row']}",
+                              "values": [[r["Row_ID"]]]} for r in fresh],
+                            value_input_option="RAW")
+            _log(f"stamped {len(fresh)} new row(s) with a Row_ID")
+        except Exception as e:
+            _log(f"⛔ could not write Row_IDs ({e}) — stopping rather than "
+                 f"acting on rows with no stable identity")
+            return 1
+
     _log(f"{len(rows)} intent row(s) in the sheet")
     if len(rows) > cfg.MAX_ARMED_ROWS:
         _log(f"⛔ {len(rows)} rows exceeds MAX_ARMED_ROWS={cfg.MAX_ARMED_ROWS}")
@@ -547,7 +595,7 @@ def main() -> int:
             """Feedback without a state change — the whole point of running
             often. A bad row says so within minutes of being typed instead of
             failing silently at the close."""
-            updates.append(dict(row=rec["_sheet_row"], validation=validation))
+            updates.append(dict(row_id=rec["Row_ID"], validation=validation))
 
         def finish(state: str, note: str, **extra):
             append_ledger(dict(row_id=rec["Row_ID"], fingerprint=fp_of(rec),
@@ -557,7 +605,7 @@ def main() -> int:
                                qty=rec["Qty"], trigger_price=rec["Trigger_Price"],
                                limit_price=rec["Limit_Price"], **extra))
             audit(row_id=rec["Row_ID"], state=state, note=note)
-            updates.append(dict(row=rec["_sheet_row"], state=state, note=note))
+            updates.append(dict(row_id=rec["Row_ID"], state=state, note=note))
             _log(f"   {rid:<26} {state:<10} {note}")
 
         # 1. Is it even a well-formed intent?
@@ -666,10 +714,23 @@ def main() -> int:
     # Mirror state back into the engine columns. Best effort: the ledger is the
     # record, the sheet is a view of it.
     try:
+        # Re-read column A and map id -> CURRENT row. Rows may have been
+        # inserted above these while the cycle ran — the whole point of adding
+        # new work at the top — so a position cached minutes ago would now
+        # write into the wrong row.
+        live = {}
+        for i, raw in enumerate(ws.col_values(1), start=1):
+            if i >= DATA_START_ROW and str(raw).strip():
+                live[str(raw).strip()] = i
+
         payload = []
         stamp = _now().strftime("%Y-%m-%d %H:%M:%S %Z")
         for u in updates:
-            r = u["row"]
+            r = live.get(u["row_id"])
+            if r is None:
+                _log(f"⚠️  {u['row_id']} vanished from the sheet mid-cycle; "
+                     f"ledger is still correct")
+                continue
             if "validation" in u:
                 payload.append({"range": f"{COL_VALIDATION}{r}",
                                 "values": [[u["validation"][:400]]]})
