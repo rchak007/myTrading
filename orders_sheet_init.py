@@ -62,9 +62,12 @@ ORDERS_ENGINE = [
 # note about a row is actually readable beside it.
 ORDERS_COLS = ORDERS_HUMAN + ORDERS_ENGINE
 
+# Must stay in step with orders_sheet.POSITIONS_COLS — this file creates the
+# header, that one writes the rows beneath it.
 POSITIONS_COLS = [
     "Ticker", "Acct", "Qty", "Avg_Cost", "Market_Value", "Unrealized_PL",
-    "Has_Stop", "Has_Trim", "Has_Dip", "Has_Breakout", "Seed_Reserved", "Updated",
+    "Has_Stop", "Has_Trim", "Has_Dip", "Has_Breakout",
+    "Fenced", "Seed_Reserved", "Updated",
 ]
 CASH_COLS = [
     "Acct", "Nickname", "Cash", "Cash_In_Open_Orders", "Cash_After_Open_Orders",

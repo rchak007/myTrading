@@ -46,7 +46,8 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 POSITIONS_COLS = [
     "Ticker", "Acct", "Qty", "Avg_Cost", "Market_Value", "Unrealized_PL",
-    "Has_Stop", "Has_Trim", "Has_Dip", "Has_Breakout", "Seed_Reserved", "Updated",
+    "Has_Stop", "Has_Trim", "Has_Dip", "Has_Breakout",
+    "Fenced", "Seed_Reserved", "Updated",
 ]
 CASH_COLS = [
     "Acct", "Nickname", "Cash", "Cash_In_Open_Orders", "Cash_After_Open_Orders",
@@ -190,7 +191,8 @@ def coverage_for(ticker: str, acct: str, price: float | None,
 
 # ──────────────────────────────────────────────────── positions table
 def build_positions_table(positions_df, signals_df=None, orders_df=None,
-                          reserves=None, intents_df=None, log=print) -> pd.DataFrame:
+                          reserves=None, intents_df=None, fenced=None,
+                          log=print) -> pd.DataFrame:
     """
     Per (ticker, account), plus a TOTAL row for any ticker held in more than
     one account. Avg_Cost on a TOTAL row is QUANTITY-WEIGHTED — a mean of the
@@ -209,6 +211,7 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
                       for t, p in zip(signals_df["Ticker"], signals_df[pcol])}
 
     reserves = reserves or {}
+    fenced = fenced or set()
     stamp = _now()
     out = []
 
@@ -221,6 +224,7 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
                 "Ticker": ticker, "Acct": r["Acct"], "Qty": r["Qty"],
                 "Avg_Cost": r["Avg_Cost"], "Market_Value": r["Market_Value"],
                 "Unrealized_PL": r["Unrealized_PL"], **flags,
+                "Fenced": "🔒" if (str(r["Acct"]), ticker) in fenced else "",
                 "Seed_Reserved": reserves.get((r["Acct"], ticker), ""),
                 "Updated": stamp,
             })
@@ -238,6 +242,10 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
                 # aggregate value.
                 "Has_Stop": BLANK, "Has_Trim": BLANK,
                 "Has_Dip": BLANK, "Has_Breakout": BLANK,
+                # Blank for the same reason the coverage flags are: fencing is
+                # per (ticker, account) and a roll-up would assert something
+                # about accounts it cannot see.
+                "Fenced": BLANK,
                 "Seed_Reserved": round(sum(seeds), 2) if any(seeds) else "",
                 "Updated": stamp,
             })
@@ -722,15 +730,15 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     pos_raw = (positions_raw if positions_raw is not None
                else fetch_positions_detailed(client_wrapper, log=log))
     intents = read_intents(book, log=log)
+    fenced = load_fenced(log=log)
+    if fenced:
+        log(f"Fenced pairs: {len(fenced)}")
     positions = build_positions_table(pos_raw, signals_df, orders_df, reserves,
-                                      intents_df=intents, log=log)
+                                      intents_df=intents, fenced=fenced, log=log)
     cash = build_cash_rows(cash_df, reserves, log=log)
 
     n_pos = _put(book.worksheet("Positions"), positions, POSITIONS_COLS, log)
     n_cash = _put(book.worksheet("Cash"), cash, CASH_COLS, log)
-    fenced = load_fenced(log=log)
-    if fenced:
-        log(f"Fenced pairs: {len(fenced)}")
     n_dash = write_dashboard(book, positions, orders_df, quotes, fenced, log=log)
 
     # ---- header block. LAST POLL is the health check: if this stops moving,
