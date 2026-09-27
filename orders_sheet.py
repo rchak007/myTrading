@@ -340,6 +340,28 @@ def _extract_price(entry):
         return None, None
 
 
+def load_fenced(log=print) -> set:
+    """{(acct_last3, TICKER)} for every ACTIVE reserve, funded or not.
+
+    Distinct from load_reserves(), which returns balances and drops anything
+    folding to zero. A pair fenced by `fence` has a zero balance BY DESIGN —
+    the money is still in the shares — so it would be invisible there while
+    being exactly what the Dashboard needs to show. Fenced-ness is a property
+    of the config, not of the balance.
+    """
+    try:
+        import cash_reserve
+        cfg = cash_reserve.read_config(log=lambda *a, **k: None)
+        if cfg is None or cfg.empty:
+            return set()
+        live = cfg[cfg["Active"].astype(bool)] if "Active" in cfg.columns else cfg
+        return {(str(r["Account"]).strip(), str(r["Ticker"]).strip().upper())
+                for _, r in live.iterrows()}
+    except Exception as e:
+        log(f"⚠️  could not read the reserve config — Fenced left blank: {e}")
+        return set()
+
+
 def _scrub(v):
     """NaN/NaT/None -> "". Anything else passes through untouched.
 
@@ -371,7 +393,11 @@ def _put(ws, df, cols, log):
 # faster schedule, so they are written blank here rather than with a stale value.
 POS_HDR = ["Ticker", "Acct", "Qty", "Avg_Cost", "Live_Price", "Day_%",
            "Market_Value", "Unrealized_PL",
-           "Has_Stop", "Has_Trim", "Has_Dip", "Has_Breakout", "Seed_Reserved"]
+           "Has_Stop", "Has_Trim", "Has_Dip", "Has_Breakout",
+           # Fenced sits beside Seed_Reserved because they answer the same
+           # question from two sides: whether the capital is earmarked, and how
+           # much of it is currently cash rather than shares.
+           "Fenced", "Seed_Reserved"]
 # Column letters within a block (column A is the ticker label, so POS_HDR
 # starts at B). orders_sheet_prices.py writes into these two.
 COL_LIVE_PRICE = "F"
@@ -395,7 +421,8 @@ DASH_WIDTH = 1 + len(POS_HDR)          # column A holds the ticker label
 
 
 def build_dashboard(positions: pd.DataFrame, orders_df=None,
-                    quotes: dict | None = None) -> tuple[list, dict]:
+                    quotes: dict | None = None,
+                    fenced: set | None = None) -> tuple[list, dict]:
     """
     One block per ticker: the positions mini-table, then the live Schwab orders
     for that ticker.
@@ -426,7 +453,19 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
              f"ORDERS rows are live Schwab orders, not the Orders tab"])
     add([])
 
-    for ticker in sorted(positions["Ticker"].unique()):
+    # Biggest holdings first, by TOTAL market value across every account —
+    # alphabetical put a $30 position above a $107,000 one. Ties and
+    # unparseable values fall back to the ticker so the order stays stable
+    # between runs rather than shuffling.
+    real = positions[positions["Acct"] != TOTAL]
+    size = (real.assign(_mv=pd.to_numeric(real["Market_Value"], errors="coerce")
+                        .fillna(0.0))
+                .groupby("Ticker")["_mv"].sum())
+    order = sorted(positions["Ticker"].unique(),
+                   key=lambda t: (-float(size.get(t, 0.0)), t))
+
+    fenced = fenced or set()
+    for ticker in order:
         grp = positions[positions["Ticker"] == ticker]
 
         # Fill the price columns here rather than leaving them blank for
@@ -446,7 +485,9 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                  px if px is not None else "",
                  round(pct, 2) if pct is not None else "",
                  r["Market_Value"], r["Unrealized_PL"], r["Has_Stop"],
-                 r["Has_Trim"], r["Has_Dip"], r["Has_Breakout"], r["Seed_Reserved"]])
+                 r["Has_Trim"], r["Has_Dip"], r["Has_Breakout"],
+                 "🔒" if (str(r["Acct"]), ticker) in fenced else "",
+                 r["Seed_Reserved"]])
 
         add([])
         marks["label"].append(add(["", "ORDERS"]))
@@ -544,7 +585,8 @@ def _paint(ws, marks, log):
 
 
 def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
-                    quotes: dict | None = None, log=print) -> int:
+                    quotes: dict | None = None, fenced: set | None = None,
+                    log=print) -> int:
     if positions is None or positions.empty:
         return 0
     try:
@@ -552,7 +594,7 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
     except Exception:
         ws = book.add_worksheet(title="Dashboard", rows=1000, cols=DASH_WIDTH + 2)
 
-    rows, marks = build_dashboard(positions, orders_df, quotes)
+    rows, marks = build_dashboard(positions, orders_df, quotes, fenced)
     ws.clear()
     ws.update(values=rows, range_name=f"A1:{_last_col()}{len(rows)}")
     ws.freeze(rows=0)
@@ -584,7 +626,10 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
 
     n_pos = _put(book.worksheet("Positions"), positions, POSITIONS_COLS, log)
     n_cash = _put(book.worksheet("Cash"), cash, CASH_COLS, log)
-    n_dash = write_dashboard(book, positions, orders_df, quotes, log=log)
+    fenced = load_fenced(log=log)
+    if fenced:
+        log(f"Fenced pairs: {len(fenced)}")
+    n_dash = write_dashboard(book, positions, orders_df, quotes, fenced, log=log)
 
     # ---- header block. LAST POLL is the health check: if this stops moving,
     # ---- whatever runs this module has died.

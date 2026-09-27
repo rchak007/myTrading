@@ -358,6 +358,25 @@ table as `USER_ENTERED` would let Sheets reinterpret values it has no business
 touching, such as an order's `Entered` timestamp becoming a date. Best-effort
 like `_paint()`: a link is a convenience, the data is not.
 
+### Ordered by size, and fenced capital is marked — added 2026-09-27
+
+Blocks are ordered by **total market value across every account**, largest
+first. Alphabetical put a $90 position above a $107,000 one, which is the wrong
+way round for a screen you read top-down while deciding what to act on. Ties
+fall back to the ticker so the order is stable between runs.
+
+`Fenced` (🔒) marks a position whose capital is earmarked: sell it and the
+proceeds return to that ticker's reserve instead of becoming free cash. It sits
+beside `Seed_Reserved` because the two answer the same question from opposite
+sides — whether the capital is spoken for, and how much of it is currently cash
+rather than shares.
+
+It reads the reserve CONFIG, not the balance. A pair registered with `fence`
+has a zero balance by design (the money is in the shares), so a
+balance-derived flag would show nothing for exactly the holdings that need
+marking. Blank on `TOTAL` rows for the same reason `Has_Stop` is: fencing is
+per (ticker, account) and there is no honest aggregate.
+
 ### Read-only by construction
 
 Nothing a human types lives here. That is what lets it be regenerated wholesale
