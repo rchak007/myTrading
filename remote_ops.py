@@ -181,8 +181,16 @@ SEED_USAGE = (
 JOB_LOCK = Path(os.getenv("MYTRADING_JOB_LOCK", "/tmp/jobmytrading.lock"))
 
 
+# MUST stay below the poller's own cron timeout (300s), with margin for the
+# work that follows. Waiting 600s meant `timeout 300` killed the process
+# mid-wait and left the row stranded on RUNNING — which reads as "already
+# handled", so it never retried. A lock wait that outlives its process is
+# worse than not waiting at all.
+JOB_LOCK_WAIT = int(os.getenv("REMOTE_OPS_LOCK_WAIT", "180"))
+
+
 @contextlib.contextmanager
-def job_lock(timeout: int = 600, log=print):
+def job_lock(timeout: int = JOB_LOCK_WAIT, log=print):
     """Hold the shared job lock, waiting up to `timeout` seconds.
 
     This is what removes the "do not re-auth while jobStocksSignals is
@@ -211,8 +219,9 @@ def job_lock(timeout: int = 600, log=print):
                 time.sleep(5)
                 waited += 5
         if not got:
-            log(f"still locked after {timeout}s — proceeding anyway; a job may "
-                f"need a retry")
+            log(f"still locked after {timeout}s — proceeding anyway rather than "
+                f"letting the poller's own timeout kill this mid-wait. If a job "
+                f"was running it may need re-running.")
         yield got
     finally:
         if fh is not None:
