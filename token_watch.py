@@ -24,11 +24,14 @@ WHAT IT SENDS
     the authorize URL itself — so the phone flow starts from the email rather
     than from an ops-sheet round trip.
 
-CREDENTIALS come from the market-tracker project, read DIRECTLY:
+CREDENTIALS come from the market-tracker project, read DIRECTLY — no copy:
 
-    /home/chakravarti/agents/market-tracker/.env
+    ~/agents/market-tracker/.env
         GMAIL_ADDRESS
         GMAIL_APP_PASSWORD
+
+Several paths are searched because the two Pis have different home
+directories. Override with GMAIL_ENV_FILE.
 
 Deliberately not copied here. One place to update when the password rotates,
 one place that can go stale — see that project's EMAIL-SETUP.md, which is the
@@ -134,11 +137,38 @@ def compose(st: dict, auth_url: str | None) -> tuple[str, str]:
 
 # The market-tracker project owns the Gmail credentials. Read them where they
 # live rather than duplicating the secret into a second .env.
-MAIL_ENV = Path("/home/chakravarti/agents/market-tracker/.env")
+#
+# Searched in order, because the two machines have different home directories
+# and a path hardcoded to one of them fails silently on the other: Pi 2 is
+# /home/chakravarti, Pi 1 is /home/rchak007. Path.home() covers both.
+MAIL_ENV_CANDIDATES = [
+    Path(os.getenv("GMAIL_ENV_FILE", "")) if os.getenv("GMAIL_ENV_FILE") else None,
+    Path.home() / "agents" / "market-tracker" / ".env",
+    Path("/home/chakravarti/agents/market-tracker/.env"),
+    Path("/home/rchak007/agents/market-tracker/.env"),
+    HERE / ".env",                      # last resort: this project's own
+]
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587
 
 
-def load_mail_env(path: Path = MAIL_ENV) -> dict:
+def mail_env_path() -> Path | None:
+    """First candidate that exists AND actually carries the credentials.
+
+    Existence alone is not enough — myTrading's own .env exists on both
+    machines and does not contain GMAIL_*, so it must not win merely by being
+    present.
+    """
+    for c in MAIL_ENV_CANDIDATES:
+        if c and c.exists():
+            try:
+                if "GMAIL_APP_PASSWORD" in c.read_text():
+                    return c
+            except Exception:
+                continue
+    return None
+
+
+def load_mail_env(path: Path | None = None) -> dict:
     """Credentials from market-tracker's .env.
 
     The FILE takes precedence over os.environ, not the reverse. A stale
@@ -147,8 +177,9 @@ def load_mail_env(path: Path = MAIL_ENV) -> dict:
     password — documented as gotcha #2 in that project's EMAIL-SETUP.md, and it
     cost real time there.
     """
+    path = path or mail_env_path()
     values = {}
-    if path.exists():
+    if path and path.exists():
         for line in path.read_text().splitlines():
             line = line.strip()
             if not line or line.startswith("#") or "=" not in line:
@@ -179,7 +210,10 @@ def send(subject: str, body: str, log=print) -> bool:
     ).split(",") if a.strip()]
 
     if not address or not password:
-        log(f"no Gmail credentials in {MAIL_ENV} — cannot send")
+        tried = "\n  ".join(str(c) for c in MAIL_ENV_CANDIDATES if c)
+        log(f"no GMAIL_ADDRESS / GMAIL_APP_PASSWORD found. Looked in:\n  {tried}"
+            f"\nSet GMAIL_ENV_FILE to point at the file, or copy the two "
+            f"values into this project's .env.")
         return False
     if not to:
         log("ALERT_TO is empty — nobody to tell")
