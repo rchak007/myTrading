@@ -401,6 +401,30 @@ itself cannot express as a resting order.
   HMAC tokens, ledger, state machine, caps. Nothing executes until its §6
   security model is built in full.
 
+### 🐞 DEFECT — a placed order is never reconciled back
+Once the engine submits, it stops looking. The row stays `SUBMITTED` for ever,
+whatever the order actually does at Schwab:
+
+| what happened | what the sheet says |
+|---|---|
+| filled | `SUBMITTED`, `Filled_Qty` and `Fill_Price` blank |
+| cancelled by hand | `SUBMITTED`, pointing at an order that no longer exists |
+| rejected later | `SUBMITTED` |
+| still resting | `SUBMITTED` — the only case it is right |
+
+Demonstrated 2026-09-29: three test TSLA orders were cancelled in Schwab and
+the sheet went on reporting them as submitted.
+
+Harmless today because `SUBMITTED` also blocks resubmission, so a stale row is
+inert rather than dangerous. It makes the sheet dishonest though, and that is
+the property everything else here depends on.
+
+*Fix:* each cycle, look up every live `Schwab_Order_ID` via
+`order_details(accountHash, orderId)` — measured present on the client — and
+move the row to `FILLED`, `CANCELLED` or `REJECTED`, writing `Filled_Qty` and
+`Fill_Price` back. `stocks_orders.build_orders_table(open_only=False,
+days_back=N)` already fetches recent orders, so the data is to hand.
+
 ### 🔒 SEQUENCING — decided 2026-09-22
 Phases 2 and 3 are **on hold until §2 (cash reserves) is resolved**. Chakravarti's
 call. The reserve gate decides how much may be spent on a ticker, so building
