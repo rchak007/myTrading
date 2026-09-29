@@ -577,6 +577,39 @@ def _account_hash(client_wrapper, acct: str, log=print) -> str | None:
     return None
 
 
+def preview(client_wrapper, n: dict, log=print) -> tuple[bool, str]:
+    """Ask Schwab to VALIDATE the order without placing it.
+
+    preview_order is the real dry run. Checking the payload ourselves only
+    proves we built what we intended; this proves Schwab accepts it — the
+    symbol, the instruction, the quantity, the account. A payload that previews
+    clean and then fails on placement is a much shorter list of possibilities.
+    """
+    inner = client_wrapper
+    getter = getattr(client_wrapper, "get_client", None)
+    if callable(getter):
+        inner = getter() or client_wrapper
+
+    meth = getattr(inner, "preview_order", None)
+    if not callable(meth):
+        return True, "no preview_order() on this client — payload unverified"
+
+    h = _account_hash(client_wrapper, n["Acct"], log=log)
+    if not h:
+        return False, f"NO_ACCOUNT_HASH for {n['Acct']}"
+    try:
+        body = build_order_json(n)
+        resp = meth(h, body)
+    except Exception as e:
+        return False, f"preview failed: {type(e).__name__}: {e}"
+
+    code = getattr(resp, "status_code", None)
+    if code not in (200, 201):
+        return False, (f"Schwab REJECTED the preview: HTTP {code} "
+                       f"{str(getattr(resp, 'text', ''))[:200]}")
+    return True, "Schwab accepted the preview — the payload is valid"
+
+
 def submit(client_wrapper, n: dict, idem: str, log=print) -> tuple[str | None, str]:
     """Place the order. Returns (schwab_order_id, note).
 
@@ -591,9 +624,11 @@ def submit(client_wrapper, n: dict, idem: str, log=print) -> tuple[str | None, s
     if callable(getter):
         inner = getter() or client_wrapper
 
-    place = getattr(inner, "order_place", None)
+    # place_order(accountHash, order) — measured 2026-09-28 with
+    # probe_order_api.py. It is NOT order_place; that guess cost a live run.
+    place = getattr(inner, "place_order", None)
     if not callable(place):
-        return None, ("NO_ORDER_API: this schwabdev exposes no order_place() — "
+        return None, ("NO_ORDER_API: this schwabdev exposes no place_order() — "
                       "run probe_order_api.py and report the method list")
 
     h = _account_hash(client_wrapper, n["Acct"], log=log)
@@ -839,9 +874,13 @@ def main() -> int:
                            submit_attempted="1" if cfg.LIVE_TRADING else ""))
 
         if not cfg.LIVE_TRADING:
-            finish("TRIGGERED",
-                   f"DRY RUN — would submit at close {close:.2f}. "
-                   f"Set ORDER_ENGINE_LIVE=1 to arm for real.",
+            # Validate against Schwab rather than merely asserting we would
+            # have. A dry run that never touches the broker cannot tell you the
+            # payload is wrong, which is the failure it most needs to catch.
+            ok, pnote = preview(client, n, log=_log)
+            finish("TRIGGERED" if ok else "BLOCKED",
+                   f"DRY RUN at close {close:.2f} — {pnote}. "
+                   f"Set ORDER_ENGINE_LIVE=1 to place for real.",
                    trigger_close=f"{close:.2f}", idem_key=idem)
             continue
 
