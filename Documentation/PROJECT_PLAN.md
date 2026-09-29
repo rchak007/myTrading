@@ -807,6 +807,51 @@ Schwab-impersonation phishing, not account access.
 
 Kept for history — what was fixed, and when.
 
+**2026-09-28 — FIRST LIVE ORDER PLACED BY THE ENGINE**
+`BUY 1 TSLA, GTC LIMIT $357.48` at Schwab, from a row typed into the Orders
+tab. The full chain ran: read the tab → stamp a Row_ID → load 61 positions and
+cash across 6 accounts → fetch the real daily close (357.45) → evaluate
+`BELOW 400` → guards → derive a marketable limit from the live ask → Schwab
+preview → `place_order`.
+
+Decisions Chakravarti made that changed the design, all for the better:
+- **No HMAC signing.** Requiring a laptop to sign each intent defeated the
+  point of a phone-editable sheet. Sheet access implies the ability to cause
+  TRADES, not to move money out — bounded, and accepted deliberately. Replaced
+  with guards that read the real account (oversell, insufficient cash, unknown
+  ticker), which catch the likelier failure anyway: a mis-typed cell.
+- **No dollar caps.** A fixed ceiling blocks legitimate trades and was never
+  what caught a typo. The account's own limits — shares held, free cash — scale
+  with the portfolio. Only a submissions-per-day cap remains, because a runaway
+  loop is the one failure no other guard can see.
+- **GTC LIMIT, never DAY or MARKET.** A GTC market order is a contradiction.
+- **The limit is derived, not typed.** "Buy when it closes below 400" says
+  nothing about what to pay; the answer is whatever the market is asking when
+  the order goes in. Blank `Limit_Price` is now normal.
+- **Only close-triggered orders belong in the sheet.** Anything Schwab can
+  express as a resting order goes straight to Schwab.
+
+Bugs found and fixed along the way, several only visible because the engine was
+run end to end:
+- `price_history` silently returned FRIDAY's bar without an explicit `endDate`
+  — the engine would have traded on a close that was a day and $15 stale.
+- Daily bars are stamped midnight ET, so local-time conversion read every bar
+  as the previous day.
+- Staleness was measured in calendar days, so any long weekend looked like a
+  dead feed.
+- `stamp_row_ids` recycled a Row_ID the ledger had already marked terminal, so
+  a "new" row was skipped as history — silently, which read as the engine
+  ignoring a live order.
+- `SchwabClient.get_client()` assigned `self._client` but never read it, so
+  every caller built a fresh client with its own auth round trip. One cycle
+  created five. Fixed in the shared helper, so every job benefits.
+- The method is `place_order`, not `order_place`. `preview_order` also exists
+  and now backs the dry run with real server-side validation.
+
+**Still open before trusting it unattended:** the cron is not added, no
+`Expires_On` handling has been exercised, and a filled order does not yet
+reconcile back into the sheet.
+
 **2026-09-24 — live prices everywhere, and the ticker list caught up**
 - **`Current Price` was never current.** `data/stocks.fetch_current_price()`
   read Yahoo's `regularMarketPrice`, the *regular session* price, so after the
