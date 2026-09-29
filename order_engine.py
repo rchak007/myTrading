@@ -162,14 +162,12 @@ def preflight(force_time: bool) -> list[str]:
     """
     stop = []
 
-    if not force_time:
-        h, m = cfg.EVALUATE_AFTER_PT
-        now = _now()
-        if (now.hour, now.minute) < (h, m):
-            stop.append(f"too early — the daily bar is not final until "
-                        f"{h:02d}:{m:02d} PT (now {now:%H:%M})")
-        if now.weekday() >= 5:
-            stop.append("weekend — no daily bar to evaluate")
+    # NO TIME CHECK HERE. Being before 13:15 is not a reason to abandon the
+    # run — it is a reason not to evaluate TRIGGERS, which the after_close gate
+    # in main() handles. Putting it here aborted the whole cycle, so the
+    # validation feedback loop never ran during the trading day: rows sat
+    # unchecked all morning and only got looked at once. Preflight is for
+    # conditions that make running UNSAFE, and the clock is not one.
 
     if not cfg.ACCOUNT_ALLOWLIST:
         stop.append("ORDER_ACCOUNT_ALLOWLIST is empty — every row would be "
@@ -735,7 +733,8 @@ def main() -> int:
     ap.add_argument("--status", action="store_true",
                     help="print configuration and ledger state, change nothing")
     ap.add_argument("--force-time", action="store_true",
-                    help="skip the 13:15 PT gate (testing only)")
+                    help="evaluate triggers regardless of the clock, including "
+                         "at a weekend (testing only)")
     args = ap.parse_args()
 
     print()
@@ -806,10 +805,15 @@ def main() -> int:
         audit(event="submission_warning", count=n_sub,
               cap=cfg.MAX_SUBMISSIONS_PER_DAY)
 
-    after_close = args.force_time or \
-        (_now().hour, _now().minute) >= cfg.EVALUATE_AFTER_PT
+    now = _now()
+    h, m = cfg.EVALUATE_AFTER_PT
+    weekend = now.weekday() >= 5
+    after_close = args.force_time or (
+        not weekend and (now.hour, now.minute) >= (h, m))
     if not after_close:
-        _log("before 13:15 PT — validating rows only, not evaluating triggers")
+        why = ("weekend — no daily bar to evaluate" if weekend
+               else f"before {h:02d}:{m:02d} PT — the daily bar is not final")
+        _log(f"{why}. Validating rows only; triggers are not evaluated.")
 
     updates: list[dict] = []
 
