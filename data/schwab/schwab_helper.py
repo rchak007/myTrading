@@ -79,6 +79,17 @@ class SchwabClient:
         Raises:
             SchwabAuthError if manual re-authentication is needed.
         """
+        # Reuse the client we already built. self._client was being ASSIGNED
+        # on every call and never read, so each caller got a brand-new
+        # schwabdev.Client with its own auth round trip — a single order_engine
+        # cycle created five, and most of its wall time went on that.
+        #
+        # Safe to cache: schwabdev refreshes its own access token internally,
+        # so a long-lived client does not go stale. force_new_auth still
+        # rebuilds, which is the one case that must not be cached.
+        if self._client is not None and not force_new_auth:
+            return self._client
+
         # If forcing new auth, delete all tokens first
         if force_new_auth:
             for p in self.token_paths:

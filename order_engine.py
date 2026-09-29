@@ -823,12 +823,18 @@ def main() -> int:
             updates.append(dict(row_id=rec["Row_ID"], validation=validation))
 
         def finish(state: str, note: str, **extra):
-            append_ledger(dict(row_id=rec["Row_ID"], fingerprint=fp_of(rec),
-                               state=state, note=note, acct=rec["Acct"],
-                               ticker=rec["Ticker"], side=rec["Side"],
-                               close_is=rec["Close_Is"],
-                               qty=rec["Qty"], trigger_price=rec["Trigger_Price"],
-                               limit_price=rec["Limit_Price"], **extra))
+            # Merge rather than splat: extra legitimately OVERRIDES a default
+            # — a derived limit_price supersedes the blank one in the sheet —
+            # and **extra alongside the same keyword is a TypeError, not an
+            # override.
+            row = dict(row_id=rec["Row_ID"], fingerprint=fp_of(rec),
+                       state=state, note=note, acct=rec["Acct"],
+                       ticker=rec["Ticker"], side=rec["Side"],
+                       close_is=rec["Close_Is"], qty=rec["Qty"],
+                       trigger_price=rec["Trigger_Price"],
+                       limit_price=rec["Limit_Price"])
+            row.update(extra)
+            append_ledger(row)
             audit(row_id=rec["Row_ID"], state=state, note=note)
             updates.append(dict(row_id=rec["Row_ID"], state=state, note=note))
             _log(f"   {rid:<26} {state:<10} {note}")
