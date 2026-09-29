@@ -148,7 +148,8 @@ def _classify(side: str, px: float, price: float) -> str:
 
 def coverage_for(ticker: str, acct: str, price: float | None,
                  orders_df: pd.DataFrame | None,
-                 intents_df: pd.DataFrame | None = None) -> dict:
+                 intents_df: pd.DataFrame | None = None,
+                 held_qty: float | None = None) -> dict:
     """
     Which of the four protective/entry orders exist for this pair.
 
@@ -183,6 +184,19 @@ def coverage_for(ticker: str, acct: str, price: float | None,
             px = next((_num(o.get(c)) for c in pxcols if _num(o.get(c))), None)
             if not px:
                 continue
+
+            # A SELL intent for more shares than are held would be refused by
+            # the engine as OVERSELL. Counting it as protection would be the
+            # worst kind of wrong: the Dashboard saying covered about the one
+            # order that cannot run. Only checked for sheet intents — a
+            # resting Schwab order already exists, so the broker has accepted
+            # its size.
+            if (mark == PENDING and held_qty is not None
+                    and str(o.get("Side", "")).upper().startswith("SELL")):
+                want = _num(o.get("Qty"))
+                if want and want > held_qty + 1e-6:
+                    continue
+
             slot = _classify(o.get("Side", ""), px, price)
             if out[slot] != YES:            # never downgrade Y to P
                 out[slot] = mark
@@ -219,7 +233,8 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
         grp = positions_df[positions_df["Ticker"] == ticker].sort_values("Acct")
         px = prices.get(ticker)
         for _, r in grp.iterrows():
-            flags = coverage_for(ticker, r["Acct"], px, orders_df, intents_df)
+            flags = coverage_for(ticker, r["Acct"], px, orders_df, intents_df,
+                                 held_qty=_num(r["Qty"]))
             out.append({
                 "Ticker": ticker, "Acct": r["Acct"], "Qty": r["Qty"],
                 "Avg_Cost": r["Avg_Cost"], "Market_Value": r["Market_Value"],
@@ -388,7 +403,8 @@ def read_intents(book, log=print) -> pd.DataFrame:
     Only rows that could still act are returned. A row already filled,
     cancelled, expired or voided is history and protects nothing.
     """
-    cols = ["Ticker", "Account", "Side", "Trigger_Price", "Row_ID"]
+    cols = ["Ticker", "Account", "Side", "Trigger_Price", "Qty", "Row_ID",
+            "Status"]
     try:
         ws = book.worksheet("Orders")
         values = ws.get_all_values()
@@ -396,7 +412,12 @@ def read_intents(book, log=print) -> pd.DataFrame:
         log(f"⚠️  could not read the Orders tab — sheet intents ignored: {e}")
         return pd.DataFrame(columns=cols)
 
-    dead = {"FILLED", "CANCELLED", "EXPIRED", "VOID", "REJECTED"}
+    # BLOCKED belongs here too. The engine has REFUSED the row — a cap, a cash
+    # shortfall, a bad account — so it cannot execute and must not read as
+    # protection. It is recoverable rather than terminal, so it returns to
+    # counting the moment the block clears; it just may not claim coverage
+    # while it stands.
+    dead = {"FILLED", "CANCELLED", "EXPIRED", "VOID", "REJECTED", "BLOCKED"}
     rows = []
     for i, raw in enumerate(values, start=1):
         if i < ORDERS_DATA_START:
@@ -414,7 +435,9 @@ def read_intents(book, log=print) -> pd.DataFrame:
                      "Account": acct_key(rec["Acct"]),
                      "Side": rec["Side"].upper(),
                      "Trigger_Price": trig,
-                     "Row_ID": rec["Row_ID"]})
+                     "Qty": _num(rec["Qty"]),
+                     "Row_ID": rec["Row_ID"],
+                     "Status": str(cells[INTENT_STATUS_IDX]).strip().upper()})
 
     df = pd.DataFrame(rows, columns=cols)
     if not df.empty:
