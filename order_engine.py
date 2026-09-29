@@ -61,7 +61,7 @@ import csv
 import json
 import os
 import sys
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -254,9 +254,23 @@ def daily_close(client_wrapper, ticker: str, log=print) -> tuple[float | None, s
     if not callable(meth):
         return None, "this schwabdev exposes no price_history()"
 
+    # endDate IS REQUIRED to get TODAY's bar. Measured 2026-09-28 with
+    # probe_price_today.py: the same call without it returned 23 candles
+    # ending FRIDAY, omitting a Monday close that had been final for eight
+    # hours. A relative period alone means completed days only.
+    #
+    #   month/1 daily                 newest 2026-09-25  <- yesterday's world
+    #   month/1 + explicit endDate    newest 2026-09-28  <- correct
+    #
+    # This is the difference between a close trigger acting tonight and acting
+    # a day late, so it is not optional and must not be "simplified" away.
+    end_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     try:
         resp = meth(ticker, periodType="month", period=1,
-                    frequencyType="daily", frequency=1)
+                    frequencyType="daily", frequency=1, endDate=end_ms)
+        if getattr(resp, "status_code", 200) != 200:
+            return None, (f"price history HTTP {resp.status_code}: "
+                          f"{str(getattr(resp, 'text', ''))[:120]}")
         body = resp.json() if hasattr(resp, "json") else resp
     except Exception as e:
         return None, f"price history failed: {type(e).__name__}: {e}"
