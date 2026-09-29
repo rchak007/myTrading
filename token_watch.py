@@ -64,14 +64,13 @@ SENT_MARKER = STATE_DIR / "token_watch_last_sent"
 # cron tick is noise you learn to ignore, which defeats the purpose.
 QUIET_HOURS = float(os.getenv("TOKEN_WARN_QUIET_HOURS", "20"))
 
-# jobStocksSignals fires at :15 and :50 and runs ~9 minutes, so it owns
-# :15-:24 and :50-:59 of every hour between 01:00 and 16:59 on weekdays.
-# Re-auth issues a NEW refresh token and invalidates the old one, so a job
-# refreshing at that moment fails.
+# No safe-window rule any more: the auth_code verb takes the shared job lock
+# before swapping tokens, so it waits for any running job by itself. Kept as a
+# named constant because the instruction it replaced was in every email.
 SAFE_WINDOWS = (
-    "Any weekday hour at :25-:49 or :00-:14  (the stocks job owns :15-:24 "
-    "and :50-:59)\nAnything after 17:00 PT on a weekday\nAll weekend — the "
-    "stocks cron does not fire Sat/Sun"
+    "ANY TIME. The ops sheet takes the job lock before swapping tokens, so it\n"
+    "waits for a running job rather than interrupting one. You do not need to\n"
+    "check the clock."
 )
 
 
@@ -119,11 +118,8 @@ def compose(st: dict, auth_url: str | None) -> tuple[str, str]:
         "         column B: <the whole pasted URL>",
         "     Fill column B FIRST, then column A — the verb is what arms the row.",
         "",
-        "WHEN — avoid clashing with jobStocksSignals.py",
+        "WHEN",
         SAFE_WINDOWS,
-        "",
-        "A re-auth issues a new refresh token and invalidates the old one, so a",
-        "job that refreshes mid-flight fails. The job takes ~9 minutes.",
         "",
     ]
     if auth_url:

@@ -32,6 +32,21 @@ All times Pacific. `flock` prevents two jobs writing the same files at once.
 
 **Not yet scheduled:** `health_check.py` (see §5).
 
+### Re-authorising is safe at any time
+
+`auth_code` takes the shared `/tmp/jobmytrading.lock` before installing new
+tokens, waits up to ten minutes for whatever is running, then swaps in about a
+second.
+
+This used to be a rule you had to hold in your head — installing tokens
+invalidates the old refresh token, so a job that happened to refresh its access
+token at that moment failed, which meant checking the clock against the stocks
+cron before re-authorising. The lock puts that rule in the code instead.
+
+If the lock cannot be taken within ten minutes it proceeds anyway and says so.
+A token about to expire is worth more than a clean run of one job, and that job
+will simply need re-running.
+
 ### The token warning runs on PI 2, not Pi 1
 
 Neither machine has both halves: Pi 1 holds the Schwab credentials, Pi 2 holds

@@ -200,7 +200,7 @@ directly.
 |------|----------|------|
 | `token_status` | — | Schwab token state as JSON — state, hours/days left, expiry |
 | `auth_url` | — | The tappable re-authorization link, plus instructions |
-| `auth_code` | **required** | Exchanges the pasted redirect URL for new tokens |
+| `auth_code` | **required** | Exchanges the pasted redirect URL for new tokens. Takes the job lock first, so it is safe at any time — see below |
 | `reserves` | — | The reserves table — what is fenced, deployed, available |
 | `seed` | **required** | Fences cash to a ticker. See below |
 
