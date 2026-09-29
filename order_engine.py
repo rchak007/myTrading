@@ -322,7 +322,7 @@ def cross_check(close: float, ticker: str, log=print) -> str | None:
     return None
 
 
-def stamp_row_ids(rows: list[dict]) -> list[dict]:
+def stamp_row_ids(rows: list[dict], used: set | None = None) -> list[dict]:
     """Give every un-stamped row a permanent Row_ID.
 
     You leave column A blank; Pi 1 fills it once and never changes it. That id
@@ -333,7 +333,12 @@ def stamp_row_ids(rows: list[dict]) -> list[dict]:
     Deterministic: the same blank row regenerates the same id next cycle, so a
     failed write-back does not produce a duplicate under a second name.
     """
-    taken = {r["Row_ID"] for r in rows if r["Row_ID"]}
+    # Ids already in the LEDGER count as taken, not just those in the sheet.
+    # Otherwise clearing column A regenerates the same -01 the ledger has
+    # already marked terminal, and the "new" row is skipped as history — which
+    # is exactly what happened on 2026-09-28 and read as the engine ignoring a
+    # live order. A Row_ID is spent for good once used.
+    taken = {r["Row_ID"] for r in rows if r["Row_ID"]} | set(used or ())
     for rec in rows:
         if rec["Row_ID"] or not rec.get("Ticker"):
             continue
@@ -668,7 +673,7 @@ def main() -> int:
         _log(f"⛔ cannot read the Orders tab: {type(e).__name__}: {e}")
         return 1
 
-    rows = stamp_row_ids(rows)
+    rows = stamp_row_ids(rows, used=set(states))
     fresh = [r for r in rows if r.get("_new_id")]
     if fresh:
         # Write the ids back FIRST and separately. Everything downstream keys
@@ -718,11 +723,7 @@ def main() -> int:
     for rec in rows:
         rid = rec["Row_ID"] or f"(sheet row {rec['_sheet_row']})"
 
-        prior = states.get(rec["Row_ID"], {})
-        if prior.get("state") in cfg.TERMINAL_STATES:
-            continue                       # history still sitting in the sheet
-
-        def note_only(validation: str):
+        def note_only(validation: str):  # noqa: E306
             """Feedback without a state change — the whole point of running
             often. A bad row says so within minutes of being typed instead of
             failing silently at the close."""
@@ -738,6 +739,20 @@ def main() -> int:
             audit(row_id=rec["Row_ID"], state=state, note=note)
             updates.append(dict(row_id=rec["Row_ID"], state=state, note=note))
             _log(f"   {rid:<26} {state:<10} {note}")
+
+
+        prior = states.get(rec["Row_ID"], {})
+        if prior.get("state") in cfg.TERMINAL_STATES:
+            # SAY SO. This exited silently and produced a run that read as
+            # "nothing to do" when the row was in fact being ignored —
+            # indistinguishable from a bug, and alarming when you are waiting
+            # for an order. A terminal row is history, but the operator has no
+            # way to know that without being told.
+            _log(f"   {rid:<26} skipped — already {prior.get('state')} in the "
+                 f"ledger. Give the row a NEW Row_ID to run it again.")
+            note_only(f"⏹ already {prior.get('state')} — this Row_ID is spent. "
+                      f"Clear column A AND change something, or use a new row.")
+            continue
 
         # 1. Is it even a well-formed intent?
         try:
