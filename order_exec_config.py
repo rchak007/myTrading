@@ -72,23 +72,23 @@ MAX_ARMED_ROWS = int(os.getenv("MAX_ARMED_ROWS", "200"))
 # a typo, not to force short-dated intents.
 MAX_EXPIRY_DAYS = int(os.getenv("MAX_EXPIRY_DAYS", "180"))
 
-# Blank Limit_Price means a MARKET order. Allowed from 2026-09-26, because for
-# an EXIT that is usually what is wanted: if the trigger fired, you want out,
-# and a limit order that does not fill leaves you holding a position that is
-# still falling.
+# Superseded 2026-09-28: every order is GOOD_TILL_CANCEL, and GTC requires a
+# LIMIT, so market orders are not expressible here at all. Kept as False rather
+# than deleted because order_engine still reads it, and because the reasoning
+# is worth not relearning.
 #
-# The reverse is true for entries — see WARN_MARKET_BUY. A buy has no urgency:
-# missing a gapped-up setup costs nothing, paying 355 for one you wanted at 322
-# costs real money.
-ALLOW_MARKET_ORDERS = os.getenv("ALLOW_MARKET_ORDERS", "1") == "1"
+# To exit regardless of price, do not reach for a market order — set the limit
+# well THROUGH the market. Such an order is marketable: it fills immediately at
+# the best available price AND puts a floor under a bad fill, which a market
+# order does not.
+ALLOW_MARKET_ORDERS = False
+WARN_MARKET_BUY = False
 
-# A market BUY is almost never what you meant. Warn loudly rather than refuse:
-# it is a judgement call, not an error.
-WARN_MARKET_BUY = True
-
-# If the price has already run this far past the limit in the adverse
-# direction, the setup that was intended no longer exists. Block and let a
-# human look rather than chase it.
+# No longer enforced. Under DAY orders a limit sitting away from the market
+# meant "this can never fill"; under GOOD_TILL_CANCEL it is the normal case and
+# frequently the whole point — "when TSLA closes below 400, rest a buy at 300"
+# is a coherent instruction, and blocking it would be second-guessing a
+# deliberate one. Retained for reference only.
 GAP_THROUGH_PCT = 5.0
 
 # Schwab's close and our own signals CSV must agree within this, or we do not

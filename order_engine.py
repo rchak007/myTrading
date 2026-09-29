@@ -447,9 +447,14 @@ def check_guards(n: dict, close: float | None, submitted_today: int,
     if cfg.TICKER_ALLOWLIST and n["Ticker"] not in cfg.TICKER_ALLOWLIST:
         return f"TICKER_NOT_ALLOWED: {n['Ticker']}"
 
-    if not n["Limit_Price"] and not cfg.ALLOW_MARKET_ORDERS:
-        return ("NO_LIMIT_PRICE: market orders are disabled "
-                "(ALLOW_MARKET_ORDERS=0)")
+    if not n["Limit_Price"]:
+        side = n["Side"]
+        hint = ("well BELOW the market to exit regardless of price"
+                if side == "SELL" else
+                "at the most you are willing to pay")
+        return (f"NO_LIMIT_PRICE: every order here is GOOD_TILL_CANCEL, and a "
+                f"GTC order must be a LIMIT — a market order fills instantly, "
+                f"so there is nothing for it to persist. Set Limit_Price {hint}.")
 
     qty = float(n["Qty"])
     px = float(n["Limit_Price"] or n["Trigger_Price"])
@@ -499,14 +504,13 @@ def check_guards(n: dict, close: float | None, submitted_today: int,
                         f"${free:,.2f} available in {n['Acct']}")
 
     # ---- price-dependent, only once a close is known ------------------
-    if close is not None:
-        lim = float(n["Limit_Price"]) if n["Limit_Price"] else None
-        if lim:
-            through = ((close - lim) / lim * 100) if side == "BUY" else \
-                      ((lim - close) / lim * 100)
-            if through > cfg.GAP_THROUGH_PCT:
-                return (f"GAPPED_THROUGH: close {close:.2f} is {through:.1f}% "
-                        f"past the {side} limit {lim:.2f}")
+    # GAPPED_THROUGH is deliberately NOT checked any more. It refused an order
+    # whose limit sat away from the current price — which under DAY orders meant
+    # "this can never fill". Under GOOD_TILL_CANCEL that is the normal case and
+    # often the whole intent: "when TSLA closes below 400, rest a buy at 300"
+    # is a coherent thing to want, and blocking it would be the engine second-
+    # guessing a deliberate instruction. An unfillable-today GTC order simply
+    # waits, which is what GTC is for.
     return None
 
 
@@ -531,34 +535,42 @@ def build_order_json(n: dict) -> dict:
     Pure and testable — no client, no network — so the shape can be checked
     without risking a placement. Shape per Schwab's Trader API:
 
-        orderType        LIMIT | MARKET
-        session          NORMAL (regular hours only; a close trigger submits
-                         next morning, so there is no reason to reach into
+        orderType        LIMIT, always
+        session          NORMAL (regular hours; a close trigger submits the
+                         next session, so there is no reason to reach into
                          pre-market where spreads are worst)
-        duration         DAY. A GTC order outliving the setup that justified
-                         it is how a stale intent fires into a different market.
+        duration         GOOD_TILL_CANCEL
         instruction      BUY | SELL
+
+    GTC AND LIMIT GO TOGETHER. A market order executes immediately, so
+    "good till cancelled" has nothing to persist and brokers reject the
+    combination. Chakravarti's call 2026-09-28: every order from this engine
+    rests until filled or cancelled, which means every order needs a price.
+
+    To exit REGARDLESS of price, do not reach for a market order — set the
+    limit well THROUGH the market (a sell limit far below it). Such an order
+    is marketable: it fills immediately at the best available bid, so you get
+    the certainty of a market order AND a floor under a bad fill. That is
+    strictly better than a market order, which has no floor at all.
     """
     qty = int(round(float(n["Qty"])))
     if qty <= 0:
         raise ValueError(f"quantity rounds to {qty}")
+    if not n["Limit_Price"]:
+        raise ValueError("a GTC order requires a limit price")
 
-    body = {
+    return {
         "orderStrategyType": "SINGLE",
         "session": "NORMAL",
-        "duration": "DAY",
+        "duration": "GOOD_TILL_CANCEL",
+        "orderType": "LIMIT",
+        "price": f"{float(n['Limit_Price']):.2f}",
         "orderLegCollection": [{
             "instruction": n["Side"],
             "quantity": qty,
             "instrument": {"symbol": n["Ticker"], "assetType": "EQUITY"},
         }],
     }
-    if n["Limit_Price"]:
-        body["orderType"] = "LIMIT"
-        body["price"] = f"{float(n['Limit_Price']):.2f}"
-    else:
-        body["orderType"] = "MARKET"
-    return body
 
 
 def _account_hash(client_wrapper, acct: str, log=print) -> str | None:

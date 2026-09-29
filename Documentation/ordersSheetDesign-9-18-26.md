@@ -377,6 +377,30 @@ balance-derived flag would show nothing for exactly the holdings that need
 marking. Blank on `TOTAL` rows for the same reason `Has_Stop` is: fencing is
 per (ticker, account) and there is no honest aggregate.
 
+### Every order is GTC LIMIT — decided 2026-09-28
+
+`duration: GOOD_TILL_CANCEL`, `orderType: LIMIT`, always. **`Limit_Price` is
+required**, and a row without one is blocked rather than converted to a market
+order.
+
+GTC and LIMIT go together by necessity: a market order executes immediately, so
+"good till cancelled" has nothing to persist, and brokers reject the pairing.
+
+**To exit regardless of price, do not reach for a market order.** Set the limit
+well THROUGH the market — a sell limit far below it. Such an order is
+*marketable*: it fills immediately at the best available bid, so you get the
+certainty of a market order AND a floor under a bad fill. A market order has no
+floor at all, which is how a thin open turns a sell into a fill nobody would
+have accepted.
+
+This replaces the 2026-09-26 position that a blank `Limit_Price` meant MARKET.
+
+**`GAPPED_THROUGH` is no longer enforced** as a consequence. It refused an
+order whose limit sat away from the current price, which under DAY orders meant
+"this can never fill". Under GTC that is the normal case and often the entire
+intent — "when TSLA closes below 400, rest a buy at 300" is coherent, and
+blocking it would be the engine second-guessing a deliberate instruction.
+
 ### Coverage has two sources — added 2026-09-27
 
 `Has_Stop` and friends read **both** live Schwab orders and the intents typed
