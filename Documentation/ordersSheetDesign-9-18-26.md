@@ -358,6 +358,23 @@ table as `USER_ENTERED` would let Sheets reinterpret values it has no business
 touching, such as an order's `Entered` timestamp becoming a date. Best-effort
 like `_paint()`: a link is a convenience, the data is not.
 
+### A Row_ID is submitted ONCE — fixed 2026-09-29
+
+**One intent placed three live TSLA orders**, at 13:30, 13:45 and 14:05 — one
+per cron tick. `SUBMITTED` is a live state, so the row kept being re-read; the
+trigger condition stays true after firing, so every run submitted it again.
+
+The idempotency key was being written to the ledger and never read back, which
+is the entire reason it exists.
+
+The engine now refuses to submit any `Row_ID` the ledger has ever recorded as
+`SUBMITTED` or `submit_attempted`, and says so in the sheet with the original
+Schwab order id. **A Row_ID buys once.** To order again, use a new row.
+
+`submit_attempted` without an id still blocks: that is a crash mid-submit,
+where the outcome is unknown and the correct action is a human looking, never
+an automatic retry.
+
 ### A sold-out fenced position keeps its row — added 2026-09-29
 
 Once a position is fully sold, Schwab stops reporting it — so its Dashboard

@@ -845,6 +845,31 @@ def main() -> int:
 
 
         prior = states.get(rec["Row_ID"], {})
+
+        # ALREADY SUBMITTED — never send it again. SUBMITTED is a live state
+        # (the order can still be cancelled or rejected) so the row is still
+        # re-read each cycle, but re-SUBMITTING it is a different thing
+        # entirely: the trigger condition stays true after firing, so every
+        # subsequent run placed the same order again.
+        #
+        # Observed 2026-09-29: one intent became THREE live TSLA orders at
+        # 13:30, 13:45 and 14:05 — one per cron tick. The idempotency key was
+        # being written to the ledger and never read back, which is the whole
+        # reason it exists.
+        if any(r.get("row_id") == rec["Row_ID"]
+               and (r.get("state") == "SUBMITTED" or r.get("submit_attempted"))
+               for r in ledger):
+            done = next(r for r in reversed(ledger)
+                        if r.get("row_id") == rec["Row_ID"]
+                        and (r.get("state") == "SUBMITTED"
+                             or r.get("submit_attempted")))
+            oid = done.get("schwab_order_id") or "(id unknown)"
+            _log(f"   {rid:<26} already submitted as {oid} — not resending")
+            note_only(f"⏹ already submitted as {oid} on "
+                      f"{str(done.get('ts',''))[:19]}. A Row_ID is placed ONCE; "
+                      f"use a new row to order again.")
+            continue
+
         if prior.get("state") in cfg.TERMINAL_STATES:
             # SAY SO. This exited silently and produced a run that read as
             # "nothing to do" when the row was in fact being ignored —
