@@ -92,10 +92,10 @@ BANNER = ("(Pi 1 fills)", "▼ YOU FILL B-K ▼", "", "", "", "", "", "", "", ""
 
 ACTIONS = ("Leave Row_ID (A) BLANK — Pi 1 stamps it. Add new rows at the TOP.   ·   "
            "Side: BUY | SELL   ·   Close_Is: ABOVE | BELOW   ·   "
-           "every row fires on a completed DAILY CLOSE, and submits the NEXT "
-           "MORNING.   Limit_Price blank = MARKET (usually right for an exit: "
-           "a limit that does not fill leaves you holding). Set a limit on a "
-           "BUY so a gap up cannot make you overpay.   "
+           "every row fires on a completed DAILY CLOSE and submits GTC LIMIT.   "
+           "Limit_Price BLANK is normal — Pi 1 derives a marketable limit from "
+           "the live book when it places (ask for a buy, bid for a sell). "
+           "Type one only to insist on a specific price.   "
            "Plain limit orders belong at Schwab, not here.")
 
 

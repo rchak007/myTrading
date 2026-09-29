@@ -84,6 +84,12 @@ MAX_EXPIRY_DAYS = int(os.getenv("MAX_EXPIRY_DAYS", "180"))
 ALLOW_MARKET_ORDERS = False
 WARN_MARKET_BUY = False
 
+# How far THROUGH the quote a derived limit is placed: buy above the ask, sell
+# below the bid. Enough that a tick of movement between building the order and
+# Schwab receiving it does not leave it resting, small enough to be noise on
+# any liquid name. Only used when Limit_Price is left blank.
+LIMIT_BUFFER_PCT = float(os.getenv("LIMIT_BUFFER_PCT", "0.25"))
+
 # No longer enforced. Under DAY orders a limit sitting away from the market
 # meant "this can never fill"; under GOOD_TILL_CANCEL it is the normal case and
 # frequently the whole point — "when TSLA closes below 400, rest a buy at 300"

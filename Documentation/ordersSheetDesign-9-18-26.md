@@ -386,12 +386,21 @@ order.
 GTC and LIMIT go together by necessity: a market order executes immediately, so
 "good till cancelled" has nothing to persist, and brokers reject the pairing.
 
-**To exit regardless of price, do not reach for a market order.** Set the limit
-well THROUGH the market — a sell limit far below it. Such an order is
-*marketable*: it fills immediately at the best available bid, so you get the
-certainty of a market order AND a floor under a bad fill. A market order has no
-floor at all, which is how a thin open turns a sell into a fill nobody would
-have accepted.
+**`Limit_Price` is normally left BLANK.** Pi 1 derives one from the live book
+at submit time — the **ask** for a buy, the **bid** for a sell — nudged through
+by `LIMIT_BUFFER_PCT` (0.25%) so a tick of movement does not leave the order
+resting. Type a price only to insist on one.
+
+That is the right default because a number typed days ago is stale by the time
+the trigger fires. *"Buy when it closes below 400"* says nothing about what to
+pay; the answer is whatever the market is asking at the moment the order goes
+in. The validation line shows the derivation — `ask 357.90 +0.25% -> 358.79` —
+so the number is never unexplained.
+
+The derived limit is deliberately **marketable**: through the quote, not away
+from it. It fills immediately at the best available price AND puts a floor
+under a bad fill, which a market order does not — that is how a thin open turns
+an exit into a price nobody would have accepted.
 
 This replaces the 2026-09-26 position that a blank `Limit_Price` meant MARKET.
 

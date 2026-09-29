@@ -447,15 +447,6 @@ def check_guards(n: dict, close: float | None, submitted_today: int,
     if cfg.TICKER_ALLOWLIST and n["Ticker"] not in cfg.TICKER_ALLOWLIST:
         return f"TICKER_NOT_ALLOWED: {n['Ticker']}"
 
-    if not n["Limit_Price"]:
-        side = n["Side"]
-        hint = ("well BELOW the market to exit regardless of price"
-                if side == "SELL" else
-                "at the most you are willing to pay")
-        return (f"NO_LIMIT_PRICE: every order here is GOOD_TILL_CANCEL, and a "
-                f"GTC order must be a LIMIT — a market order fills instantly, "
-                f"so there is nothing for it to persist. Set Limit_Price {hint}.")
-
     qty = float(n["Qty"])
     px = float(n["Limit_Price"] or n["Trigger_Price"])
     notional = qty * px
@@ -529,11 +520,22 @@ def expired(n: dict) -> str | None:
 
 
 # ─────────────────────────────────────────────────────────── submit
-def build_order_json(n: dict) -> dict:
+def _num_or_none(v):
+    try:
+        return float(v) if str(v).strip() else None
+    except (TypeError, ValueError):
+        return None
+
+
+def build_order_json(n: dict, limit_price: float | None = None) -> dict:
     """The Schwab order payload for one intent.
 
     Pure and testable — no client, no network — so the shape can be checked
     without risking a placement. Shape per Schwab's Trader API:
+
+        limit_price      overrides the sheet's Limit_Price. Passed when the
+                         sheet left it blank and the engine derived one from
+                         the live book — see resolve_limit().
 
         orderType        LIMIT, always
         session          NORMAL (regular hours; a close trigger submits the
@@ -556,15 +558,17 @@ def build_order_json(n: dict) -> dict:
     qty = int(round(float(n["Qty"])))
     if qty <= 0:
         raise ValueError(f"quantity rounds to {qty}")
-    if not n["Limit_Price"]:
-        raise ValueError("a GTC order requires a limit price")
+    px = limit_price or _num_or_none(n["Limit_Price"])
+    if not px:
+        raise ValueError("no limit price, and none could be derived from the "
+                         "quote")
 
     return {
         "orderStrategyType": "SINGLE",
         "session": "NORMAL",
         "duration": "GOOD_TILL_CANCEL",
         "orderType": "LIMIT",
-        "price": f"{float(n['Limit_Price']):.2f}",
+        "price": f"{px:.2f}",
         "orderLegCollection": [{
             "instruction": n["Side"],
             "quantity": qty,
@@ -589,6 +593,35 @@ def _account_hash(client_wrapper, acct: str, log=print) -> str | None:
     return None
 
 
+def resolve_limit(client_wrapper, n: dict, log=print) -> tuple[float | None, str]:
+    """The limit price to actually use.
+
+    A price typed into the sheet wins — it is an explicit instruction. Left
+    blank, the engine derives a MARKETABLE one from the live book at submit
+    time: the ask for a buy, the bid for a sell, nudged through by a small
+    buffer.
+
+    Deriving beats typing for the usual case. A number typed days ago is stale
+    by the time the trigger fires, and Chakravarti's point is the right one:
+    "buy when it closes below 400" says nothing about what to pay, and the
+    answer is simply whatever the market is asking when the order goes in.
+    """
+    typed = _num_or_none(n["Limit_Price"])
+    if typed:
+        return typed, f"limit {typed:.2f} as typed"
+
+    try:
+        from schwab_quotes import fetch_quotes, marketable_limit
+        q = fetch_quotes(client_wrapper, [n["Ticker"]], log=lambda *a: None)
+        entry = q.get(n["Ticker"]) or q.get(n["Ticker"].upper())
+        if not entry:
+            return None, f"no quote for {n['Ticker']} — cannot derive a limit"
+        px, why = marketable_limit(entry, n["Side"], cfg.LIMIT_BUFFER_PCT)
+        return px, why
+    except Exception as e:
+        return None, f"could not derive a limit: {type(e).__name__}: {e}"
+
+
 def preview(client_wrapper, n: dict, log=print) -> tuple[bool, str]:
     """Ask Schwab to VALIDATE the order without placing it.
 
@@ -610,7 +643,8 @@ def preview(client_wrapper, n: dict, log=print) -> tuple[bool, str]:
     if not h:
         return False, f"NO_ACCOUNT_HASH for {n['Acct']}"
     try:
-        body = build_order_json(n)
+        px, _why = resolve_limit(client_wrapper, n, log=log)
+        body = build_order_json(n, limit_price=px)
         resp = meth(h, body)
     except Exception as e:
         return False, f"preview failed: {type(e).__name__}: {e}"
@@ -647,10 +681,14 @@ def submit(client_wrapper, n: dict, idem: str, log=print) -> tuple[str | None, s
     if not h:
         return None, f"NO_ACCOUNT_HASH for {n['Acct']} — is it linked to the app?"
 
+    px, why = resolve_limit(client_wrapper, n, log=log)
+    if not px:
+        return None, f"NO_LIMIT: {why}"
     try:
-        body = build_order_json(n)
+        body = build_order_json(n, limit_price=px)
     except ValueError as e:
         return None, f"BAD_ORDER: {e}"
+    log(f"   limit: {why}")
 
     log(f"   submitting {n['Side']} {body['orderLegCollection'][0]['quantity']} "
         f"{n['Ticker']} {body['orderType']} "

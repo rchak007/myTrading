@@ -91,6 +91,63 @@ def extract_price(entry: dict) -> tuple[float | None, float | None]:
     return price, pct
 
 
+def bid_ask(entry: dict) -> tuple[float | None, float | None]:
+    """(bid, ask) from the freshest block that has both.
+
+    Same newest-block rule as extract_price: after hours the `extended` block
+    is the live one and `quote` holds the stale regular-session book, and
+    during the session it is the other way round.
+    """
+    def _pair(src):
+        b, a = _num(src.get("bidPrice")), _num(src.get("askPrice"))
+        return (b, a) if (b and a and b > 0 and a > 0) else (None, None)
+
+    def _stamp(src):
+        return max(_num(src.get("quoteTime")) or 0, _num(src.get("tradeTime")) or 0)
+
+    q, ext = entry.get("quote") or {}, entry.get("extended") or {}
+    cands = [(_stamp(ext), _pair(ext)), (_stamp(q), _pair(q))]
+    cands = [(t, p) for t, p in cands if p[0]]
+    if not cands:
+        return None, None
+    return max(cands, key=lambda c: c[0])[1]
+
+
+def marketable_limit(entry: dict, side: str, buffer_pct: float = 0.25
+                     ) -> tuple[float | None, str]:
+    """A limit price that will actually fill, derived from the live book.
+
+    BUY takes the ASK, SELL takes the BID — the side you have to cross to get
+    done — then a small buffer through it so a tick of movement between
+    building the order and Schwab receiving it does not leave it resting.
+
+    Falls back to the last price when there is no two-sided quote, which is
+    normal outside regular hours for anything thinly traded.
+
+    Returns (price, how it was derived) so the sheet can show the reasoning
+    rather than an unexplained number.
+    """
+    side = str(side).upper()
+    bid, ask = bid_ask(entry)
+    base, src = (None, "")
+    if side == "BUY" and ask:
+        base, src = ask, f"ask {ask:.2f}"
+    elif side == "SELL" and bid:
+        base, src = bid, f"bid {bid:.2f}"
+    if base is None:
+        last, _ = extract_price(entry)
+        if last is None:
+            return None, "no quote available"
+        base, src = last, f"last {last:.2f} (no two-sided quote)"
+
+    # Through the quote, never away from it: a limit that does not fill is the
+    # failure this exists to avoid.
+    px = base * (1 + buffer_pct / 100) if side == "BUY" else \
+         base * (1 - buffer_pct / 100)
+    px = round(px, 2)
+    return px, f"{src} {'+' if side == 'BUY' else '-'}{buffer_pct}% -> {px:.2f}"
+
+
 def fetch_quotes(client_wrapper, symbols, log=print) -> dict:
     """Raw quote entries keyed by symbol. Never raises — an empty dict means
     'use whatever you had before', which keeps a quote outage from taking down
