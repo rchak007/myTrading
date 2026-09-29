@@ -30,8 +30,33 @@ All times Pacific. `flock` prevents two jobs writing the same files at once.
 | `05:00`, `17:00` Mon–Fri | `45_Signal.py` | 45° scan CSVs | scan unlocked, copy locked |
 | `*/15` 06–14h Mon–Fri | `order_engine.py` | Orders tab validation; evaluates triggers after 13:15 PT | `-n` skips |
 
-**Not yet scheduled:** `token_watch.py` (needs SMTP credentials),
-`health_check.py` (see §5).
+**Not yet scheduled:** `health_check.py` (see §5).
+
+### Email
+
+`token_watch.py` sends through Gmail SMTP using the **market-tracker
+project's** credentials, read directly from
+`/home/chakravarti/agents/market-tracker/.env` (`GMAIL_ADDRESS`,
+`GMAIL_APP_PASSWORD`).
+
+Deliberately not copied into this repo's `.env`: one place to rotate the
+password, one place that can go stale. Recipients are this project's business
+and come from `ALERT_TO` here, defaulting to both of Chakravarti's addresses.
+
+The reference — including gotchas that cost real debugging time on that project
+— is `/home/chakravarti/agents/market-tracker/EMAIL-SETUP.md`. The two that
+shape the code here:
+
+- **Strip spaces from the app password.** Google displays it in groups of four;
+  the credential is the 16 unbroken characters, and sending it with spaces
+  gives a `535` indistinguishable from a wrong password.
+- **`.env` must win over `os.environ`.** A stale export in an interactive shell
+  otherwise shadows the correct value and produces the same baffling `535`.
+
+Expect periodic blocks: Gmail SMTP from a residential IP on a fixed schedule is
+what anti-abuse systems look for. `send()` therefore never raises, and the
+caller only records the warning as sent on success — so a refused send simply
+retries next run rather than being lost.
 
 ### The order engine's two jobs in one schedule
 

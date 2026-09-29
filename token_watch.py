@@ -24,12 +24,18 @@ WHAT IT SENDS
     the authorize URL itself — so the phone flow starts from the email rather
     than from an ops-sheet round trip.
 
-ENV (nothing is read from .env automatically; the cron sources it)
-    SMTP_HOST      default smtp.gmail.com
-    SMTP_PORT      default 587
-    SMTP_USER      the sending account
-    SMTP_PASS      an APP PASSWORD, not the account password
-    ALERT_TO       comma-separated recipients
+CREDENTIALS come from the market-tracker project, read DIRECTLY:
+
+    /home/chakravarti/agents/market-tracker/.env
+        GMAIL_ADDRESS
+        GMAIL_APP_PASSWORD
+
+Deliberately not copied here. One place to update when the password rotates,
+one place that can go stale — see that project's EMAIL-SETUP.md, which is the
+reference for everything below including the gotchas worked around in send().
+
+ENV (myTrading's own .env; the cron sources it)
+    ALERT_TO         comma-separated recipients
     TOKEN_WARN_DAYS  default 2
 
 Runs on Pi 1.
@@ -41,7 +47,9 @@ import os
 import smtplib
 import sys
 from datetime import datetime, timedelta, timezone
+import time
 from email.message import EmailMessage
+from email.utils import formataddr
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -124,31 +132,92 @@ def compose(st: dict, auth_url: str | None) -> tuple[str, str]:
     return subject, "\n".join(body)
 
 
-def send(subject: str, body: str, log=print) -> bool:
-    host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-    port = int(os.getenv("SMTP_PORT", "587"))
-    user = os.getenv("SMTP_USER", "")
-    pw = os.getenv("SMTP_PASS", "")
-    to = [a.strip() for a in os.getenv("ALERT_TO", "").split(",") if a.strip()]
+# The market-tracker project owns the Gmail credentials. Read them where they
+# live rather than duplicating the secret into a second .env.
+MAIL_ENV = Path("/home/chakravarti/agents/market-tracker/.env")
+SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587
 
-    missing = [n for n, v in (("SMTP_USER", user), ("SMTP_PASS", pw),
-                              ("ALERT_TO", to)) if not v]
-    if missing:
-        log(f"cannot send — not set: {', '.join(missing)}")
+
+def load_mail_env(path: Path = MAIL_ENV) -> dict:
+    """Credentials from market-tracker's .env.
+
+    The FILE takes precedence over os.environ, not the reverse. A stale
+    GMAIL_APP_PASSWORD exported in an interactive shell otherwise shadows the
+    correct value and produces an SMTP 535 that looks exactly like a wrong
+    password — documented as gotcha #2 in that project's EMAIL-SETUP.md, and it
+    cost real time there.
+    """
+    values = {}
+    if path.exists():
+        for line in path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            values[k.strip()] = v.strip().strip('"').strip("'")
+    for k, v in os.environ.items():
+        values.setdefault(k, v)
+    return values
+
+
+def send(subject: str, body: str, log=print) -> bool:
+    """Send, and NEVER raise. Returns whether every recipient got it.
+
+    A failure here must not propagate: the caller only marks the warning as
+    sent on success, so a refused send simply retries on the next run rather
+    than being silently swallowed. For a token about to expire, a missed
+    warning is the whole failure.
+    """
+    env = load_mail_env()
+    address = env.get("GMAIL_ADDRESS", "")
+    # Google displays app passwords as four groups of four. The credential is
+    # the 16 characters with spaces removed; sending it with spaces gives a
+    # 535 indistinguishable from a wrong password.
+    password = env.get("GMAIL_APP_PASSWORD", "").replace(" ", "")
+    to = [a.strip() for a in os.getenv(
+        "ALERT_TO", "rchak0071@gmail.com,geniusact@keep-empowering.com"
+    ).split(",") if a.strip()]
+
+    if not address or not password:
+        log(f"no Gmail credentials in {MAIL_ENV} — cannot send")
+        return False
+    if not to:
+        log("ALERT_TO is empty — nobody to tell")
         return False
 
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = user
-    msg["To"] = ", ".join(to)
-    msg.set_content(body)
+    try:
+        server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
+    except Exception as e:
+        log(f"SMTP connect failed: {e}")
+        return False
 
-    with smtplib.SMTP(host, port, timeout=30) as s:
-        s.starttls()
-        s.login(user, pw)
-        s.send_message(msg)
-    log(f"sent to {', '.join(to)}")
-    return True
+    ok = True
+    with server:
+        try:
+            server.starttls()
+            server.login(address, password)
+        except Exception as e:
+            # 535 is a genuinely wrong credential; 534 5.7.14 is a
+            # suspicious-sign-in flag where the credential is fine and a normal
+            # browser sign-in on this network clears it.
+            log(f"SMTP login failed: {e}")
+            return False
+
+        for i, addr in enumerate(to):
+            if i:
+                time.sleep(2)          # pacing: a burst scores on Gmail's abuse heuristics
+            msg = EmailMessage()
+            msg["Subject"] = subject
+            msg["From"] = formataddr(("myTrading on Pi 1", address))
+            msg["To"] = addr
+            msg.set_content(body)
+            try:
+                server.send_message(msg)
+                log(f"sent to {addr}")
+            except Exception as e:
+                log(f"send to {addr} failed: {e}")
+                ok = False
+    return ok
 
 
 def main() -> int:
