@@ -876,7 +876,10 @@ def main() -> int:
     except Exception as e:
         _log(f"⚠️  sheet write-back failed (ledger is still correct): {e}")
 
-    _log(f"done — {len(updates)} row(s) changed state")
+    # Distinct rows, not update entries: one row produces both a validation
+    # note and a state change, so the raw count read as two rows for one.
+    touched = len({u["row_id"] for u in updates})
+    _log(f"done — {touched} row(s) touched")
     return 0
 
 
