@@ -454,9 +454,18 @@ neither.
 special case — which is the same property that makes the blank meaningful in
 the first place.
 
-Painted last in `_paint()`. The header and ticker passes write whole ranges,
-and a later write to an overlapping range REPLACES earlier formatting rather
-than merging, so order matters here.
+**Every paint is absolute, and the range is wiped first.** `ws.clear()` removes
+VALUES ONLY — formatting survives it. Since the blocks are ordered by market
+value they move between runs, so last cycle's yellow ended up on this cycle's
+`Y` cells, `TOTAL` rows and blank spacers. `_paint()` therefore resets
+`A1:<last>1000` to plain before painting anything, deliberately wider than the
+data so a shorter table does not leave a longer one's tail still coloured.
+
+Painted last within that pass. A later write to an overlapping range REPLACES
+earlier formatting rather than merging, so order matters.
+
+**Blue is column A only** — the ticker, which is what you scan for. The
+`POSITIONS` label beside it is furniture and does not need highlighting.
 
 ### Read-only by construction
 

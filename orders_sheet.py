@@ -689,37 +689,42 @@ def _link_tickers(ws, rows, marks, log):
 
 def _paint(ws, marks, log):
     """Cosmetics. Best-effort — never let a formatting call lose the data."""
-    cyan = {"backgroundColor": {"red": 0.80, "green": 0.95, "blue": 1.0},
-            "textFormat": {"bold": True}}
-    yellow = {"backgroundColor": {"red": 1.0, "green": 0.95, "blue": 0.60},
-              "textFormat": {"bold": True}}
-    bold = {"textFormat": {"bold": True}}
-    title = {"backgroundColor": {"red": 0.20, "green": 0.25, "blue": 0.35},
-             "textFormat": {"bold": True, "fontSize": 12,
-                            "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}}}
-    # Column A carries the TradingView HYPERLINK. Sheets styles a link blue and
-    # underlined, but a later textFormat write silently replaces that with the
-    # cell's own colour — so the link stayed clickable while looking like plain
-    # text, and therefore looked broken. Style A explicitly, B separately.
-    cyan_link = {"backgroundColor": cyan["backgroundColor"],
+    cyan_link = {"backgroundColor": {"red": 0.80, "green": 0.95, "blue": 1.0},
                  "textFormat": {"bold": True, "underline": True,
                                 "foregroundColor": {"red": 0.05, "green": 0.25,
                                                     "blue": 0.75}}}
+    bold = {"textFormat": {"bold": True}}
+    yellow = {"backgroundColor": {"red": 1.0, "green": 0.95, "blue": 0.60},
+              "textFormat": {"bold": True}}
+    title = {"backgroundColor": {"red": 0.20, "green": 0.25, "blue": 0.35},
+             "textFormat": {"bold": True, "fontSize": 12,
+                            "foregroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}}}
+    plain = {"backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0},
+             "textFormat": {"bold": False, "underline": False,
+                            "fontSize": 10,
+                            "foregroundColor": {"red": 0.0, "green": 0.0,
+                                                "blue": 0.0}}}
     try:
+        # WIPE FORMATTING FIRST. ws.clear() removes VALUES ONLY — formatting
+        # survives it. Because the blocks are ordered by market value they move
+        # between runs, so last run's yellow ended up on this run's Y cells,
+        # TOTAL rows and blank spacers. Every paint below must therefore be
+        # absolute, never additive.
+        #
+        # Deliberately wider than the data: a shorter table this cycle would
+        # otherwise leave the tail of a longer one still coloured.
+        ws.format(f"A1:{_last_col()}1000", plain)
+
         if marks.get("title"):
             ws.format([f"A{r}:{_last_col()}{r}" for r in marks["title"]], title)
         if marks["ticker"]:
+            # Column A only. The ticker is the thing worth spotting while
+            # scrolling; the "POSITIONS" label beside it is just furniture.
             ws.format([f"A{r}" for r in marks["ticker"]], cyan_link)
-            ws.format([f"B{r}" for r in marks["ticker"]], cyan)
         if marks["label"]:
             ws.format([f"B{r}" for r in marks["label"]], yellow)
         if marks["header"]:
             ws.format([f"B{r}:{_last_col()}{r}" for r in marks["header"]], bold)
-
-        # Missing protection, cell by cell. Painted LAST so it survives: the
-        # header and ticker passes above write whole ranges, and a later write
-        # to an overlapping range replaces the earlier formatting rather than
-        # merging with it.
         if marks.get("warn"):
             ws.format(marks["warn"], {
                 "backgroundColor": {"red": 1.0, "green": 0.92, "blue": 0.45},
