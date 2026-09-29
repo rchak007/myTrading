@@ -129,8 +129,10 @@ def compose(st: dict, auth_url: str | None) -> tuple[str, str]:
     if auth_url:
         body += ["AUTHORIZE LINK", auth_url, ""]
     else:
-        body += ["(Could not build the authorize link — add an `auth_url` row",
-                 " to the ops sheet instead.)", ""]
+        body += ["TO RE-AUTHORIZE — add a row at the top of myTrading-ops-pi1:",
+                 "    column A: auth_url        (leave B empty)",
+                 "Within 10 minutes column I holds the tappable link.",
+                 "Then a second row with auth_code and the pasted URL.", ""]
     body.append("— token_watch.py on Pi 1")
     return subject, "\n".join(body)
 
@@ -254,8 +256,66 @@ def send(subject: str, body: str, log=print) -> bool:
     return ok
 
 
+def read_from_sheet(log=print) -> tuple[dict, str | None, float | None]:
+    """Token state and poll freshness, read from the Orders header.
+
+    Lets PI 2 do the warning. Pi 1 holds the Schwab credentials and rewrites
+    this header every cycle; Pi 2 holds the Gmail credentials and can read the
+    sheet. Neither needs what the other has, and nothing has to be copied
+    between them.
+
+    Returns (status-like dict, error, hours since LAST POLL). The poll age is
+    the bonus: a header that has stopped moving means Pi 1 is down, which is
+    worth an email in its own right and is invisible from Pi 1 by definition.
+    """
+    try:
+        from google.oauth2.service_account import Credentials
+        import gspread
+        creds = os.getenv("GSHEET_READER_CREDS", "")
+        sid = os.getenv("GSHEET_ORDERS_ID", "")
+        if not creds or not sid:
+            return {}, "GSHEET_READER_CREDS / GSHEET_ORDERS_ID not set", None
+        gc = gspread.authorize(Credentials.from_service_account_file(
+            creds, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]))
+        ws = gc.open_by_key(sid).worksheet("Orders")
+        cells = ws.get("A1:B6")
+    except Exception as e:
+        return {}, f"could not read the Orders header: {type(e).__name__}: {e}", None
+
+    rows = {str(r[0]).strip().upper(): (r[1] if len(r) > 1 else "")
+            for r in cells if r}
+    tok = str(rows.get("SCHWAB TOKEN", "")).strip()
+    poll = str(rows.get("LAST POLL", "")).strip()
+    if not tok:
+        return {}, "no SCHWAB TOKEN row in the header", None
+
+    # "OK — expires 2026-09-30 23:21:22 PDT (1.52 days)"
+    import re as _re
+    st = {"state": tok.split()[0].strip("—").strip() or "UNKNOWN",
+          "refresh_issued": "(from the sheet)"}
+    m = _re.search(r"expires\s+([\d-]+\s+[\d:]+\s*\w*)", tok)
+    if m:
+        st["expires"] = m.group(1).strip()
+    m = _re.search(r"\(([\d.]+)\s*days?\)", tok)
+    if m:
+        st["days_left"] = float(m.group(1))
+
+    age = None
+    try:
+        from zoneinfo import ZoneInfo
+        pt = ZoneInfo("America/Los_Angeles")
+        when = datetime.strptime(poll[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pt)
+        age = (datetime.now(pt) - when).total_seconds() / 3600
+    except Exception:
+        pass
+    return st, None, age
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Warn by email before the Schwab token dies")
+    ap.add_argument("--from-sheet", action="store_true",
+                    help="read the token state from the Orders header instead "
+                         "of the local token store — lets Pi 2 do the warning")
     ap.add_argument("--dry-run", action="store_true", help="print the email, send nothing")
     ap.add_argument("--force", action="store_true", help="send even if not near expiry")
     ap.add_argument("--days", type=float,
@@ -271,17 +331,29 @@ def main() -> int:
     except Exception:
         pass
 
-    import schwab_auth
-    st = schwab_auth.status()
+    poll_age = None
+    if args.from_sheet:
+        st, err, poll_age = read_from_sheet()
+        if err:
+            print(f"⛔ {err}")
+            return 1
+    else:
+        import schwab_auth
+        st = schwab_auth.status()
     state = st.get("state", "UNKNOWN")
     days = st.get("days_left")
 
     print(f"token state: {state}"
           + (f", {days} day(s) left, expires {st.get('expires')}" if days is not None else ""))
+    if poll_age is not None:
+        print(f"Pi 1 last polled {poll_age:.1f}h ago")
 
     # UNKNOWN/MISSING are worth an email too: they mean the token store is not
     # readable, which is indistinguishable from expired as far as trading goes.
-    due = (args.force
+    # A header that has stopped moving means Pi 1 is down — worth an email in
+    # its own right, and something Pi 1 could never tell you itself.
+    stale = poll_age is not None and poll_age > float(os.getenv("POLL_STALE_HOURS", "3"))
+    due = (args.force or stale
            or state in ("EXPIRED", "MISSING", "UNKNOWN", "RENEW_NOW")
            or (days is not None and days <= args.days))
     if not due:
@@ -292,13 +364,21 @@ def main() -> int:
         print(f"already warned within {QUIET_HOURS}h — staying quiet")
         return 0
 
-    try:
-        auth_url = schwab_auth.authorize_url()
-    except Exception as e:
-        print(f"could not build authorize url: {type(e).__name__}: {e}")
-        auth_url = None
+    auth_url = None
+    if not args.from_sheet:
+        try:
+            import schwab_auth
+            auth_url = schwab_auth.authorize_url()
+        except Exception as e:
+            print(f"could not build authorize url: {type(e).__name__}: {e}")
 
     subject, body = compose(st, auth_url)
+    if stale:
+        subject = f"🔴 Pi 1 has not polled in {poll_age:.0f}h — {subject}"
+        body = (f"LAST POLL on the Orders sheet is {poll_age:.1f} HOURS old.\n"
+                f"Pi 1 writes that header every cycle, so it has stopped "
+                f"running.\nNothing is trading, pricing or reporting.\n\n"
+                + body)
 
     if args.dry_run:
         print("\n--- DRY RUN, nothing sent ---")

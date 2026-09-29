@@ -32,6 +32,33 @@ All times Pacific. `flock` prevents two jobs writing the same files at once.
 
 **Not yet scheduled:** `health_check.py` (see §5).
 
+### The token warning runs on PI 2, not Pi 1
+
+Neither machine has both halves: Pi 1 holds the Schwab credentials, Pi 2 holds
+the Gmail ones (market-tracker lives there and nowhere else). Copying either
+across would have created a second place to rotate a secret.
+
+So nothing is copied. Pi 1 already writes the token state into the `Orders`
+header every cycle, and Pi 2 can read that:
+
+```
+A2  SCHWAB TOKEN   OK — expires 2026-09-30 23:21:22 PDT (1.52 days)
+A3  LAST POLL      2026-09-29 10:59:13 PDT
+```
+
+```cron
+# on PI 2
+30 8,18 * * * cd /home/chakravarti/github/myTrading && set -a && . ./.env && set +a && timeout 120 .venv/bin/python token_watch.py --from-sheet >> /home/chakravarti/.local/state/token_watch.log 2>&1
+```
+
+**It watches two things, and the second is free.** `LAST POLL` is rewritten
+every cycle, so a header that has stopped moving means **Pi 1 itself is down** —
+which is precisely the failure Pi 1 could never report. Over
+`POLL_STALE_HOURS` (default 3) the email leads with it.
+
+`token_watch.py` without `--from-sheet` still reads the local token store, for
+running on Pi 1 by hand.
+
 ### Email
 
 `token_watch.py` sends through Gmail SMTP using the **market-tracker
