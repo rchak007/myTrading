@@ -45,8 +45,11 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
+import fcntl
 import json
 import os
+import time
 import re
 import shutil
 import sqlite3
@@ -291,19 +294,71 @@ def validate(access_token: str) -> str:
         return "endpoint responded 200"
 
 
+# The lock every file-writing job on Pi 1 takes. Installing tokens belongs
+# HERE rather than in one caller: it is a property of the operation, not of how
+# you invoked it. It first lived only in remote_ops' auth_code handler, which
+# left the CLI path — the fallback you reach for when the sheet is stuck —
+# completely unprotected.
+JOB_LOCK = Path(os.getenv("MYTRADING_JOB_LOCK", "/tmp/jobmytrading.lock"))
+JOB_LOCK_WAIT = int(os.getenv("SCHWAB_AUTH_LOCK_WAIT", "180"))
+
+
+@contextlib.contextmanager
+def job_lock(timeout: int = JOB_LOCK_WAIT, log=print):
+    """Hold the shared job lock while tokens are swapped.
+
+    Installing invalidates the old refresh token, so a job that happens to
+    refresh its access token at that moment fails. Waiting removes the "do not
+    re-auth while a job is running" rule from the operator's head.
+
+    Yields True if taken, False on timeout — and PROCEEDS either way. A token
+    about to expire is worth more than a clean run of one job: that job can be
+    re-run, a dead token cannot be un-died. The timeout stays short so the wait
+    cannot outlive whatever process is doing the waiting.
+    """
+    fh, got = None, False
+    try:
+        fh = JOB_LOCK.open("a+")
+        waited = 0
+        while waited < timeout:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                got = True
+                break
+            except BlockingIOError:
+                if waited == 0:
+                    log("a job is running — waiting for it before swapping tokens")
+                time.sleep(5)
+                waited += 5
+        if not got:
+            log(f"still locked after {timeout}s — proceeding anyway; if a job "
+                f"was running it may need re-running")
+        yield got
+    finally:
+        if fh is not None:
+            with contextlib.suppress(Exception):
+                if got:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+                fh.close()
+
+
 def install(pasted: str) -> str:
     """Full flow. Returns a human summary with no secrets in it."""
     code = extract_code(pasted)
     payload = exchange(code)
     detail = validate(payload["access_token"])          # fail here => store untouched
 
-    backup = write_tokens(payload)
+    with job_lock() as clean:
+        backup = write_tokens(payload)
+    lock_note = ("\nSwapped under the job lock, so nothing was mid-refresh."
+                 if clean else
+                 "\n⚠️  could not take the job lock — a running job may need re-running.")
 
     expires = (datetime.now().astimezone() + REFRESH_TTL).strftime("%Y-%m-%d %H:%M %Z")
     return (f"{TOKEN_DB} updated — schwabdev will pick this up immediately\n"
             f"validated: {detail}\n"
             f"refresh token good until {expires}\n"
-            f"previous database kept at {backup}")
+            f"previous database kept at {backup}" + lock_note)
 
 
 # ---------------------------------------------------------------------

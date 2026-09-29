@@ -31,8 +31,6 @@
 from __future__ import annotations
 
 import argparse
-import contextlib
-import fcntl
 import json
 import os
 import socket
@@ -175,62 +173,6 @@ SEED_USAGE = (
 )
 
 
-# The lock every file-writing job on Pi 1 takes. Re-auth must take it too:
-# installing new tokens invalidates the old refresh token, and a job that
-# happens to refresh its access token at that moment fails.
-JOB_LOCK = Path(os.getenv("MYTRADING_JOB_LOCK", "/tmp/jobmytrading.lock"))
-
-
-# MUST stay below the poller's own cron timeout (300s), with margin for the
-# work that follows. Waiting 600s meant `timeout 300` killed the process
-# mid-wait and left the row stranded on RUNNING — which reads as "already
-# handled", so it never retried. A lock wait that outlives its process is
-# worse than not waiting at all.
-JOB_LOCK_WAIT = int(os.getenv("REMOTE_OPS_LOCK_WAIT", "180"))
-
-
-@contextlib.contextmanager
-def job_lock(timeout: int = JOB_LOCK_WAIT, log=print):
-    """Hold the shared job lock, waiting up to `timeout` seconds.
-
-    This is what removes the "do not re-auth while jobStocksSignals is
-    running" rule from the human's head and puts it in the code. The exchange
-    itself takes about a second; the waiting is for whatever nine-minute job
-    might be mid-flight.
-
-    Yields True if the lock was taken, False if it timed out. It does NOT
-    refuse to proceed on timeout — a token that is about to expire is worth
-    more than a clean run of one job, and the caller decides.
-    """
-    fh = None
-    got = False
-    try:
-        fh = JOB_LOCK.open("a+")
-        waited = 0
-        while waited < timeout:
-            try:
-                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                got = True
-                break
-            except BlockingIOError:
-                if waited == 0:
-                    log("a job is running — waiting for it to finish before "
-                        "swapping tokens")
-                time.sleep(5)
-                waited += 5
-        if not got:
-            log(f"still locked after {timeout}s — proceeding anyway rather than "
-                f"letting the poller's own timeout kill this mid-wait. If a job "
-                f"was running it may need re-running.")
-        yield got
-    finally:
-        if fh is not None:
-            with contextlib.suppress(Exception):
-                if got:
-                    fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
-                fh.close()
-
-
 def _run_seed(arg: str) -> tuple[int, str]:
     """Fence cash to a ticker from the ops sheet, so seeding needs no SSH.
 
@@ -369,18 +311,10 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
         # tokens invalidates the old refresh token; a job mid-refresh would
         # otherwise fail, which used to mean watching the clock before
         # re-authorising.
-        out = []
+        # install() takes the job lock itself, so every caller gets it —
+        # the ops sheet, the CLI, anything else.
         try:
-            with job_lock(log=out.append) as clean:
-                res = schwab_auth.install(arg)
-            out.append(res)
-            if not clean:
-                out.append("\n⚠️  could not take the job lock — if a job was "
-                           "running it may need re-running.")
-            else:
-                out.append("\nSwapped under the job lock, so nothing was "
-                           "mid-refresh. Safe at any time of day.")
-            return 0, "\n".join(out)
+            return 0, schwab_auth.install(arg)
         except Exception as e:
             return 1, f"{type(e).__name__}: {e}"
 
