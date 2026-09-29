@@ -79,6 +79,22 @@ def acct_key(a) -> str:
     return s[-3:] if len(s) >= 3 else s
 
 
+def _trading_state() -> str:
+    """What the order engine will actually do, for the header block.
+
+    This said "reporting only — phase 1, nothing is placed" long after the
+    engine could place orders, which is exactly the kind of stale reassurance a
+    status line must never give. Derived now, not asserted.
+    """
+    if Path("/etc/myTrading/TRADING_DISABLED").exists():
+        return "⛔ DISABLED (kill switch file present)"
+    if os.getenv("ORDER_ENGINE_LIVE", "0") == "1":
+        return ("🔴 LIVE — close-triggered rows WILL be placed at Schwab "
+                "(GTC LIMIT, submitted the session after the trigger)")
+    return ("DRY RUN — rows are validated and previewed, nothing is placed. "
+            "Set ORDER_ENGINE_LIVE=1 in .env to arm.")
+
+
 def _now() -> str:
     """Pacific, explicitly — the Pi's own clock may be on UTC, and LAST POLL
     is read against market hours. Falls back to local time if the tz database
@@ -796,8 +812,7 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
         ["SYSTEM STATUS", "OK" if ok else f"ACTION REQUIRED — SCHWAB TOKEN {state}"],
         ["SCHWAB TOKEN", tok_line],
         ["LAST POLL", _now()],
-        ["TRADING", "DISABLED (kill switch)" if Path("/etc/myTrading/TRADING_DISABLED").exists()
-                    else "reporting only — phase 1, nothing is placed"],
+        ["TRADING", _trading_state()],
         ["FREE TO DEPLOY", f"${free:,.2f} across {len(cash)} account(s)"
                            + (f" · ${seeded_total:,.2f} seed-reserved"
                               if seeded_total else "")],
