@@ -710,6 +710,108 @@ def apply_fills(fills_df, *, config: pd.DataFrame | None = None,
     return out
 
 
+def overcommit_warnings(reserves_df, cash_df) -> list[str]:
+    """Fenced cash in an account must not exceed that account's spendable cash."""
+    out = []
+    try:
+        r = reserves_df[reserves_df["Account"].ne("TOTAL")]
+        per_acct = (pd.to_numeric(r["Reserved_Cash"], errors="coerce").fillna(0.0)
+                    .groupby(r["Account"]).sum())
+        c = cash_df[cash_df["Account"].astype(str).ne("TOTAL")].copy()
+        c["_k"] = c["Account"].map(acct_key)
+        col = "Cash_After_Open_Orders" if "Cash_After_Open_Orders" in c.columns else "Cash"
+        spendable = pd.to_numeric(c[col], errors="coerce").fillna(0.0).groupby(c["_k"]).sum()
+        for a, fenced in per_acct.items():
+            have = float(spendable.get(a, 0.0))
+            if fenced - have > 0.01:
+                out.append(f"⚠️  OVERCOMMIT ...{a}: ${fenced:,.2f} fenced vs "
+                           f"${have:,.2f} spendable (short ${fenced - have:,.2f})")
+    except Exception as e:
+        out.append(f"⚠️  overcommit check failed: {e}")
+    return out
+
+
+def build_reserves_table(*, positions_df=None, cash_df=None,
+                         ledger_path=LEDGER_PATH, config_path=CONFIG_PATH,
+                         log=print) -> pd.DataFrame:
+    """One row per fenced (Account, Ticker), plus a TOTAL row."""
+    cfg = read_config(config_path, log)
+    bal = fold_balances(ledger_path=ledger_path)
+
+    if cfg.empty and bal.empty:
+        return pd.DataFrame(columns=RESERVE_COLS)
+
+    # Include ledger pairs that have dropped out of the config so money is
+    # never invisible just because someone deleted a config line.
+    keys = pd.concat([
+        cfg[["Account", "Ticker"]],
+        bal[["Account", "Ticker"]] if not bal.empty else pd.DataFrame(columns=["Account", "Ticker"]),
+    ], ignore_index=True).drop_duplicates()
+
+    df = (keys.merge(cfg, on=["Account", "Ticker"], how="left")
+              .merge(bal, on=["Account", "Ticker"], how="left"))
+
+    for c in ("Reserved_Cash", "Deployed", "Returned"):
+        df[c] = pd.to_numeric(df.get(c), errors="coerce").fillna(0.0)
+    df["Policy"] = df["Policy"].fillna("").replace("", DEFAULT_POLICY)
+    df["Active"] = df["Active"].fillna(False)
+    df["Nickname"] = df["Account"].map(_nickname)
+    df["Seed_Cash"] = pd.to_numeric(df.get("Seed_Cash"), errors="coerce")
+    df["Target_Capital"] = pd.to_numeric(df.get("Target_Capital"), errors="coerce")
+    df["Last_Event_PST"] = df.get("Last_Event_PST", "").fillna("")
+
+    df["Position_Value"] = [
+        round(position_value(a, t, positions_df), 2)
+        for a, t in zip(df["Account"], df["Ticker"])
+    ]
+
+    avail, status = [], []
+    for _, r in df.iterrows():
+        res = available_to_buy(r["Account"], r["Ticker"], positions_df=positions_df,
+                               config=cfg, ledger_path=ledger_path,
+                               config_path=config_path, log=lambda *_: None)
+        avail.append(res["available"])
+        if r["Reserved_Cash"] < -_EPS:
+            status.append("BREACH")
+        elif not r["Active"]:
+            status.append("INACTIVE")
+        elif r["Reserved_Cash"] <= _EPS and r["Deployed"] <= _EPS:
+            status.append("UNFUNDED")
+        elif res["available"] <= 0:
+            status.append("EMPTY")
+        else:
+            status.append("OK")
+    df["Available_To_Buy"] = avail
+    df["Status"] = status
+
+    df = df.sort_values(["Account", "Ticker"], kind="mergesort")
+    df = df[RESERVE_COLS].reset_index(drop=True)
+
+    total = {c: None for c in RESERVE_COLS}
+    total.update({"Account": "TOTAL", "Nickname": "", "Ticker": "", "Policy": "",
+                  "Status": "", "Last_Event_PST": ""})
+    # Sum only LIVE rows. An INACTIVE pair keeps its original Seed_Cash and
+    # Target_Capital as history, and including them double-counted money that
+    # had been released — after closing 885/MU and re-seeding 171/MU the total
+    # read Seed_Cash $15,213.36 for $7,606.68 of actual reserve. Reserved_Cash
+    # was always right because it folds the ledger; the intent columns were not.
+    live = df[df["Status"].ne("INACTIVE")]
+    for c in ("Seed_Cash", "Target_Capital", "Reserved_Cash", "Deployed",
+              "Returned", "Position_Value", "Available_To_Buy"):
+        s = pd.to_numeric(live[c], errors="coerce")
+        total[c] = round(float(s.sum()), 2) if s.notna().any() else None
+    df = pd.concat([df, pd.DataFrame([total])], ignore_index=True)
+
+    if cash_df is not None and not getattr(cash_df, "empty", True):
+        for w in overcommit_warnings(df, cash_df):
+            log(w)
+
+    log(f"Reserves: {len(df) - 1} fenced pair(s) · reserved "
+        f"${total['Reserved_Cash'] or 0:,.2f} · available "
+        f"${total['Available_To_Buy'] or 0:,.2f}")
+    return df
+
+
 def fetch_fills(client_wrapper, *, days_back=7, log=print) -> pd.DataFrame:
     """
     Executed trades from Schwab, shaped for apply_fills().
