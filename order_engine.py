@@ -212,6 +212,29 @@ def read_rows(ws) -> list[dict]:
 
 
 # ──────────────────────────────────────────────────────── evaluation
+# A bar older than this many TRADING days means the data source has stopped
+# updating, not that the market was shut. Two allows for running before today's
+# bar has settled while still catching a feed that died last week.
+MAX_STALE_TRADING_DAYS = 2
+
+
+def _trading_days_between(a: date, b: date) -> int:
+    """Weekdays strictly after `a`, up to and including `b`.
+
+    Holidays are not modelled — overstating staleness by a day around a
+    Thanksgiving is harmless, and a holiday calendar is a dependency this does
+    not need.
+    """
+    if b <= a:
+        return 0
+    n, cur = 0, a
+    while cur < b:
+        cur += timedelta(days=1)
+        if cur.weekday() < 5:
+            n += 1
+    return n
+
+
 def daily_close(client_wrapper, ticker: str, log=print) -> tuple[float | None, str]:
     """(close, note) for the most recent COMPLETED daily bar.
 
