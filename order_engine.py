@@ -483,21 +483,115 @@ def expired(n: dict) -> str | None:
 
 
 # ─────────────────────────────────────────────────────────── submit
+def build_order_json(n: dict) -> dict:
+    """The Schwab order payload for one intent.
+
+    Pure and testable — no client, no network — so the shape can be checked
+    without risking a placement. Shape per Schwab's Trader API:
+
+        orderType        LIMIT | MARKET
+        session          NORMAL (regular hours only; a close trigger submits
+                         next morning, so there is no reason to reach into
+                         pre-market where spreads are worst)
+        duration         DAY. A GTC order outliving the setup that justified
+                         it is how a stale intent fires into a different market.
+        instruction      BUY | SELL
+    """
+    qty = int(round(float(n["Qty"])))
+    if qty <= 0:
+        raise ValueError(f"quantity rounds to {qty}")
+
+    body = {
+        "orderStrategyType": "SINGLE",
+        "session": "NORMAL",
+        "duration": "DAY",
+        "orderLegCollection": [{
+            "instruction": n["Side"],
+            "quantity": qty,
+            "instrument": {"symbol": n["Ticker"], "assetType": "EQUITY"},
+        }],
+    }
+    if n["Limit_Price"]:
+        body["orderType"] = "LIMIT"
+        body["price"] = f"{float(n['Limit_Price']):.2f}"
+    else:
+        body["orderType"] = "MARKET"
+    return body
+
+
+def _account_hash(client_wrapper, acct: str, log=print) -> str | None:
+    """Schwab's opaque hash for an account. Order placement takes the hash,
+    never the number."""
+    inner = client_wrapper
+    getter = getattr(client_wrapper, "get_client", None)
+    if callable(getter):
+        inner = getter() or client_wrapper
+    try:
+        for a in inner.linked_accounts().json() or []:
+            if isinstance(a, dict) and str(a.get("accountNumber", ""))[-3:] == acct:
+                return a.get("hashValue")
+    except Exception as e:
+        log(f"⚠️  could not resolve account hash: {type(e).__name__}: {e}")
+    return None
+
+
 def submit(client_wrapper, n: dict, idem: str, log=print) -> tuple[str | None, str]:
     """Place the order. Returns (schwab_order_id, note).
 
-    NOT IMPLEMENTED ON PURPOSE. This is step 11 of the design's implementation
-    order, and every step before it has to have run clean first. The function
-    exists so the surrounding machinery — write-ahead, caps, reconciliation —
-    can be exercised end to end against a stub that cannot spend anything.
-
-    When it is written it must: build the order JSON, POST once, and return the
-    id. It must never retry on an ambiguous failure — that is what the
-    write-ahead ledger entry is for.
+    NEVER RETRIES. If the outcome is ambiguous — a timeout, an unexpected
+    status — this returns no id and the caller moves the row to BLOCKED for a
+    human to resolve. Retrying a submit whose result is unknown is how one
+    intent becomes two positions; the write-ahead ledger entry exists precisely
+    so that state is recoverable by looking rather than by guessing.
     """
-    return None, ("SUBMIT_NOT_IMPLEMENTED — the engine evaluated this row and "
-                  "would have placed it. Wiring the Schwab call is the last "
-                  "step, after a clean dry run.")
+    inner = client_wrapper
+    getter = getattr(client_wrapper, "get_client", None)
+    if callable(getter):
+        inner = getter() or client_wrapper
+
+    place = getattr(inner, "order_place", None)
+    if not callable(place):
+        return None, ("NO_ORDER_API: this schwabdev exposes no order_place() — "
+                      "run probe_order_api.py and report the method list")
+
+    h = _account_hash(client_wrapper, n["Acct"], log=log)
+    if not h:
+        return None, f"NO_ACCOUNT_HASH for {n['Acct']} — is it linked to the app?"
+
+    try:
+        body = build_order_json(n)
+    except ValueError as e:
+        return None, f"BAD_ORDER: {e}"
+
+    log(f"   submitting {n['Side']} {body['orderLegCollection'][0]['quantity']} "
+        f"{n['Ticker']} {body['orderType']} "
+        f"{body.get('price', 'at market')} in {n['Acct']}")
+
+    try:
+        resp = place(h, body)
+    except Exception as e:
+        return None, (f"SUBMIT_UNKNOWN: {type(e).__name__}: {e} — the order may "
+                      f"or may not have reached Schwab. Check the account "
+                      f"before doing anything with this row. idem={idem}")
+
+    code = getattr(resp, "status_code", None)
+    if code not in (200, 201):
+        return None, (f"REJECTED: HTTP {code} "
+                      f"{str(getattr(resp, 'text', ''))[:200]}")
+
+    # Schwab returns the new order id in the Location header, not the body.
+    oid = ""
+    try:
+        loc = (getattr(resp, "headers", {}) or {}).get("Location", "")
+        oid = str(loc).rstrip("/").rsplit("/", 1)[-1] if loc else ""
+    except Exception:
+        pass
+    if not oid:
+        # Placed, but we cannot name it. Say so plainly rather than inventing
+        # an id — reconciliation against open orders will adopt it.
+        return "UNKNOWN", ("PLACED but no order id returned; reconcile against "
+                           "open orders to attach one")
+    return oid, f"placed, Schwab order {oid}"
 
 
 # ───────────────────────────────────────────────────────────── main

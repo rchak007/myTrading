@@ -28,9 +28,23 @@ All times Pacific. `flock` prevents two jobs writing the same files at once.
 | `*/5` 01–16h Mon–Fri | `orders_sheet_prices.py` | `Live_Price`, `Day_%` | `-n` skips |
 | `04:30` daily | `build_pl_report.py` | `outputs/portfolio/*` | `-w 600` waits |
 | `05:00`, `17:00` Mon–Fri | `45_Signal.py` | 45° scan CSVs | scan unlocked, copy locked |
+| `*/15` 06–14h Mon–Fri | `order_engine.py` | Orders tab validation; evaluates triggers after 13:15 PT | `-n` skips |
 
 **Not yet scheduled:** `token_watch.py` (needs SMTP credentials),
 `health_check.py` (see §5).
+
+### The order engine's two jobs in one schedule
+
+It runs every 15 minutes and does different work depending on the clock:
+
+- **Any time** — validates every row in the `Orders` tab and writes the verdict
+  into column N. This is the feedback loop: a mis-typed row says so within
+  minutes of being typed rather than failing silently at the close.
+- **After 13:15 PT** — also evaluates triggers against the completed daily bar,
+  and submits what fired.
+
+`LIVE_TRADING` is off unless `ORDER_ENGINE_LIVE=1` is in `.env`, so the
+schedule is safe to add before you are ready to trade from it.
 
 ### Why the locks differ
 
