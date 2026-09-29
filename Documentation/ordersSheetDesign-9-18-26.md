@@ -358,6 +358,29 @@ table as `USER_ENTERED` would let Sheets reinterpret values it has no business
 touching, such as an order's `Entered` timestamp becoming a date. Best-effort
 like `_paint()`: a link is a convenience, the data is not.
 
+### A sold-out fenced position keeps its row — added 2026-09-29
+
+Once a position is fully sold, Schwab stops reporting it — so its Dashboard
+block would vanish, taking the reserve with it, at exactly the moment you most
+want to know the money is still earmarked for that ticker.
+
+A fenced pair holding CASH but no shares therefore gets a row with `Qty 0` and
+its `Seed_Reserved` filled:
+
+```
+BE   171    0        🔒   6,750.00    <- sold out, capital still reserved
+BE   922    6        🔒
+BE   TOTAL  6             6,750.00
+```
+
+Injected into the positions frame BEFORE the table is built, so the `TOTAL` row
+and the ordering treat it like any other row. Appending afterwards left a
+two-row ticker with no `TOTAL` while every other multi-account ticker had one.
+
+Its coverage flags are **blank**, not `N`. There is no position, so
+"unprotected" is meaningless — an `N` would paint yellow and inflate the
+unprotected count with a row that has nothing to protect.
+
 ### Ordered by size, and fenced capital is marked — added 2026-09-27
 
 Blocks are ordered by **total market value across every account**, largest

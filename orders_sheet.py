@@ -243,14 +243,45 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
     reserves = reserves or {}
     fenced = fenced or set()
     stamp = _now()
+
+    # A fenced pair holding CASH but no shares still needs a row. Once a
+    # position is fully sold Schwab stops reporting it, so the block would
+    # vanish — taking the reserve with it, at exactly the moment you most want
+    # to know the money is still earmarked for that ticker.
+    #
+    # Injected into positions_df rather than appended to the output, so the
+    # TOTAL-row logic and ordering below treat it like any other row. Appending
+    # afterwards left a two-row ticker with no TOTAL while every other
+    # multi-account ticker had one.
+    held = {(str(r["Acct"]), str(r["Ticker"]).upper())
+            for _, r in positions_df.iterrows()}
+    ghosts = [{"Ticker": t, "Acct": a, "Qty": 0.0, "Avg_Cost": 0.0,
+               "Market_Value": 0.0, "Unrealized_PL": 0.0}
+              for (a, t), amt in sorted((reserves).items())
+              if (a, t) not in held and _num(amt)]
+    if ghosts:
+        positions_df = pd.concat([positions_df, pd.DataFrame(ghosts)],
+                                 ignore_index=True)
+        log(f"{len(ghosts)} fenced pair(s) with cash but no position: "
+            + ", ".join(f"{a}/{t}" for t, a in
+                        ((g["Ticker"], g["Acct"]) for g in ghosts)))
     out = []
 
     for ticker in sorted(positions_df["Ticker"].unique()):
         grp = positions_df[positions_df["Ticker"] == ticker].sort_values("Acct")
         px = prices.get(ticker)
         for _, r in grp.iterrows():
-            flags = coverage_for(ticker, r["Acct"], px, orders_df, intents_df,
-                                 held_qty=_num(r["Qty"]))
+            qty = _num(r["Qty"]) or 0.0
+            if abs(qty) < 1e-9:
+                # Cash-only row: the reserve survived a full exit. There is no
+                # position, so "unprotected" is meaningless — blank, like a
+                # TOTAL row, rather than an N that would paint yellow and
+                # inflate the unprotected count.
+                flags = {k: BLANK for k in
+                         ("Has_Stop", "Has_Trim", "Has_Dip", "Has_Breakout")}
+            else:
+                flags = coverage_for(ticker, r["Acct"], px, orders_df,
+                                     intents_df, held_qty=qty)
             out.append({
                 "Ticker": ticker, "Acct": r["Acct"], "Qty": r["Qty"],
                 "Avg_Cost": r["Avg_Cost"], "Market_Value": r["Market_Value"],
