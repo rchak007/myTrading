@@ -242,13 +242,7 @@ def daily_close(client_wrapper, ticker: str, log=print) -> tuple[float | None, s
     with it. A failed fetch must leave the row ARMED — never advance a row on
     a price we could not read.
     """
-    inner = client_wrapper
-    getter = getattr(client_wrapper, "get_client", None)
-    if callable(getter):
-        try:
-            inner = getter() or client_wrapper
-        except Exception as e:
-            return None, f"schwab client unavailable: {e}"
+    inner = _unwrap(client_wrapper)
 
     meth = getattr(inner, "price_history", None)
     if not callable(meth):
@@ -369,6 +363,29 @@ def _known_tickers() -> set[str]:
                 for t in ast.literal_eval("[" + m.group(1) + "]")} if m else set()
     except Exception:
         return set()
+
+
+_INNER: dict = {}
+
+
+def _unwrap(client_wrapper):
+    """The schwabdev client behind our wrapper, resolved ONCE per run.
+
+    SchwabClient.get_client() builds a fresh client every call, each with its
+    own auth round trip. A single cycle was creating five and spending most of
+    its wall time doing it.
+    """
+    key = id(client_wrapper)
+    if key not in _INNER:
+        inner = client_wrapper
+        getter = getattr(client_wrapper, "get_client", None)
+        if callable(getter):
+            try:
+                inner = getter() or client_wrapper
+            except Exception:
+                inner = client_wrapper
+        _INNER[key] = inner
+    return _INNER[key]
 
 
 def fp_of(rec: dict) -> str:
@@ -580,10 +597,7 @@ def build_order_json(n: dict, limit_price: float | None = None) -> dict:
 def _account_hash(client_wrapper, acct: str, log=print) -> str | None:
     """Schwab's opaque hash for an account. Order placement takes the hash,
     never the number."""
-    inner = client_wrapper
-    getter = getattr(client_wrapper, "get_client", None)
-    if callable(getter):
-        inner = getter() or client_wrapper
+    inner = _unwrap(client_wrapper)
     try:
         for a in inner.linked_accounts().json() or []:
             if isinstance(a, dict) and str(a.get("accountNumber", ""))[-3:] == acct:
@@ -630,10 +644,7 @@ def preview(client_wrapper, n: dict, log=print) -> tuple[bool, str]:
     symbol, the instruction, the quantity, the account. A payload that previews
     clean and then fails on placement is a much shorter list of possibilities.
     """
-    inner = client_wrapper
-    getter = getattr(client_wrapper, "get_client", None)
-    if callable(getter):
-        inner = getter() or client_wrapper
+    inner = _unwrap(client_wrapper)
 
     meth = getattr(inner, "preview_order", None)
     if not callable(meth):
@@ -665,10 +676,7 @@ def submit(client_wrapper, n: dict, idem: str, log=print) -> tuple[str | None, s
     intent becomes two positions; the write-ahead ledger entry exists precisely
     so that state is recoverable by looking rather than by guessing.
     """
-    inner = client_wrapper
-    getter = getattr(client_wrapper, "get_client", None)
-    if callable(getter):
-        inner = getter() or client_wrapper
+    inner = _unwrap(client_wrapper)
 
     # place_order(accountHash, order) — measured 2026-09-28 with
     # probe_order_api.py. It is NOT order_place; that guess cost a live run.
@@ -927,11 +935,14 @@ def main() -> int:
             # Validate against Schwab rather than merely asserting we would
             # have. A dry run that never touches the broker cannot tell you the
             # payload is wrong, which is the failure it most needs to catch.
+            px, why = resolve_limit(client, n, log=_log)
             ok, pnote = preview(client, n, log=_log)
             finish("TRIGGERED" if ok else "BLOCKED",
-                   f"DRY RUN at close {close:.2f} — {pnote}. "
+                   f"DRY RUN at close {close:.2f} — would place GTC LIMIT "
+                   f"{px if px else '??'} ({why}). {pnote}. "
                    f"Set ORDER_ENGINE_LIVE=1 to place for real.",
-                   trigger_close=f"{close:.2f}", idem_key=idem)
+                   trigger_close=f"{close:.2f}", limit_price=px or "",
+                   idem_key=idem)
             continue
 
         oid, snote = submit(client, n, idem)
