@@ -665,7 +665,76 @@ def preview(client_wrapper, n: dict, log=print) -> tuple[bool, str]:
     return True, "Schwab accepted the preview — the payload is valid"
 
 
-def submit(client_wrapper, n: dict, idem: str, log=print) -> tuple[str | None, str]:
+def _acct_key(a) -> str:
+    """Last 3 digits, matching orders_sheet.acct_key and cash_reserve."""
+    t = str(a or "").strip().lstrip(".")
+    return t[-3:] if len(t) >= 3 else t
+
+
+def conflicting_sells(orders_df, acct: str, ticker: str, held: float,
+                      want: float) -> tuple[list, str]:
+    """Resting SELL orders that would starve this one of shares.
+
+    Schwab reserves shares against an open sell order. Hold 23 with a trim
+    resting for all 23, and a stop-triggered sell for 23 has nothing left to
+    sell — the exit fails at exactly the moment it matters.
+
+    Only a genuine shortfall counts. Hold 23, trim 10, sell 13 is fine and
+    nothing is cancelled: the two orders coexist because the shares cover both.
+    """
+    if orders_df is None or getattr(orders_df, "empty", True) or not held:
+        return [], ""
+    m = ((orders_df["Ticker"].astype(str).str.upper() == ticker)
+         & (orders_df["Side"].astype(str).str.upper().str.startswith("SELL")))
+    if "Account" in orders_df.columns:
+        m &= orders_df["Account"].map(_acct_key) == acct
+    legs = orders_df[m]
+    if legs.empty:
+        return [], ""
+
+    reserved = sum((_num_or_none(o.get("Remaining_QTY"))
+                    or _num_or_none(o.get("QTY")) or 0.0)
+                   for _, o in legs.iterrows())
+    if reserved + want <= held + 1e-6:
+        return [], (f"{reserved:g} sh already committed, {want:g} wanted, "
+                    f"{held:g} held — both fit")
+
+    out = []
+    for _, o in legs.iterrows():
+        oid = str(o.get("Order_ID") or "").strip()
+        if not oid:
+            continue
+        out.append({"id": oid,
+                    "qty": _num_or_none(o.get("Remaining_QTY")) or 0.0,
+                    "price": (_num_or_none(o.get("Limit_Price"))
+                              or _num_or_none(o.get("Stop_Price"))),
+                    "cancelable": bool(o.get("Cancelable", True))})
+    return out, (f"{reserved:g} sh committed to {len(out)} resting sell(s) + "
+                 f"{want:g} wanted exceeds {held:g} held")
+
+
+def cancel_order(client_wrapper, acct: str, order_id: str,
+                 log=print) -> tuple[bool, str]:
+    """Cancel one resting order. Returns (cancelled, note)."""
+    inner = _unwrap(client_wrapper)
+    meth = getattr(inner, "cancel_order", None)
+    if not callable(meth):
+        return False, "this schwabdev exposes no cancel_order()"
+    h = _account_hash(client_wrapper, acct, log=log)
+    if not h:
+        return False, f"no account hash for {acct}"
+    try:
+        resp = meth(h, order_id)
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+    code = getattr(resp, "status_code", None)
+    if code in (200, 201):
+        return True, f"cancelled {order_id}"
+    return False, f"HTTP {code} {str(getattr(resp, 'text', ''))[:120]}"
+
+
+def submit(client_wrapper, n: dict, idem: str, log=print,
+           conflicts: list | None = None) -> tuple[str | None, str]:
     """Place the order. Returns (schwab_order_id, note).
 
     NEVER RETRIES. If the outcome is ambiguous — a timeout, an unexpected
@@ -686,6 +755,25 @@ def submit(client_wrapper, n: dict, idem: str, log=print) -> tuple[str | None, s
     h = _account_hash(client_wrapper, n["Acct"], log=log)
     if not h:
         return None, f"NO_ACCOUNT_HASH for {n['Acct']} — is it linked to the app?"
+
+    # CANCEL FIRST. Schwab reserves shares against a resting sell, so a trim
+    # sitting on the whole position leaves a triggered exit with nothing to
+    # sell — the order fails exactly when it is needed. A triggered exit
+    # supersedes a profit target: getting out is the decision that was just
+    # made, the trim is one made earlier under different conditions.
+    if conflicts:
+        log(f"   {len(conflicts)} resting sell(s) block this — cancelling first")
+        for c in conflicts:
+            if not c["cancelable"]:
+                return None, (f"BLOCKED_BY_ORDER {c['id']} ({c['qty']:g} sh) "
+                              f"is not cancelable — cancel it by hand")
+            ok, note = cancel_order(client_wrapper, n["Acct"], c["id"], log=log)
+            log(f"     {note}")
+            if not ok:
+                # Never place on top of an order we could not clear: the
+                # rejection would be confusing and the position unchanged.
+                return None, (f"CANCEL_FAILED for {c['id']}: {note}. "
+                              f"Not placing on top of it.")
 
     px, why = resolve_limit(client_wrapper, n, log=log)
     if not px:
@@ -730,6 +818,8 @@ def submit(client_wrapper, n: dict, idem: str, log=print) -> tuple[str | None, s
 # ───────────────────────────────────────────────────────────── main
 def main() -> int:
     ap = argparse.ArgumentParser(description="Evaluate close-triggered orders")
+    ap.add_argument("--no-cancel", action="store_true",
+                    help="never cancel a resting order; block instead")
     ap.add_argument("--status", action="store_true",
                     help="print configuration and ledger state, change nothing")
     ap.add_argument("--force-time", action="store_true",
@@ -980,7 +1070,21 @@ def main() -> int:
                    idem_key=idem)
             continue
 
-        oid, snote = submit(client, n, idem)
+        # Resting sells that would starve this one of shares.
+        conflicts, cnote = ([], "")
+        if n["Side"] == "SELL" and not args.no_cancel:
+            held = (acct_state or {}).get("positions", {}).get(
+                (n["Acct"], n["Ticker"]), 0.0)
+            conflicts, cnote = conflicting_sells(orders_df, n["Acct"],
+                                                 n["Ticker"], held,
+                                                 float(n["Qty"]))
+            if cnote:
+                _log(f"   {cnote}")
+
+        oid, snote = submit(client, n, idem, conflicts=conflicts)
+        if conflicts and oid:
+            snote += (f" · cancelled {len(conflicts)} resting sell(s) first: "
+                      + ", ".join(c["id"] for c in conflicts))
         if oid:
             n_sub += 1
             if n_sub >= cfg.WARN_SUBMISSIONS_PER_DAY:

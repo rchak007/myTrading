@@ -358,6 +358,35 @@ table as `USER_ENTERED` would let Sheets reinterpret values it has no business
 touching, such as an order's `Entered` timestamp becoming a date. Best-effort
 like `_paint()`: a link is a convenience, the data is not.
 
+### A triggered exit cancels a resting sell that blocks it — added 2026-09-29
+
+Schwab **reserves shares against an open sell order**. Hold 23 BE with a trim
+resting for all 23, and a close-triggered sell for 23 has nothing left to sell
+— the exit is rejected at exactly the moment it matters.
+
+Before placing a SELL, the engine compares shares held against everything
+already committed to resting sells. On a genuine shortfall it **cancels the
+blockers first**, then places:
+
+```
+hold 23, trim 23, want 23   →  cancel the trim, then sell
+hold 23, trim 10, want 13   →  no cancel; the shares cover both
+hold 23, trim 10, want 20   →  cancel, 30 > 23
+```
+
+**Why cancelling is the right default.** A triggered exit is the decision just
+made, on today's close. The trim is a decision made earlier under conditions
+that no longer hold. When they cannot coexist, the newer one wins.
+
+If a blocking order is **not cancelable**, or the cancel fails, the row is
+BLOCKED and nothing is placed — never stack an order on top of one that could
+not be cleared. `--no-cancel` disables the behaviour entirely.
+
+**Two rows in the sheet do not avoid this.** Only one fires on a given close,
+but the one that fires places a GTC order that then rests — so a later reversal
+firing the other row meets the same conflict. The protection lasts until the
+first trigger, not indefinitely.
+
 ### A Row_ID is submitted ONCE — fixed 2026-09-29
 
 **One intent placed three live TSLA orders**, at 13:30, 13:45 and 14:05 — one
