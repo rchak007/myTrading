@@ -17,6 +17,12 @@ WHY A FILE IN THE REPO
     and a reminder you cannot see is worse than none. In the repo it is
     versioned, visible in a diff, and editable from either machine.
 
+ONE EMAIL
+    When anything is due, EVERY outstanding item goes in that one email and all
+    of them have their clock reset. Otherwise items added on different days
+    drift onto separate schedules and arrive as separate mails — which is how a
+    reminder turns into noise you learn to ignore.
+
 STRIKING OUT
     Put anything in the `done` column. Nothing is deleted — a struck row stays
     as a record that it was finished, and re-reading an old one is occasionally
@@ -155,11 +161,16 @@ def main() -> int:
                   f"{r.get('title','')[:50]}")
         return 0
 
-    pending = [r for r in rows if due(r)] if not args.force else \
-              [r for r in rows if not str(r.get("done", "")).strip()]
+    # ONE EMAIL, ALL OUTSTANDING. If anything is due, everything still open
+    # goes in it — otherwise items added on different days drift onto their own
+    # schedules and arrive as separate mails, which is how a reminder becomes
+    # noise. Chakravarti asked for one every two days, not one per item.
+    outstanding = [r for r in rows if not str(r.get("done", "")).strip()]
+    anything_due = args.force or any(due(r) for r in outstanding)
+    pending = outstanding if anything_due else []
     if not pending:
-        outstanding = sum(1 for r in rows if not str(r.get("done", "")).strip())
-        print(f"nothing due ({outstanding} outstanding, none ready to re-send)")
+        print(f"nothing due ({len(outstanding)} outstanding, none ready "
+              f"to re-send)")
         return 0
 
     subject, body = compose(pending)

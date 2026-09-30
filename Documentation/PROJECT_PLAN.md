@@ -655,8 +655,22 @@ To stop it: `.venv/bin/python reminders.py --done study-8k-45k` on Pi 2, or put
 anything in the `done` column of `reminders.csv`. Nothing is deleted — a struck
 row stays as a record it was finished.
 
+### 🔁 OUTSTANDING — streamline Chitra's stocks
+`CHITRA_TICKERS` in `app.py` — 12 symbols. Asked 2026-09-30, on the same
+2-day reminder. Known starting point: **CBRS returns no data at all** (see §7),
+so it is either a wrong symbol or delisted.
+
+Strike with `reminders.py --done streamline-chitra`.
+
+### How the reminders work
 `reminders.csv` lives in the REPO, not machine-local state: a reminder that
 vanished with an SD card would be worse than none.
+
+**One email, all outstanding items.** When anything is due, everything still
+open goes in that single email and all of their clocks reset together.
+Otherwise items added on different days drift onto separate schedules and
+arrive as separate mails — which is how a reminder becomes noise you learn to
+ignore.
 
 
 **Goal:** Keep the coverage log and watchlist current, so bucket assignments
