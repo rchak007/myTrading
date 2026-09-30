@@ -30,6 +30,13 @@ All times Pacific. `flock` prevents two jobs writing the same files at once.
 | `05:00`, `17:00` Mon–Fri | `45_Signal.py` | 45° scan CSVs | scan unlocked, copy locked |
 | `*/15` 06–14h Mon–Fri | `order_engine.py` | Orders tab validation; evaluates triggers after 13:15 PT | `-n` skips |
 
+**On PI 2** (it holds the Gmail credentials and needs nothing from Schwab):
+
+| When | Job | Does |
+|---|---|---|
+| `08:30`, `18:30` | `token_watch.py --from-sheet` | Schwab token expiry + Pi 1 liveness |
+| `09:15` | `reminders.py` | nags about anything outstanding in `reminders.csv` |
+
 **Not yet scheduled:** `health_check.py` (see §5).
 
 ### Re-authorising is safe at any time

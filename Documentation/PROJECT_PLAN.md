@@ -644,6 +644,21 @@ the hardest to detect from logs alone.
 
 ## 6. Research review cadence
 
+### 🔁 OUTSTANDING — study: "Turn $8K Into $45K Without Killing Your Core Bag"
+https://www.youtube.com/live/mZIwo0EBIkI
+
+Asked 2026-09-30. Emailed **every 2 days until struck out** by `reminders.py`
+on Pi 2 (`15 9 * * *`). Chakravarti's instruction: keep it open "till I strike
+out".
+
+To stop it: `.venv/bin/python reminders.py --done study-8k-45k` on Pi 2, or put
+anything in the `done` column of `reminders.csv`. Nothing is deleted — a struck
+row stays as a record it was finished.
+
+`reminders.csv` lives in the REPO, not machine-local state: a reminder that
+vanished with an SD card would be worse than none.
+
+
 **Goal:** Keep the coverage log and watchlist current, so bucket assignments
 (accumulate / trade / avoid) reflect what the businesses are actually doing
 rather than what they were doing months ago.
