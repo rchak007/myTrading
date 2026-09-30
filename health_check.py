@@ -11,8 +11,8 @@ Is every scheduled job actually running, and is every output actually fresh?
 Read-only. Touches no sheet, no repo, no API.
 
 WHY
-    There are now eight scheduled jobs writing files, two Google Sheets and two
-    git repos. A silent failure is the dangerous kind: a stale CSV looks exactly
+    There are now nine scheduled jobs writing files, two Google Sheets, two git
+    repos, and an engine that places real orders. A silent failure is the dangerous kind: a stale CSV looks exactly
     like a fresh one, and a cron that stopped firing produces no error anywhere.
 
     Staleness is the signal. Every job leaves a file behind, so the age of that
@@ -60,6 +60,10 @@ CHECKS = [
     ("ops poller",       STATE / "remote_ops_audit.log",         1,  False),
     ("gitpush log",      HOME / "gitpush_cron.log",              1,  False),
     ("price updater",    STATE / "prices_cron.log",              1,   True),
+    # The engine runs 5,30,45 in hours 6-14 weekdays, so an hour of silence
+    # during the day means it has stopped. It places orders, which makes a
+    # stopped engine worth knowing about faster than a stopped report.
+    ("order engine",     STATE / "order_engine.log",             1,   True),
 ]
 
 
@@ -104,6 +108,7 @@ def check_crons() -> list[dict]:
         "remote_ops.py":       "ops sheet poller",
         "orders_sheet_prices.py": "live prices on the Dashboard",
         "build_pl_report.py":  "historical P&L",
+        "order_engine.py":     "close-triggered orders; validates rows all day",
     }
     try:
         tab = subprocess.run(["crontab", "-l"], capture_output=True, text=True,
@@ -146,6 +151,45 @@ def check_token() -> list[dict]:
                  path="")]
 
 
+def check_trading_state() -> list[dict]:
+    """Whether the order engine can place, and whether it is held back.
+
+    Belongs in the health report because both answers are surprising in both
+    directions: an engine you believe is armed but is not, and one you believe
+    is idle but is live, are equally worth knowing.
+    """
+    out = []
+    ks = Path(os.getenv("TRADING_DISABLED_FILE", "/etc/myTrading/TRADING_DISABLED"))
+    live = os.getenv("ORDER_ENGINE_LIVE", "0") == "1"
+    if ks.exists():
+        out.append(dict(check="trading", state="STALE",
+                        detail=f"KILL SWITCH ON — {ks} exists, nothing will be "
+                               f"placed", path=str(ks)))
+    else:
+        out.append(dict(check="trading", state="OK",
+                        detail=("LIVE — close-triggered rows will be placed"
+                                if live else
+                                "dry run — ORDER_ENGINE_LIVE is not set"),
+                        path=""))
+
+    ledger = STATE / "order_ledger.csv"
+    if ledger.exists():
+        try:
+            import csv as _csv
+            with ledger.open(newline="") as fh:
+                rows = list(_csv.DictReader(fh))
+            today = datetime.now().date().isoformat()
+            n = sum(1 for r in rows
+                    if str(r.get("ts", "")).startswith(today)
+                    and r.get("state") == "SUBMITTED")
+            out.append(dict(check="orders placed today", state="OK",
+                            detail=f"{n}", path=""))
+        except Exception as e:
+            out.append(dict(check="orders placed today", state="UNKNOWN",
+                            detail=f"{type(e).__name__}: {e}", path=""))
+    return out
+
+
 def check_pl_quality() -> list[dict]:
     """A report that runs on schedule can still be quietly wrong, so the known
     defects are surfaced here rather than only in the run log nobody reads."""
@@ -177,7 +221,8 @@ def main() -> int:
     ap.add_argument("--json", action="store_true", help="machine readable")
     args = ap.parse_args()
 
-    rows = check_crons() + check_files() + check_token() + check_pl_quality()
+    rows = (check_crons() + check_files() + check_token()
+            + check_trading_state() + check_pl_quality())
     bad = [r for r in rows if r["state"] != "OK"]
 
     if args.json:

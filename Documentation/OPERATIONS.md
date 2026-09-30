@@ -175,9 +175,25 @@ after a manual run may show nothing — that is expected.
 
 ---
 
-## 5. `health_check.py`
+## 5. Checking it still works
 
-Checks four things, none of which require the jobs to cooperate:
+### `smoke_test.py` — before you trust an edit
+
+```bash
+.venv/bin/python smoke_test.py
+```
+
+Imports every module and asserts the functions **other modules call** are still
+present. Run it after any edit and before pushing.
+
+It exists because `py_compile` cannot see a deleted function. A wholesale edit
+to `cash_reserve.py` removed `build_reserves_table` and `overcommit_warnings`
+— both syntactically fine, both silently gone — and the reserves step failed
+`(non-fatal)` for two days before anyone noticed the CSV had stopped changing.
+
+### `health_check.py` — whether it is all still running
+
+Checks six things, none of which require the jobs to cooperate:
 
 1. **Crontab lines** — an active line exists for each of the seven jobs. A
    commented-out line reads as missing, which is what it is.
@@ -189,6 +205,12 @@ Checks four things, none of which require the jobs to cooperate:
 4. **P&L reconciliation** — a report can run on schedule and still be wrong, so
    the share-count and cost-basis defect counts are surfaced here rather than
    only in a run log nobody reads.
+5. **Trading state** — whether the kill switch is on, and whether
+   `ORDER_ENGINE_LIVE` is set. Both are surprising in both directions: an
+   engine you believe is armed but is not, and one you believe is idle but is
+   live, are equally worth knowing.
+6. **Orders placed today**, counted from the ledger. A number you did not
+   expect is the first sign of something firing repeatedly.
 
 Suggested cron once you are happy with it — mails only on failure:
 

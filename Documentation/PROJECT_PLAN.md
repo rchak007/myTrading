@@ -394,12 +394,37 @@ This is a read-and-report job, not an automation — no orders are placed.
 have the program place the order when the condition is met. Conditions Schwab
 itself cannot express as a resting order.
 
-**Status:** Designed, **not implemented**. Two documents, different scopes:
-- `Documentation/ordersSheetDesign-9-18-26.md` — the **sheet**: tabs, columns,
-  ownership, header block, phasing. Current.
-- `Documentation/orderExecutionDesign-9-7-26.md` — the hardened **engine**:
-  HMAC tokens, ledger, state machine, caps. Nothing executes until its §6
-  security model is built in full.
+**Status: LIVE since 2026-09-28.** The engine has placed real orders. It runs
+on cron at `5,30,45` past the hour, 06-14 weekdays, validating rows all day and
+evaluating triggers after 13:15 PT.
+
+    order_intent.py       validates and normalises one sheet row
+    order_exec_config.py  every limit, in code the sheet cannot reach
+    order_engine.py       evaluates, guards, and places
+    smoke_test.py         asserts every cross-module function still exists
+
+First live order: `BUY 1 TSLA GTC LIMIT $357.48`, 2026-09-28. Filled the next
+morning at 357.48, and the fill correctly debited the TSLA reserve.
+
+**Where the design docs stand:**
+- `ordersSheetDesign-9-18-26.md` — **current and authoritative.** Sheet layout,
+  coverage rules, and every engine decision made since.
+- `orderExecutionDesign-9-7-26.md` — **partly superseded.** Its §6.2 HMAC
+  scheme was dropped (see below); its ledger, state machine, kill switch and
+  write-ahead reasoning were all built as written.
+
+### What was built differently from orderExecutionDesign
+Chakravarti's calls, each recorded in `ordersSheetDesign`:
+- **No HMAC signing.** Requiring a laptop to sign each intent defeats a
+  phone-edited sheet. Sheet access implies causing TRADES, not moving money
+  out. Replaced by guards reading the real account — oversell, insufficient
+  cash, unknown ticker — which catch the likelier failure anyway: a typo.
+- **No dollar caps.** The account's own limits scale with the portfolio; a
+  fixed ceiling blocks legitimate trades. Only a submissions-per-day cap
+  remains, for runaway loops.
+- **GTC LIMIT only**, never DAY or MARKET.
+- **Limit prices are derived** from the live book at submit time, not typed.
+- **Only close-triggered orders** belong in the sheet.
 
 ### 🐞 DEFECT — a placed order is never reconciled back
 Once the engine submits, it stops looking. The row stays `SUBMITTED` for ever,
@@ -425,8 +450,15 @@ move the row to `FILLED`, `CANCELLED` or `REJECTED`, writing `Filled_Qty` and
 `Fill_Price` back. `stocks_orders.build_orders_table(open_only=False,
 days_back=N)` already fetches recent orders, so the data is to hand.
 
-### 🔒 SEQUENCING — decided 2026-09-22
-Phases 2 and 3 are **on hold until §2 (cash reserves) is resolved**. Chakravarti's
+### ✅ SUPERSEDED — the phase 2/3 hold (was: decided 2026-09-22)
+Phase 3 shipped 2026-09-28 without waiting on §2. The reserve gate is still not
+wired into the order path, so a buy is bounded by the account's free cash
+rather than by its ticker reserve — a real gap, recorded below, but not one
+that justified holding the whole engine.
+
+<details><summary>Original reasoning</summary>
+
+Phases 2 and 3 are on hold until §2 (cash reserves) is resolved. Chakravarti's
 call. The reserve gate decides how much may be spent on a ticker, so building
 order placement on top of a reserve system whose `TOTAL_CAPITAL` policy does not
 yet bind (see §2) would put money behind a number that is known to be wrong.
@@ -440,6 +472,20 @@ yet bind (see §2) would put money behind a number that is known to be wrong.
 
 A daemon that must stay alive to protect a position is a liability, which is
 why §7 of the sheet design requires `SELL-STOPLOSS` to always rest at Schwab.
+
+### ✅ RESOLVED 2026-09-29 — conflict detection (`7940822`)
+Built, though not as originally framed. Rather than warning about duplicates,
+the engine now **cancels a resting sell that would starve a triggered exit**:
+Schwab reserves shares against an open sell order, so a trim on the whole
+position leaves a close-triggered sell with nothing to sell. It cancels only on
+a genuine shortfall, and BLOCKS rather than stacking if the cancel fails.
+
+### 🐞 DEFECT — the reserve gate is not wired into the order path
+`available_to_buy()` exists and is correct, and nothing calls it before placing.
+A BUY is bounded by the account's free cash, not by what is reserved for that
+ticker — so a buy can spend money fenced for something else.
+
+<details><summary>Original idea</summary>
 
 ### 💡 IDEA — conflict detection, buildable in phase 1
 Chakravarti asked 2026-09-22 for a warning when a sheet intent duplicates
