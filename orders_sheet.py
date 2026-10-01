@@ -637,12 +637,17 @@ def _rec_rows(ticker, price, signals_df, is_fenced, pos_width):
         row[at:at + 4] = ["—" if v is None else v for v in vals]
         return row
 
+    # Each row says what SIZE it means, because the numbers alone do not. The
+    # stop column reads top-to-bottom as a scale-out and the last rung is a
+    # full exit, not another third — that asymmetry is the whole point and it
+    # has to be legible without the docs.
     out = [line("RECOMMENDED", list(TIER1)),
-           line(note, rec.tier(TIER1))]
+           line("① ⅓ out · ⅓ trim · first bid  ·  " + note, rec.tier(TIER1))]
     # Tiers 2 and 3 only when they carry something. A block that is one level
     # deep should not grow two rows of dashes to say so.
-    for which, label in ((TIER2, "↓ hard stop · trim ⅔ · deeper bid"),
-                         (TIER3, "↓ final third")):
+    for which, label in (
+            (TIER2, "② another ⅓ out (close-confirmed) · ⅓ trim · deeper bid"),
+            (TIER3, "③ ALL OUT — hard stop, rests at Schwab, touch · final ⅓ trim")):
         if any(v is not None for v in rec.tier(which)):
             out.append(line(label, rec.tier(which)))
     return out

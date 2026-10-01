@@ -4,12 +4,15 @@
 into four **price levels** per ticker, shown on the Dashboard between each
 block's holdings and its live orders.
 
-| | tier 1 | tier 2 | tier 3 |
+| | ① sell ⅓ / buy | ② sell ⅓ / buy | ③ **ALL OUT** / final ⅓ |
 |---|---|---|---|
-| **STOP** | `Rec_Stop` — close-confirmed | `Rec_Stop_Hard` — disaster, resting | — |
+| **STOP** | `Rec_Stop` close-confirmed | `Rec_Stop2` close-confirmed | `Rec_Stop_Hard` **touch, full exit** |
 | **TRIM** | `Rec_Trim` | `Rec_Trim2` | `Rec_Trim3` |
-| **DIP** | `Rec_Dip` — add or re-entry | `Rec_Dip2` — the deeper one | — |
+| **DIP** | `Rec_Dip` add or re-entry | `Rec_Dip2` the deeper one | — |
 | **BREAKOUT** | `Rec_Breakout` | — | — |
+
+**Read the rows top to bottom as a scale-out: a third at ① , a third at ② ,
+everything at ③ .** The exception is the whole point — see below.
 
 They sit directly under `Has_Stop` / `Has_Trim` / `Has_Dip` / `Has_Breakout` on
 purpose. **The flag says whether an order exists; the level says where one
@@ -80,10 +83,30 @@ But close-confirmation is not free: it accepts **gap risk**. The night
 something halves, you sell at the next open, far below your level. So both, at
 two distances:
 
-| | mechanism | where it goes |
-|---|---|---|
-| `Rec_Stop` | close-confirmed | **Orders tab**, `SELL` / `CLOSE BELOW` |
-| `Rec_Stop_Hard` | touch | **a resting Schwab `STOP`**. Disaster only |
+| | mechanism | where it goes | size |
+|---|---|---|---|
+| `Rec_Stop` | close-confirmed | **Orders tab**, `SELL` / `CLOSE BELOW` | ⅓ |
+| `Rec_Stop2` | close-confirmed | **Orders tab**, `SELL` / `CLOSE BELOW` | ⅓ |
+| `Rec_Stop_Hard` | **touch** | **a resting Schwab `STOP`** | **everything left** |
+
+**Why scale out of a stop at all.** One level forces a binary decision on a
+position you do not really want to leave, and stops get whipsawed. The
+trade-off is explicit: in a *real* decline scaling costs you — thirds at
+−7.5%, −10.5%, −13.1% instead of all at −7.5%. In a *whipsaw* it saves you —
+only a third gone before the recovery. For a long-horizon book of quality
+names whipsaws are the commoner event, so scaling wins on average.
+
+**The last rung is different and must stay different.** ① and ② are
+close-confirmed, so wicks cannot reach them. ③ is a resting Schwab stop — a
+touch trigger, and a **full exit**. Leaving a third on through a crash because
+"the ladder says a third at a time" is exactly the wrong lesson to draw from
+scaling out.
+
+`Rec_Stop2` prefers a **real shelf** between the other two — the next
+structural level down is where a decline actually pauses — and falls back to
+the midpoint when there is none. It is dropped entirely unless all three rungs
+are at least 0.4 ATR apart; three stops inside one ATR is one stop pretending
+to be a plan.
 
 ```
 floors = [ Supertrend                     if BUY mode and below price
@@ -158,7 +181,7 @@ rungs: Nearest_Support, MRC_S1, MRC_S2, MRC_Mean   (+0.25·ATR each)
 keep only rungs ≤ price − 1·ATR
 
 add tier      highest STRUCTURAL rung above the stop        → "add:…"
-re-entry tier highest rung below (stop − 0.5·ATR)           → "re:…"
+re-entry tier highest rung below (HARD stop − 0.5·ATR)      → "re:…"
 Rec_Dip  = the add tier if one exists, else the re-entry
 Rec_Dip2 = the other one, or the next rung deeper
 ```
@@ -178,8 +201,14 @@ you buy, price keeps falling, and 1 ATR later the stop takes out the whole
 position including what you just added. If nothing structural holds above the
 stop, the honest answer is a re-entry, not an add.
 
-Result: `Rec_Dip` went from **36 of 128 populated to 96**. The remaining 32 are
-all `broken`, which is deliberate.
+**A re-entry is measured from the HARD stop, not the soft one**, because with
+a laddered stop you are not fully out until the last rung. Measuring from the
+soft stop would put a bid at a level where you still hold two thirds — and
+worse, on the same shelf as your own second stop. Measured: **zero** dips land
+inside the stop ladder.
+
+Result: `Rec_Dip` went from **36 of 128 populated to 96** — 47 adds, 49
+re-entries. The remaining 32 are all `broken`, which is deliberate.
 
 ### Rec_Breakout
 

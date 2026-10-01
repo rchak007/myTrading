@@ -99,6 +99,9 @@ r = recommend(100.0, 2.0, supertrend=94.0, supertrend_signal="BUY",
 check("soft stop is the technical level", abs(r.Rec_Stop - 94.0) < 1e-9, repr(r.Rec_Stop))
 check("hard stop sits BELOW the soft stop", r.Rec_Stop_Hard < r.Rec_Stop,
       f"{r.Rec_Stop_Hard} vs {r.Rec_Stop}")
+check("the middle rung sits between them",
+      r.Rec_Stop_Hard < r.Rec_Stop2 < r.Rec_Stop,
+      f"{r.Rec_Stop_Hard} / {r.Rec_Stop2} / {r.Rec_Stop}")
 check("hard stop is 1.5x the soft distance (6.0 → 91.0)",
       abs(r.Rec_Stop_Hard - 91.0) < 1e-9, repr(r.Rec_Stop_Hard))
 # A tight soft stop still needs real room before "disaster" is the right word.
@@ -123,10 +126,16 @@ pltr = recommend(186.82, 5.98, supertrend=171.78, supertrend_signal="BUY",
                  mrc_mean=147.66, mrc_s1=124.73, mrc_s2=92.28,
                  ath=207.52, score=50, structure="MIXED", regime="BULL")
 check("PLTR: dip is populated, not blank", pltr.Rec_Dip is not None, pltr.Dip_Basis)
-check("PLTR: dip is tagged a re-entry (it sits below the stop)",
+check("PLTR: dip is tagged a re-entry (it sits below the stop ladder)",
       pltr.Dip_Basis.startswith("re:"), pltr.Dip_Basis)
-check("PLTR: dip is at the 164.55 pivot the old version discarded",
-      164.5 < pltr.Rec_Dip < 167.0, repr(pltr.Rec_Dip))
+# The 164.55 pivot is now consumed by the stop ladder — it sits between the
+# soft and hard stops, so bidding there would mean buying at a level where
+# you are still selling. The re-entry drops to the next real shelf.
+check("PLTR: dip clears the whole stop ladder",
+      pltr.Rec_Dip < pltr.Rec_Stop_Hard,
+      f"dip {pltr.Rec_Dip} vs hard {pltr.Rec_Stop_Hard}")
+check("PLTR: dip is a STRUCTURAL level, not a volatility rung",
+      not pltr.Dip_Basis.endswith("ATR"), pltr.Dip_Basis)
 side_invariants("PLTR", pltr, 186.82)
 
 # AEHR: the pivot is too near AND the next band is 40% down. Only the ATR

@@ -106,8 +106,8 @@ BREAKOUT_MIN_SCORE = 50   # the system's own "consider" bar (see Regime_Action)
 
 # Rendering order, by tier. `None` means that slot has no level in that tier.
 TIER1 = ("Rec_Stop", "Rec_Trim", "Rec_Dip", "Rec_Breakout")
-TIER2 = ("Rec_Stop_Hard", "Rec_Trim2", "Rec_Dip2", None)
-TIER3 = (None, "Rec_Trim3", None, None)
+TIER2 = ("Rec_Stop2", "Rec_Trim2", "Rec_Dip2", None)
+TIER3 = ("Rec_Stop_Hard", "Rec_Trim3", None, None)
 FIELDS = TIER1          # kept: callers and tests use it as "the primary four"
 ALL_LEVELS = tuple(n for tier in (TIER1, TIER2, TIER3) for n in tier if n)
 
@@ -121,6 +121,7 @@ class Rec:
     deserve different confidence. A blank level carries the reason it is blank.
     """
     Rec_Stop: float | None = None
+    Rec_Stop2: float | None = None
     Rec_Stop_Hard: float | None = None
     Rec_Trim: float | None = None
     Rec_Trim2: float | None = None
@@ -242,16 +243,39 @@ def recommend(price, atr, *,
     soft_stop = lvl if (lvl > 0 and lvl < p) else None
     r.Rec_Stop, r.Stop_Basis = soft_stop, (basis if soft_stop else "-")
 
-    # ── STOP (tier 2: the disaster stop) ─────────────────────────────────
-    # Proportional to the soft stop rather than a fixed distance: a name whose
-    # technical level is already 4 ATR away does not need a 4 ATR cushion on
-    # top, and one with a tight 1.5 ATR stop needs more than 1.5 ATR of room
-    # before "disaster" is the right word.
+    # ── STOP (tiers 2 and 3) ─────────────────────────────────────────────
+    # THE STOP IS A LADDER TOO: a third out at each of the first two levels,
+    # everything at the third. Chakravarti's reading of the layout, and a
+    # better design than the one it was describing.
+    #
+    # WHY SCALE OUT AT ALL. One level forces a binary decision on a position
+    # you do not really want to leave, and stops get whipsawed. The trade-off
+    # is explicit: in a REAL decline scaling costs you (you sell thirds at
+    # -8%, -11%, -14% instead of all at -8%); in a WHIPSAW it saves you (only
+    # a third left before the recovery). For a long-horizon book of quality
+    # names whipsaws are the commoner event, so scaling wins on average.
+    #
+    # THE LAST RUNG IS DIFFERENT AND MUST STAY DIFFERENT. Tiers 1 and 2 are
+    # CLOSE-confirmed, so wicks cannot reach them. Tier 3 is the disaster
+    # stop: a resting Schwab STOP, a touch trigger, and a FULL exit. Leaving a
+    # third on through a crash because the ladder said "a third at a time" is
+    # exactly the wrong lesson to take from scaling out.
     if soft_stop is not None:
         hard = p - max((p - soft_stop) * HARD_STOP_MULT, a * HARD_STOP_MIN_ATR)
         hard = max(hard, p - a * HARD_STOP_MAX_ATR)
         if 0 < hard < soft_stop:
             r.Rec_Stop_Hard = hard
+            # The middle rung must be meaningfully clear of BOTH neighbours —
+            # three rungs inside one ATR is one stop pretending to be a plan.
+            lo, hi = hard + a * 0.4, soft_stop - a * 0.4
+            if hi > lo:
+                # Prefer REAL structure in that window: the next shelf down is
+                # where a decline actually pauses. A shelf that hugs the soft
+                # stop is no use, so it is filtered rather than accepted and
+                # then rejected — otherwise one near-miss loses the whole rung.
+                shelves = [v + cushion for v in (sup, s1, s2, mean)
+                           if v is not None and lo <= v + cushion <= hi]
+                r.Rec_Stop2 = max(shelves) if shelves else (soft_stop + hard) / 2.0
 
     # ── TRIM (three tiers: scale out) ────────────────────────────────────
     # The ZONE is the stretch measurement, so it chooses the FIRST level. The
@@ -318,12 +342,17 @@ def recommend(price, atr, *,
         above = [x for x in struct if soft_stop is None or x[0] > soft_stop]
         best_add = max(above) if above else None
 
-        reentry = ([x for x in struct if x[0] < soft_stop - a * DIP_GAP_ATR]
-                   if soft_stop is not None else [])
-        if not reentry and soft_stop is not None:
+        # A re-entry means you are OUT, and with a laddered stop you are not
+        # fully out until the last rung. Measuring from the soft stop would
+        # put a re-entry bid at a level where you still hold two thirds — and
+        # worse, at the same shelf as your own second stop.
+        exit_at = r.Rec_Stop_Hard or soft_stop
+        reentry = ([x for x in struct if x[0] < exit_at - a * DIP_GAP_ATR]
+                   if exit_at is not None else [])
+        if not reentry and exit_at is not None:
             # Already out, and nothing structural below. A volatility rung is
             # at least a place to look.
-            reentry = [x for x in vol if x[0] < soft_stop - a * DIP_GAP_ATR]
+            reentry = [x for x in vol if x[0] < exit_at - a * DIP_GAP_ATR]
         best_re = max(reentry) if reentry else None
 
         if best_add and best_re:
