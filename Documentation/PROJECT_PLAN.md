@@ -699,11 +699,17 @@ reminder email**. Added 2026-09-30 at Chakravarti's request: *"I'm going to
 look at it once in a while just as a more like a info notes."*
 
 These are **not to-dos** and are never struck out. They are the things worth
-re-reading periodically rather than doing once. Currently one:
+re-reading periodically rather than doing once:
 
 | file | what |
 |---|---|
-| `ia-house-rules.png` | IA house rules — Always Rotate (trim into strength) · Always Hedge (defined-risk overlays) · Sell Premium (fund the next addition) · No Round-Trips (bank life-changing gains) |
+| `01-ia-house-rules.png` | IA house rules — Always Rotate (trim into strength) · Always Hedge (defined-risk overlays) · Sell Premium (fund the next addition) · No Round-Trips (bank life-changing gains) |
+| `02-ia-process.png` | The IA process — 1 Build Core (accumulate mattress assets) · 2 Apply LILO (enlarge bag via trims) · 3 Turbocharge (deploy options machine) · 4 Protect (risk hedge) |
+
+**The numeric prefix is the running order.** Filenames are sorted, so without
+one the sequence is alphabetical accident — `ia-house-rules` happened to land
+before `ia-process`, but the next note would go wherever its name fell. Number
+them and the order is a decision.
 
 **Inline, not attached.** A note you have to tap twice to open is one you stop
 opening. The message is `multipart/alternative[ text/plain,
@@ -711,10 +717,10 @@ multipart/related[ text/html, image… ] ]` — the pictures hang off the HTML
 part, so a client showing plain text does not advertise attachments it cannot
 place, and the text part stays the authoritative copy of the words.
 
-**To add one:** drop the image in the folder and commit. No code change — the
-folder is read at send time and sorted by filename so the order is stable.
-`--dry-run` lists what would ride along. Anything over 8 MB or not an
-image is skipped with a log line rather than costing the email.
+**To add one:** drop the image in the folder with the next number and commit.
+No code change — the folder is read at send time. `--dry-run` lists what would
+ride along and how big each one is. Anything over 8 MB or not an image is
+skipped with a log line rather than costing the email.
 
 
 **Goal:** Keep the coverage log and watchlist current, so bucket assignments

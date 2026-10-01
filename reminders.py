@@ -59,7 +59,11 @@ NOTE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
 
 def notes_images() -> list[Path]:
-    """Sorted so the order in the email is stable, not filesystem order."""
+    """Sorted by filename — hence the `01-`, `02-` prefixes.
+
+    Filesystem order is arbitrary, and plain names would put the sequence at
+    the mercy of the alphabet. The number makes the running order a decision.
+    """
     if not NOTES_DIR.is_dir():
         return []
     return sorted(p for p in NOTES_DIR.iterdir()
