@@ -34,14 +34,22 @@ THE THREE TRAPS, measured across the book on 2026-10-01
        without zone gating.
 
 FENCED CHANGES THE MODE
-    A ticker cannot sensibly carry both a stop and a dip bid — they are
-    opposite intents. Measured: the dip level landed BELOW the stop on 36 of
-    128 names, because Supertrend often sits above structural support.
+    Measured: the dip level landed BELOW the stop on 36 of 128 names, because
+    Supertrend often sits above structural support. Bidding underneath your
+    own stop is normally incoherent — you would be buying at the level that
+    just told you to sell.
 
-    Chakravarti's own IA house rules settle it: "Always Hedge", not always
-    stop. So a FENCED (core) holding keeps its dip bid and treats the stop as
-    an advisory thesis-break line; an unfenced (trade) position does the
-    reverse. See `fenced=` on recommend().
+    FENCED IS NOT A KEEPER FLAG. It means "when this sells, keep the proceeds
+    earmarked to this ticker so I can pick it up later" — it PRESUMES a sale.
+    That is exactly a round trip, so for a fenced ticker the stop and the dip
+    are not contradictory: they are the two halves of one rotation. Sell at
+    the stop, re-enter at the dip, with the money already set aside to do it.
+
+    Unfenced there is no earmarked re-entry money, so the same pair really is
+    incoherent and the dip is suppressed.
+
+    NOTHING HERE MEANS "HOLD THROUGH A DRAWDOWN". The system has no keeper
+    concept at all — see Documentation/RECOMMENDED-LEVELS.md §4.
 
 FAILS CLOSED, ALWAYS
     Every level is None rather than 0.0 when it cannot be computed, and every
@@ -241,9 +249,11 @@ def recommend(price, atr, *,
                 r.Dip_Basis = "too-near"
             elif (not fenced and r.Rec_Stop is not None
                   and lvl <= r.Rec_Stop):
-                # Unfenced, this is a TRADE: bidding underneath your own stop
-                # is incoherent. Fenced, it is a core holding that is not being
-                # stopped out at all, so the stop does not veto the bid.
+                # Fenced means proceeds stay earmarked for THIS ticker, so a
+                # stop and a lower bid are one planned round trip: out here,
+                # back in there, with the money already set aside. Unfenced
+                # there is no such money, and bidding under your own stop is
+                # just buying at the level that told you to sell.
                 r.Dip_Basis = "below-stop"
             else:
                 r.Rec_Dip, r.Dip_Basis = lvl, basis

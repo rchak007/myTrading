@@ -683,6 +683,33 @@ invisible on the Dashboard while still reserving the shares against it, so a
 close-triggered sell could fail the same way a resting trim does. Not a problem
 today; it would be on day one of doing this through the system.
 
+### ❓ OPEN — is there a "keeper" list, and what defines one?
+Raised 2026-10-01, after the Rec_* levels landed. Chakravarti:
+
+> "I think i need to also identify some keepers. So then i dont sell those.
+> but is there such a thing LOL?"
+
+**Fencing is not it.** Asked directly, he was explicit: *"fenced still does not
+mean i want to keep when its going down. It just means later i might pick it
+up."* Fencing earmarks sale proceeds for a re-entry — it presumes a sale. A
+keeper flag would be the opposite claim and needs its own storage;
+`recommend.py` was corrected the same day to stop conflating the two.
+
+**What exists today:** every held ticker gets a `Rec_Stop`, and the module
+emits no size, so nothing in the system says "hold through this".
+
+**Why the list is the hard part, not the flag.** The flag is a column. The
+failure mode of keeper lists is that everything joins one. A mechanical test
+worth considering, since the number is already on the Dashboard: *would you
+buy more at this ticker's `Rec_Dip`?* If no, it is a position being tolerated,
+not a keeper. Answerable while calm, which is the only time the answer is
+worth anything.
+
+**Observation that prompted it:** 🔒 fenced today is AMD, BE, GOOG, META,
+MSTR, MU, TSLA — 40% of the book. ARKB ($107k, the single largest holding),
+IBIT ($24k) and HODL ($10k) are **not** fenced, so 42% of the book sits in
+bitcoin vehicles carrying no mark of any kind.
+
 ### How the reminders work
 `reminders.csv` lives in the REPO, not machine-local state: a reminder that
 vanished with an SD card would be worse than none.

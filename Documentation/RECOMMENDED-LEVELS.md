@@ -131,26 +131,47 @@ would be noise wearing a price.
 
 ---
 
-## 4. Fenced changes the mode
+## 4. Fenced changes the mode — and fenced is NOT a keeper flag
 
-**A ticker cannot sensibly carry both a stop and a dip bid — they are opposite
-intents.** Measured: the dip level landed *below* the stop on 36 of 128 names,
-because Supertrend often sits above structural support. HOOD is the clean
-case — Supertrend says exit at 104.92 while structural support is 101.71, so
-bidding 102.50 while holding a stop at 104.92 is incoherent.
+**Fencing means "when this sells, keep the proceeds earmarked to this ticker
+so I can pick it up later."** It *presumes* a sale. It says nothing about
+wanting to hold through a decline — Chakravarti's own words, 2026-10-01:
 
-Chakravarti's own IA house rules settle it: **"Always Hedge", not always
-stop.** A core holding is not stopped out; it is hedged and added to.
+> "fenced still does not mean i want to keep when its going down. It just
+> means later i might pick it up."
+
+That matters here because the dip level lands *below* the stop on 36 of 128
+names (Supertrend often sits above structural support). HOOD is the clean
+case: Supertrend says exit at 104.92 while structural support is 101.71.
 
 | | Rec_Stop | Rec_Dip |
 |---|---|---|
-| 🔒 **Fenced** (core) | advisory — a thesis-break line, not an order | **primary**, never suppressed |
-| not fenced (trade) | **primary** | suppressed when it falls below the stop |
+| 🔒 **fenced** | a real level | **kept** — it is the re-entry half of a round trip |
+| not fenced | a real level | suppressed when it falls below the stop |
 
-Fencing is recorded per (ticker, account), but these levels are a property of
-the **stock**, so a ticker fenced in *any* account is treated as core. One pair
-of rows per block, not per account — unlike the coverage flags above them,
-which are per (ticker, account) because an order exists in exactly one.
+For a fenced ticker the two are not contradictory, they are **one rotation**:
+out at the stop, back in at the dip, with the money already set aside to do
+it. That is LILO. Unfenced there is no earmarked re-entry money, so the same
+pair really is incoherent — you would be buying at the level that just told
+you to sell — and the dip is dropped.
+
+Fencing is recorded per (ticker, account); these levels are a property of the
+**stock**, so a ticker fenced in *any* account is treated as fenced here. One
+pair of rows per block, not per account — unlike the coverage flags above
+them, which are per (ticker, account) because an order exists in exactly one.
+
+### There is no keeper concept in this system
+
+Nothing in `recommend.py` means "hold through a drawdown". Every held ticker
+gets a `Rec_Stop`, and the module emits **no size** — a stop level says where
+the thesis is broken, not how much to sell. At 1.5–4 ATR these levels get
+tagged by ordinary noise several times a year on the volatile names, so
+reading every one as "sell everything" would churn exactly the positions worth
+keeping.
+
+If a genuine never-stop-out list is wanted it has to be a **separate flag**,
+because fencing already means something else. Open item in
+[PROJECT_PLAN.md](PROJECT_PLAN.md) §6.
 
 ---
 

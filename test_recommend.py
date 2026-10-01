@@ -91,6 +91,10 @@ side_invariants("MSTX-like", r, 18.85)
 print("\n── the fenced-mode decision ──")
 # HOOD is the measured case: Supertrend (104.92) sits ABOVE structural support
 # (101.71), so the dip level lands under the stop.
+#
+# Fenced keeps the dip because fencing earmarks the proceeds for a RE-ENTRY —
+# stop and dip are one planned round trip. It does NOT mean "hold through the
+# fall": the stop is identical either way, which the third check asserts.
 hood = dict(price=116.26, atr=3.78, supertrend=104.92, supertrend_signal="BUY",
             nearest_support=101.71, nearest_resistance=125.25,
             mrc_zone="Above_Mean", mrc_r1=117.46, mrc_mean=98.23, mrc_s1=79.00,
