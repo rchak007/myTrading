@@ -1,6 +1,8 @@
 # data/stocks.py
 from __future__ import annotations
 
+import os
+
 import requests
 import numpy as np
 import pandas as pd
@@ -96,23 +98,45 @@ def fetch_current_price(ticker: str) -> float:
 
     return np.nan
 
-def fetch_stock_1d_df(ticker: str, lookback_days: int = 450) -> pd.DataFrame | None:
+# Minimum daily bars before a ticker is worth computing at all.
+#
+# Was 120, which silently excluded any stock that IPO'd within the last six
+# months — CBRS and PBLS never appeared in the signals table at all, no row and
+# no warning. Nothing needed 120: the long-window scores are already guarded,
+# initialised to NaN and written as 0/NaN when absent.
+#
+# 60 covers every core indicator with margin — RSI 14, Supertrend ATR 10,
+# ADXR 14+14 ≈ 28 — and lets Score_30 and Score_60 populate. The 90 and 120
+# windows come back blank, which is honest: the history genuinely is not there.
+MIN_BARS = int(os.getenv("MIN_DAILY_BARS", "60"))
+
+
+def fetch_stock_1d_df(ticker: str, lookback_days: int = 450,
+                      log=None) -> pd.DataFrame | None:
+    """Daily OHLCV, or None with a REASON logged.
+
+    Returning None silently is how three tickers sat in STOCK_TICKERS for
+    months producing nothing while looking configured.
+    """
+    def _say(why):
+        if log:
+            log(f"   {ticker}: no signals — {why}")
+        return None
+
     try:
         raw = yf.download(ticker, period=f"{lookback_days}d", interval="1d", progress=False)
-       
         if raw is None or raw.empty:
-            return None
+            return _say("no price data returned (wrong symbol, or delisted?)")
         raw = _fix_yf_cols(raw)
         df = raw[["High", "Low", "Close", "Volume"]].dropna()
-        if ticker == 'BMNR':
-            print("len(df) = ", len(df))         
-        if df.empty or len(df) < 120:
-            return None
+        if df.empty:
+            return _say("price data had no usable rows")
+        if len(df) < MIN_BARS:
+            return _say(f"only {len(df)} daily bar(s), need {MIN_BARS} "
+                        f"(recent IPO?)")
         return df
-    except Exception:
-        if ticker == 'BMNR':
-            print("BMNR error - fetch_stock_1d_df")
-        return None
+    except Exception as e:
+        return _say(f"{type(e).__name__}: {e}")
 
 
 def _fetch_spy_close(lookback_days: int = 450) -> pd.Series | None:
@@ -166,14 +190,11 @@ def build_stocks_signals_table(
     # Fetch SPY data once for all stocks if scoring is enabled
     spy_close = _fetch_spy_close() if include_scoring else None
 
+    skipped = []
     for t in tickers:
-        if t == 'BMNR':
-            print("BMNR reached") 
-        base = fetch_stock_1d_df(t)
+        base = fetch_stock_1d_df(t, log=lambda m: skipped.append(m))
         if base is None:
             continue
-        if t == 'BMNR':
-            print("BASE = ", base)         
         df = apply_indicators(
             base,
             atr_period=atr_period,

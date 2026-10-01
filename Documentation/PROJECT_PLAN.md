@@ -657,8 +657,13 @@ row stays as a record it was finished.
 
 ### 🔁 OUTSTANDING — streamline Chitra's stocks
 `CHITRA_TICKERS` in `app.py` — 12 symbols. Asked 2026-09-30, on the same
-2-day reminder. Known starting point: **CBRS returns no data at all** (see §7),
-so it is either a wrong symbol or delisted.
+2-day reminder.
+
+**Partly explained 2026-09-30.** CBRS and PBLS are recent IPOs, and
+`fetch_stock_1d_df` required **120 daily bars** — so any stock listed within
+the last six months was dropped entirely, no row and no warning. Lowered to 60
+(`MIN_DAILY_BARS`), and skipped tickers now say why. Whether they now produce
+signals depends on how recent the listing is; SATS remains unexplained.
 
 Strike with `reminders.py --done streamline-chitra`.
 
