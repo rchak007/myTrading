@@ -45,6 +45,8 @@ The tunables, all in ATR multiples, live at the top of `core/recommend.py`:
 | `TRIM3_MAX_ATR` | 16.0 | ceiling for the final third — it is allowed to reach |
 | `HARD_STOP_MULT` | 1.5 | the disaster stop, as a multiple of the soft distance |
 | `HARD_STOP_MIN_ATR` / `HARD_STOP_MAX_ATR` | 3.0 / 8.0 | never nearer, never further |
+| `STOP_LADDER_SPAN_ATR` | 2.0 | **the ladder needs room to be a ladder** — see below |
+| `STOP_RUNG_GAP_ATR` | 0.6 | minimum clearance for the middle rung |
 | `DIP_GAP_ATR` | 0.5 | a re-entry must sit meaningfully below the stop |
 | `DIP_MIN_ATR` | 1.0 | nearer than this is not a dip |
 | `BRK_MIN_ATR` | 0.5 | |
@@ -101,6 +103,24 @@ close-confirmed, so wicks cannot reach them. ③ is a resting Schwab stop — a
 touch trigger, and a **full exit**. Leaving a third on through a crash because
 "the ladder says a third at a time" is exactly the wrong lesson to draw from
 scaling out.
+
+**The ladder needs room to be a ladder.** Proportional growth alone collapses
+when the soft stop is tight: 1.5× of a 1.5-ATR stop is 2.25 ATR, which left
+the three rungs 0.75 ATR apart — TSLA came out **338.98 / 330.53 / 322.07**,
+all three of which trigger in the same two-day move. That is one stop with
+extra steps, and Chakravarti spotted it on sight (2026-10-01).
+
+So the hard stop takes the **widest** of three terms:
+
+```
+hard_distance = max( soft_distance × 1.5
+                   , soft_distance + 2·ATR     ← guarantees the span
+                   , 3·ATR )          capped at 8·ATR
+```
+
+Measured after the fix: gaps run 0.60–1.39 ATR, median **1.00** — a full day's
+range between rungs, so price can plausibly stop between them. TSLA now reads
+339.01 / 327.75 / 316.47 (−4.8% / −7.9% / −11.1%).
 
 `Rec_Stop2` prefers a **real shelf** between the other two — the next
 structural level down is where a decline actually pauses — and falls back to

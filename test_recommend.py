@@ -102,8 +102,29 @@ check("hard stop sits BELOW the soft stop", r.Rec_Stop_Hard < r.Rec_Stop,
 check("the middle rung sits between them",
       r.Rec_Stop_Hard < r.Rec_Stop2 < r.Rec_Stop,
       f"{r.Rec_Stop_Hard} / {r.Rec_Stop2} / {r.Rec_Stop}")
-check("hard stop is 1.5x the soft distance (6.0 → 91.0)",
-      abs(r.Rec_Stop_Hard - 91.0) < 1e-9, repr(r.Rec_Stop_Hard))
+# soft is 6.0 away; 1.5x gives 9.0, span needs 6.0+2*2.0=10.0 → span wins.
+check("the span term widens a ladder that 1.5x would leave cramped",
+      abs(r.Rec_Stop_Hard - 90.0) < 1e-9, repr(r.Rec_Stop_Hard))
+check("every rung is at least 1 ATR from its neighbour",
+      (r.Rec_Stop - r.Rec_Stop2) >= 2.0 - 1e-9
+      and (r.Rec_Stop2 - r.Rec_Stop_Hard) >= 2.0 - 1e-9,
+      f"{r.Rec_Stop} / {r.Rec_Stop2} / {r.Rec_Stop_Hard}")
+
+# TSLA 2026-10-01, the case that exposed this. Supertrend clamped to the
+# 1.5-ATR floor dragged the whole ladder into 1.5 ATR: three rungs 0.75 ATR
+# apart, all of which trigger in the same two-day move.
+tsla = recommend(355.92, 11.27, supertrend=352.0, supertrend_signal="BUY",
+                 nearest_support=330.0, nearest_resistance=384.04,
+                 mrc_zone="🔵 Near_Mean", mrc_r1=414.46, mrc_r2=482.11,
+                 mrc_mean=366.65, mrc_s1=318.84, mrc_s2=251.19,
+                 ath=498.83, score=23, structure="BULLISH", regime="BEAR")
+gaps = (tsla.Rec_Stop - tsla.Rec_Stop2, tsla.Rec_Stop2 - tsla.Rec_Stop_Hard)
+check("TSLA: the ladder spans at least 2 ATR",
+      (tsla.Rec_Stop - tsla.Rec_Stop_Hard) >= 2.0 * 11.27 - 0.02,
+      f"span {tsla.Rec_Stop - tsla.Rec_Stop_Hard:.2f} vs 2 ATR = {2*11.27:.2f}")
+check("TSLA: no rung is within 0.6 ATR of its neighbour",
+      min(gaps) >= 0.6 * 11.27 - 0.02,
+      f"gaps {gaps[0]:.2f} / {gaps[1]:.2f}  (0.6 ATR = {0.6*11.27:.2f})")
 # A tight soft stop still needs real room before "disaster" is the right word.
 tight = recommend(100.0, 2.0, supertrend=99.0, supertrend_signal="BUY",
                   mrc_zone="Above_Mean", mrc_r1=112.0, score=10)

@@ -93,6 +93,13 @@ STOP_FALLBACK_ATR = 2.5   # pure-volatility stop when no structure survives
 HARD_STOP_MULT = 1.5      # the disaster stop, as a multiple of the soft distance
 HARD_STOP_MIN_ATR = 3.0   # ...but never nearer than this
 HARD_STOP_MAX_ATR = 8.0   # ...and never further
+# THE LADDER NEEDS ROOM TO BE A LADDER. With three rungs, a span of 2 ATR puts
+# a full day's range between each — enough that price can plausibly stop
+# between them. Without this, a soft stop clamped to STOP_MIN_ATR dragged the
+# whole ladder into 1.5 ATR: TSLA came out 338.98 / 330.53 / 322.07, three
+# rungs 0.75 ATR apart that would all trigger in the same two-day move.
+STOP_LADDER_SPAN_ATR = 2.0
+STOP_RUNG_GAP_ATR = 0.6   # minimum clearance for the middle rung
 TRIM_MIN_ATR = 1.0
 TRIM_MAX_ATR = 8.0        # ceiling for the FIRST trim
 TRIM3_MAX_ATR = 16.0      # ceiling for the final third — it is allowed to reach
@@ -261,13 +268,20 @@ def recommend(price, atr, *,
     # third on through a crash because the ladder said "a third at a time" is
     # exactly the wrong lesson to take from scaling out.
     if soft_stop is not None:
-        hard = p - max((p - soft_stop) * HARD_STOP_MULT, a * HARD_STOP_MIN_ATR)
+        soft_dist = p - soft_stop
+        # The span term is what keeps the rungs apart. Proportional growth
+        # alone collapses when the soft stop is tight: 1.5x of 1.5 ATR is
+        # 2.25 ATR, so the whole ladder lived inside 0.75 ATR gaps.
+        hard = p - max(soft_dist * HARD_STOP_MULT,
+                       soft_dist + a * STOP_LADDER_SPAN_ATR,
+                       a * HARD_STOP_MIN_ATR)
         hard = max(hard, p - a * HARD_STOP_MAX_ATR)
         if 0 < hard < soft_stop:
             r.Rec_Stop_Hard = hard
             # The middle rung must be meaningfully clear of BOTH neighbours —
             # three rungs inside one ATR is one stop pretending to be a plan.
-            lo, hi = hard + a * 0.4, soft_stop - a * 0.4
+            lo = hard + a * STOP_RUNG_GAP_ATR
+            hi = soft_stop - a * STOP_RUNG_GAP_ATR
             if hi > lo:
                 # Prefer REAL structure in that window: the next shelf down is
                 # where a decline actually pauses. A shelf that hugs the soft
