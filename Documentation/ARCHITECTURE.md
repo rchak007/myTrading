@@ -64,6 +64,7 @@ that produced the file.
 | `jobStocksSignals.py` | orchestrates everything on the `:15`/`:50` cycle. Owns paths, `log()`, `build_html_table()`, `get_schwab_client()`. ~9-10 min per run |
 | `app.py` | `STOCK_TICKERS` and the curated fund lists. Hand-maintained; `ticker_audit.py` finds holdings missing from it |
 | `core/`, `data/` | indicators, macro regime, signal construction, Schwab client helper |
+| `core/recommend.py` | the four advisory Rec_* price levels. **Pure** — no I/O, no clock, testable on Pi 2. See [RECOMMENDED-LEVELS.md](RECOMMENDED-LEVELS.md) |
 
 ### Sheets
 
@@ -103,6 +104,7 @@ that produced the file.
 | `reminders.py` | nags about `reminders.csv` until struck out. One email, all items, `reminder_notes/` pictures at the end |
 | `health_check.py` | cron lines, output freshness, token, trading state, P&L quality |
 | `smoke_test.py` | asserts every cross-module function still exists, and that the few cross-module *signatures* still take the arguments their callers pass. **Run before pushing** |
+| `test_recommend.py` | the recommendation formulas, every case a real trap from the live data |
 
 ### Probes
 
@@ -192,6 +194,7 @@ Each of these shipped, ran, and was wrong in a way nothing announced.
 | One intent placed **three** orders | `SUBMITTED` is a live state; the trigger stayed true and re-fired each tick |
 | A seed double-counted a sale | manual `seed` plus `apply_fills` crediting the same money |
 | A row skipped as history | `stamp_row_ids` recycled a spent Row_ID; the skip logged nothing |
+| A reverse-split ATH read as a high | FCEL's ATH field says 234,900 against a $16 price — a number, not an error |
 | Eleven months of P&L missing | `_fetch_chunk` returned `[]` on a non-200, indistinguishable from "no transactions" |
 
 **The common shape: a failure that looks like a normal result.** Hence the

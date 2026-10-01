@@ -21,6 +21,7 @@
 | doc | covers |
 |---|---|
 | [ordersSheetDesign-9-18-26.md](ordersSheetDesign-9-18-26.md) | The orders sheet and the execution engine. **Current and authoritative** for everything order-related |
+| [RECOMMENDED-LEVELS.md](RECOMMENDED-LEVELS.md) | The four Rec_* levels on the Dashboard: the formulas, the traps in the data, and why fencing changes the mode |
 | [orderExecutionDesign-9-7-26.md](orderExecutionDesign-9-7-26.md) | The original hardened-engine design. **Partly superseded** — its HMAC scheme was dropped; its ledger, state machine and kill switch were built as written |
 | [remoteOpsGuide-9-7-26.md](remoteOpsGuide-9-7-26.md) | Driving Pi 1 from a phone. Verb allowlist, row rules, Schwab re-auth |
 | [CASH_RESERVE_HANDOFF.md](CASH_RESERVE_HANDOFF.md) | Per-ticker cash reserves: the ledger, the policies, the gate |

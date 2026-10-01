@@ -20,12 +20,15 @@ EXPECTED = {
     "token_watch": ["send", "load_mail_env", "read_from_sheet", "compose",
                     "mail_env_path", "recently_sent", "mark_sent"],
     "reminders": ["read_rows", "write_rows", "due", "compose", "notes_images"],
+    "core.recommend": ["recommend", "recommend_row", "attach", "tick_round", "Rec"],
 }
 
 # Signatures another module actually calls through. A name that still exists
 # with the keyword removed passes the hasattr check above and fails at send
 # time — which for a reminder means silence, the one failure nobody notices.
-SIGNATURES = {("token_watch", "send"): ["subject", "body", "images"]}
+SIGNATURES = {("token_watch", "send"): ["subject", "body", "images"],
+              ("orders_sheet", "build_dashboard"): ["signals_df", "fenced"],
+              ("core.recommend", "recommend"): ["price", "atr", "fenced"]}
 
 bad = 0
 for mod, names in EXPECTED.items():

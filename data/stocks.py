@@ -286,6 +286,10 @@ def build_stocks_signals_table(
         row.update({
             "Supertrend": round(float(last["Supertrend"]), 2) if pd.notna(last["Supertrend"]) else np.nan,
             "Supertrend Signal": st_sig,
+            # NOT rounded to 2dp like the rest. ATR is a distance, not a price:
+            # on a sub-dollar ticker 2dp quantises it to uselessness, and every
+            # recommended level is a multiple of it.
+            "ATR": round(float(last["ATR"]), 4) if pd.notna(last.get("ATR")) else np.nan,
             "RSI": round(float(last["RSI"]), 2) if pd.notna(last["RSI"]) else np.nan,
             "MOST MA": round(float(last["MOST_MA"]), 2) if pd.notna(last["MOST_MA"]) else np.nan,
             "MOST Line": round(float(last["MOST_Line"]), 2) if pd.notna(last["MOST_Line"]) else np.nan,
@@ -319,7 +323,7 @@ def build_stocks_signals_table(
             "Score_30", "Score_60", "Score_90", "Score_120", "Score_Weighted",
             "%RET30", "%RET60", "%RET90", "%RET120",
             "Earnings_Alert", "Market_Cap_M",
-             "Supertrend Signal", "RSI",
+             "Supertrend Signal", "ATR", "RSI",
             "MOST MA", "MOST Line", "MOST Signal",
             "ADXR State", "ADXR Signal", "Volume",
             "Supertrend+Vol Signal", "Combined Signal", "Full Combined",
@@ -333,8 +337,11 @@ def build_stocks_signals_table(
         sig_col = "SIGNAL-Super-MOST-ADXR"
         if sig_col in base_order:
             base_order.insert(base_order.index(sig_col) + 1, "Market_Cap")
-        # Append MRC block to the end
-        mrc_cols = ["MRC_Zone", "MRC_Dist_Pct", "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2"]
+        # Append MRC block to the end. ATR rides along — recommend.py needs it
+        # on BOTH paths, and leaving it off this one would make the
+        # recommendations silently vanish whenever scoring is disabled.
+        mrc_cols = ["ATR", "MRC_Zone", "MRC_Dist_Pct",
+                    "MRC_R2", "MRC_R1", "MRC_Mean", "MRC_S1", "MRC_S2"]
         for c in mrc_cols:
             if c not in base_order:
                 base_order.append(c)

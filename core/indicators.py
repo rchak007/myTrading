@@ -47,12 +47,18 @@ def compute_supertrend(
     Adds:
       - Supertrend (line)
       - Supertrend_Signal (BUY/SELL)
+      - ATR (the Wilder ATR this is built from)
+
+    ATR is exported rather than discarded because it is the natural unit for
+    every distance downstream. A 5% stop on a 2%-ATR name and a 5% stop on a
+    6%-ATR name are not the same trade, and percent hides that.
     """
     out = df.copy()
 
     if out.empty or len(out) < atr_period + 2:
         out["Supertrend"] = np.nan
         out["Supertrend_Signal"] = "SELL"
+        out["ATR"] = np.nan
         return out
 
     high = out["High"].astype(float)
@@ -96,6 +102,7 @@ def compute_supertrend(
 
     out["Supertrend"] = np.where(trend == 1, up, dn)
     out["Supertrend_Signal"] = np.where(trend == 1, "BUY", "SELL")
+    out["ATR"] = atr
     return out
 
 
