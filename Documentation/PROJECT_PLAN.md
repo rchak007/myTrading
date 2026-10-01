@@ -667,6 +667,22 @@ signals depends on how recent the listing is; SATS remains unexplained.
 
 Strike with `reminders.py --done streamline-chitra`.
 
+### 🔁 OUTSTANDING — sell covered calls at the top
+On assets actually worth holding. Premium when the asset is stretched; the risk
+is the shares being called away, so strikes have to be placed to keep the core
+position. Asked 2026-09-30, same 2-day reminder.
+
+### 🔁 OUTSTANDING — sell cash-secured puts at the bottom
+Only on assets genuinely wanted at that strike — assignment means buying them,
+so the strike must be a price worth paying. Asked 2026-09-30, same reminder.
+
+**Note for whenever these move from idea to practice:** the order engine is
+equity-only. `assetType: EQUITY` is hardcoded in the order payload, and the
+coverage flags do not understand option legs — a covered call would be
+invisible on the Dashboard while still reserving the shares against it, so a
+close-triggered sell could fail the same way a resting trim does. Not a problem
+today; it would be on day one of doing this through the system.
+
 ### How the reminders work
 `reminders.csv` lives in the REPO, not machine-local state: a reminder that
 vanished with an SD card would be worse than none.
