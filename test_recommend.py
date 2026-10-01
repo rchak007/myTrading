@@ -84,31 +84,101 @@ side_invariants("SOFI", r, 15.92)
 r = recommend(18.85, 1.4, supertrend=16.0, supertrend_signal="BUY",
               nearest_support=None, nearest_resistance=None,
               mrc_zone="Below_Mean", mrc_mean=None, mrc_s1=-0.42, score=10)
-check("negative MRC_S1 (-0.42) never becomes a dip level", r.Rec_Dip is None,
-      repr(r.Rec_Dip))
+check("negative MRC_S1 (-0.42) never becomes a dip level",
+      r.Rec_Dip is None or r.Rec_Dip > 0, repr(r.Rec_Dip))
+check("...and the ladder still produces something usable",
+      r.Rec_Dip is None or 0 < r.Rec_Dip < 18.85, repr(r.Rec_Dip))
 side_invariants("MSTX-like", r, 18.85)
 
-print("\n── the fenced-mode decision ──")
-# HOOD is the measured case: Supertrend (104.92) sits ABOVE structural support
-# (101.71), so the dip level lands under the stop.
-#
-# Fenced keeps the dip because fencing earmarks the proceeds for a RE-ENTRY —
-# stop and dip are one planned round trip. It does NOT mean "hold through the
-# fall": the stop is identical either way, which the third check asserts.
-hood = dict(price=116.26, atr=3.78, supertrend=104.92, supertrend_signal="BUY",
-            nearest_support=101.71, nearest_resistance=125.25,
-            mrc_zone="Above_Mean", mrc_r1=117.46, mrc_mean=98.23, mrc_s1=79.00,
-            ath=153.86, score=44, structure="BULLISH", regime="BULL")
-unf = recommend(**hood, fenced=False)
-fen = recommend(**hood, fenced=True)
-check("HOOD unfenced: dip suppressed as below-stop",
-      unf.Rec_Dip is None and unf.Dip_Basis == "below-stop", unf.Dip_Basis)
-check("HOOD fenced: dip survives", fen.Rec_Dip is not None, fen.Dip_Basis)
-check("HOOD: the stop is identical either way",
-      unf.Rec_Stop == fen.Rec_Stop, f"{unf.Rec_Stop} vs {fen.Rec_Stop}")
-check("HOOD fenced dip sits just above the pivot",
-      fen.Rec_Dip is not None and 101.71 < fen.Rec_Dip < 103.5, repr(fen.Rec_Dip))
-side_invariants("HOOD fenced", fen, 116.26)
+print("\n── two stops: close-confirmed, then disaster ──")
+# A resting Schwab stop is a TOUCH trigger — one wick takes you out at the
+# worst price of the day. The soft stop goes in the Orders tab (close
+# confirmed); the hard one rests at Schwab, further out, for disasters only.
+r = recommend(100.0, 2.0, supertrend=94.0, supertrend_signal="BUY",
+              nearest_support=93.0, mrc_zone="Above_Mean", mrc_r1=112.0, score=10)
+check("soft stop is the technical level", abs(r.Rec_Stop - 94.0) < 1e-9, repr(r.Rec_Stop))
+check("hard stop sits BELOW the soft stop", r.Rec_Stop_Hard < r.Rec_Stop,
+      f"{r.Rec_Stop_Hard} vs {r.Rec_Stop}")
+check("hard stop is 1.5x the soft distance (6.0 → 91.0)",
+      abs(r.Rec_Stop_Hard - 91.0) < 1e-9, repr(r.Rec_Stop_Hard))
+# A tight soft stop still needs real room before "disaster" is the right word.
+tight = recommend(100.0, 2.0, supertrend=99.0, supertrend_signal="BUY",
+                  mrc_zone="Above_Mean", mrc_r1=112.0, score=10)
+check("a tight soft stop does not give a tight hard stop",
+      tight.Rec_Stop_Hard <= 100.0 - 2.0 * 3.0 + 1e-9,
+      f"soft {tight.Rec_Stop} hard {tight.Rec_Stop_Hard}")
+check("hard stop is capped at HARD_STOP_MAX_ATR",
+      (lambda x: x.Rec_Stop_Hard >= 100.0 - 2.0 * 8.0 - 1e-9)(
+          recommend(100.0, 2.0, nearest_support=60.0, supertrend_signal="SELL",
+                    mrc_zone="Above_Mean", mrc_r1=112.0, score=10)))
+check("no soft stop → no hard stop", recommend(100.0, None).Rec_Stop_Hard is None)
+
+print("\n── the dip ladder, and its two tiers ──")
+# THE CASE THAT PROMPTED THIS. PLTR had a real pivot at 164.55 under a 171.78
+# Supertrend stop, and the first version threw it away as "below-stop". The
+# stop protects shares you HOLD; the dip deploys FRESH capital. Different money.
+pltr = recommend(186.82, 5.98, supertrend=171.78, supertrend_signal="BUY",
+                 nearest_support=164.55, nearest_resistance=194.68,
+                 mrc_zone="🟠 OB", mrc_r1=170.59, mrc_r2=203.04,
+                 mrc_mean=147.66, mrc_s1=124.73, mrc_s2=92.28,
+                 ath=207.52, score=50, structure="MIXED", regime="BULL")
+check("PLTR: dip is populated, not blank", pltr.Rec_Dip is not None, pltr.Dip_Basis)
+check("PLTR: dip is tagged a re-entry (it sits below the stop)",
+      pltr.Dip_Basis.startswith("re:"), pltr.Dip_Basis)
+check("PLTR: dip is at the 164.55 pivot the old version discarded",
+      164.5 < pltr.Rec_Dip < 167.0, repr(pltr.Rec_Dip))
+side_invariants("PLTR", pltr, 186.82)
+
+# AEHR: the pivot is too near AND the next band is 40% down. Only the ATR
+# ladder saves this one — proof that a single failed candidate must not blank.
+aehr = recommend(99.10, 8.42, supertrend=105.67, supertrend_signal="SELL",
+                 nearest_support=92.38, nearest_resistance=None,
+                 mrc_zone="🔵 Near_Mean", mrc_r1=133.47, mrc_mean=96.40,
+                 mrc_s1=59.29, mrc_s2=6.77, score=30,
+                 structure="MIXED", regime="BULL")
+check("AEHR: ladder finds a level where the pivot was too near",
+      aehr.Rec_Dip is not None, aehr.Dip_Basis)
+side_invariants("AEHR", aehr, 99.10)
+
+# An add tier exists when a rung sits ABOVE the stop.
+add = recommend(100.0, 2.0, supertrend=88.0, supertrend_signal="BUY",
+                nearest_support=95.0, mrc_zone="Above_Mean", mrc_r1=112.0,
+                mrc_s1=80.0, score=10)
+check("a rung above the stop is tagged an add", add.Dip_Basis.startswith("add:"),
+      add.Dip_Basis)
+check("both tiers populate when both exist",
+      add.Rec_Dip is not None and add.Rec_Dip2 is not None,
+      f"{add.Rec_Dip} / {add.Rec_Dip2}")
+check("the second dip is deeper than the first", add.Rec_Dip2 < add.Rec_Dip,
+      f"{add.Rec_Dip} / {add.Rec_Dip2}")
+check("a broken name still gets no bid",
+      recommend(100.0, 2.0, nearest_support=95.0, mrc_zone="Below_Mean",
+                mrc_mean=110.0, structure="BEARISH", regime="BEAR"
+                ).Rec_Dip is None)
+
+print("\n── trim in thirds ──")
+lad = recommend(100.0, 2.0, supertrend=90.0, supertrend_signal="BUY",
+                nearest_support=95.0, nearest_resistance=108.0,
+                mrc_zone="Above_Mean", mrc_r1=112.0, mrc_r2=130.0, score=10)
+check("three trim levels", None not in (lad.Rec_Trim, lad.Rec_Trim2, lad.Rec_Trim3),
+      f"{lad.Rec_Trim}/{lad.Rec_Trim2}/{lad.Rec_Trim3}")
+check("the ladder ascends", lad.Rec_Trim < lad.Rec_Trim2 < lad.Rec_Trim3,
+      f"{lad.Rec_Trim}/{lad.Rec_Trim2}/{lad.Rec_Trim3}")
+check("the far third reaches MRC_R2", abs(lad.Rec_Trim3 - 130.0) < 1e-9,
+      repr(lad.Rec_Trim3))
+check("the middle third splits the difference",
+      abs(lad.Rec_Trim2 - (lad.Rec_Trim + lad.Rec_Trim3) / 2) < 0.01)
+check("no first trim → no ladder at all",
+      (lambda x: x.Rec_Trim is None and x.Rec_Trim2 is None and x.Rec_Trim3 is None)(
+          recommend(100.0, 2.0, mrc_zone="Below_Mean", mrc_mean=None)))
+
+print("\n── earnings ──")
+from core.recommend import earnings_soon     # noqa: E402
+check("a set alert reads as soon", earnings_soon({"Earnings_Alert": "🔴 EARNINGS SOON"}))
+check("an empty alert does not", not earnings_soon({"Earnings_Alert": ""}))
+check("a missing column does not", not earnings_soon({}))
+check("a NaN read back from CSV does not",
+      not earnings_soon({"Earnings_Alert": float("nan")}))
 
 print("\n── trim follows the zone ──")
 base = dict(atr=2.0, supertrend=90.0, supertrend_signal="BUY",

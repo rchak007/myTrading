@@ -572,6 +572,23 @@ ORD_HDR = ["Acct", "Side", "Type", "Qty", "Limit_Price", "Stop_Price",
 DASH_WIDTH = 1 + len(POS_HDR)          # column A holds the ticker label
 
 
+def _earnings_tickers(signals_df, held: set) -> list:
+    """Held tickers with earnings inside the alert window, sorted.
+
+    Degrades to [] on anything unexpected: a formatting nicety must never be
+    the reason the Dashboard fails to write.
+    """
+    if signals_df is None or getattr(signals_df, "empty", True):
+        return []
+    try:
+        from core.recommend import earnings_soon
+        return sorted({str(r["Ticker"]).upper() for _, r in signals_df.iterrows()
+                       if str(r.get("Ticker", "")).upper() in held
+                       and earnings_soon(r)})
+    except Exception:
+        return []
+
+
 def _rec_rows(ticker, price, signals_df, is_fenced, pos_width):
     """The two RECOMMENDED lines for one block: headers, then levels.
 
@@ -586,23 +603,29 @@ def _rec_rows(ticker, price, signals_df, is_fenced, pos_width):
     if signals_df is None or getattr(signals_df, "empty", True):
         return []
     try:
-        from core.recommend import recommend_row, FIELDS
+        from core.recommend import (recommend_row, earnings_soon,
+                                    TIER1, TIER2, TIER3, ALL_LEVELS)
     except Exception:
         return []
     m = signals_df[signals_df["Ticker"].astype(str).str.upper() == ticker]
     if m.empty:
         return []
-    rec = recommend_row(m.iloc[0], fenced=is_fenced, price=price)
-    if all(getattr(rec, f) is None for f in FIELDS):
+    row0 = m.iloc[0]
+    rec = recommend_row(row0, fenced=is_fenced, price=price)
+    if all(getattr(rec, f) is None for f in ALL_LEVELS):
         return []
 
-    atr = _num(m.iloc[0].get("ATR"))
+    atr = _num(row0.get("ATR"))
     note = (f"ATR {atr:,.2f} ({100 * atr / price:.1f}%)" if atr >= 1
             else f"ATR {atr:.4f} ({100 * atr / price:.1f}%)") if atr and price else ""
-    # The basis rides in the label column rather than on a third line. Without
+    # The basis rides in the label column rather than on its own line. Without
     # it the numbers are unfalsifiable — you cannot tell a structural stop from
     # a volatility fallback, and the two deserve different confidence.
     note = " · ".join(x for x in (note, rec.basis_summary()) if x)
+    if earnings_soon(row0):
+        # Earnings is the one event that defeats a close-confirmed stop: the
+        # gap happens before any close can confirm anything.
+        note += "  ⚠️ EARNINGS SOON — a gap jumps the close-confirmed stop"
 
     # Columns J..M, matching Has_Stop..Has_Breakout exactly above them: the
     # flag says whether an order EXISTS, the level says where one WOULD go.
@@ -611,14 +634,18 @@ def _rec_rows(ticker, price, signals_df, is_fenced, pos_width):
     def line(label, vals):
         row = [""] * pos_width
         row[1] = label
-        row[at:at + 4] = vals
+        row[at:at + 4] = ["—" if v is None else v for v in vals]
         return row
 
-    return [
-        line("RECOMMENDED", ["Rec_Stop", "Rec_Trim", "Rec_Dip", "Rec_Breakout"]),
-        line(note, [getattr(rec, f) if getattr(rec, f) is not None else "—"
-                    for f in FIELDS]),
-    ]
+    out = [line("RECOMMENDED", list(TIER1)),
+           line(note, rec.tier(TIER1))]
+    # Tiers 2 and 3 only when they carry something. A block that is one level
+    # deep should not grow two rows of dashes to say so.
+    for which, label in ((TIER2, "↓ hard stop · trim ⅔ · deeper bid"),
+                         (TIER3, "↓ final third")):
+        if any(v is not None for v in rec.tier(which)):
+            out.append(line(label, rec.tier(which)))
+    return out
 
 
 def build_dashboard(positions: pd.DataFrame, orders_df=None,
@@ -642,7 +669,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     # missing trim on a position actually held. The point is discipline: an
     # unprotected holding should be impossible to scroll past.
     marks = {"ticker": [], "label": [], "header": [], "title": [],
-             "warn": [], "rec": []}
+             "warn": [], "rec": [], "warn_row": []}
 
     def col_of(field: str) -> str:
         """Column letter for a POS_HDR field. Derived, because these shift:
@@ -662,6 +689,17 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     marks["title"].append(add(["DASHBOARD", f"updated {_now()}"]))
     add(["", f"{n_tickers} ticker(s) · read-only, regenerated every cycle · "
              f"ORDERS rows are live Schwab orders, not the Orders tab"])
+
+    # EARNINGS, up top as well as per block. Buried in a block it is found
+    # only by someone already scrolled to that ticker — and the whole point is
+    # to be seen before deciding anything.
+    held = set(positions.loc[positions["Acct"] != TOTAL, "Ticker"].astype(str))
+    due = _earnings_tickers(signals_df, held)
+    if due:
+        marks["warn_row"].append(
+            add(["", f"⚠️  EARNINGS SOON in {len(due)} held name(s): "
+                     f"{', '.join(due)} — a gap jumps a close-confirmed stop, "
+                     f"and the hard stop is what actually catches it"]))
     add([])
 
     # Biggest holdings first, by TOTAL market value across every account —
@@ -716,8 +754,13 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         is_fenced = any(t == ticker for _acct, t in fenced)
         rec_lines = _rec_rows(ticker, px, signals_df, is_fenced, DASH_WIDTH)
         if rec_lines:
-            marks["rec"].append(add(rec_lines[0]))
-            add(rec_lines[1])
+            first = add(rec_lines[0])
+            for extra in rec_lines[1:]:
+                add(extra)
+            # (first_row, how_many) so the painter colours the whole block —
+            # the tiers vary in number, so a fixed 2-row span would either
+            # miss a row or bleed onto the spacer below it.
+            marks["rec"].append((first, len(rec_lines)))
 
         add([])
         marks["label"].append(add(["", "ORDERS"]))
@@ -824,11 +867,17 @@ def _paint(ws, marks, log):
             ws.format([f"B{r}" for r in marks["label"]], yellow)
         if marks["header"]:
             ws.format([f"B{r}:{_last_col()}{r}" for r in marks["header"]], bold)
+        if marks.get("warn_row"):
+            ws.format([f"A{r}:{_last_col()}{r}" for r in marks["warn_row"]],
+                      {"backgroundColor": {"red": 1.0, "green": 0.90, "blue": 0.80},
+                       "textFormat": {"bold": True,
+                                      "foregroundColor": {"red": 0.60, "green": 0.15,
+                                                          "blue": 0.0}}})
         if marks.get("rec"):
             # Grey and italic, NOT the yellow used for ORDERS/labels. These are
             # advisory levels, not state — and nothing on this tab should look
             # like a resting order unless it is one.
-            ws.format([f"B{r}:{_last_col()}{r + 1}" for r in marks["rec"]],
+            ws.format([f"B{r}:{_last_col()}{r + n - 1}" for r, n in marks["rec"]],
                       {"backgroundColor": {"red": 0.94, "green": 0.94, "blue": 0.96},
                        "textFormat": {"italic": True,
                                       "foregroundColor": {"red": 0.30, "green": 0.30,

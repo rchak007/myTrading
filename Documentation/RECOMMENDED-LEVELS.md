@@ -4,12 +4,12 @@
 into four **price levels** per ticker, shown on the Dashboard between each
 block's holdings and its live orders.
 
-| | side | question it answers |
-|---|---|---|
-| **Rec_Stop** | SELL below | where is the thesis broken? |
-| **Rec_Trim** | SELL above | where is strength worth rotating out of? |
-| **Rec_Dip** | BUY below | where is weakness worth adding into? |
-| **Rec_Breakout** | BUY above | where is strength worth adding into? |
+| | tier 1 | tier 2 | tier 3 |
+|---|---|---|---|
+| **STOP** | `Rec_Stop` — close-confirmed | `Rec_Stop_Hard` — disaster, resting | — |
+| **TRIM** | `Rec_Trim` | `Rec_Trim2` | `Rec_Trim3` |
+| **DIP** | `Rec_Dip` — add or re-entry | `Rec_Dip2` — the deeper one | — |
+| **BREAKOUT** | `Rec_Breakout` | — | — |
 
 They sit directly under `Has_Stop` / `Has_Trim` / `Has_Dip` / `Has_Breakout` on
 purpose. **The flag says whether an order exists; the level says where one
@@ -38,7 +38,11 @@ The tunables, all in ATR multiples, live at the top of `core/recommend.py`:
 | `STOP_MIN_ATR` | 1.5 | tighter than this is inside daily noise |
 | `STOP_MAX_ATR` | 4.0 | wider than this is not a stop, it is a hope |
 | `STOP_FALLBACK_ATR` | 2.5 | the pure-volatility stop when no structure survives |
-| `TRIM_MIN_ATR` / `TRIM_MAX_ATR` | 1.0 / 8.0 | |
+| `TRIM_MIN_ATR` / `TRIM_MAX_ATR` | 1.0 / 8.0 | ceiling for the FIRST trim |
+| `TRIM3_MAX_ATR` | 16.0 | ceiling for the final third — it is allowed to reach |
+| `HARD_STOP_MULT` | 1.5 | the disaster stop, as a multiple of the soft distance |
+| `HARD_STOP_MIN_ATR` / `HARD_STOP_MAX_ATR` | 3.0 / 8.0 | never nearer, never further |
+| `DIP_GAP_ATR` | 0.5 | a re-entry must sit meaningfully below the stop |
 | `DIP_MIN_ATR` | 1.0 | nearer than this is not a dip |
 | `BRK_MIN_ATR` | 0.5 | |
 | `PIVOT_CUSHION_ATR` | 0.25 | how far off a pivot to sit, either side |
@@ -66,7 +70,20 @@ marker, useless as an order level without zone gating.
 
 ## 3. The formulas
 
-### Rec_Stop
+### Rec_Stop — two stops, two mechanisms
+
+**A resting Schwab stop is a TOUCH trigger.** One wick takes you out at the
+worst price of the day, and you were right about the level. The Orders tab
+engine is CLOSE-triggered by construction, which wicks cannot reach.
+
+But close-confirmation is not free: it accepts **gap risk**. The night
+something halves, you sell at the next open, far below your level. So both, at
+two distances:
+
+| | mechanism | where it goes |
+|---|---|---|
+| `Rec_Stop` | close-confirmed | **Orders tab**, `SELL` / `CLOSE BELOW` |
+| `Rec_Stop_Hard` | touch | **a resting Schwab `STOP`**. Disaster only |
 
 ```
 floors = [ Supertrend                     if BUY mode and below price
@@ -74,6 +91,9 @@ floors = [ Supertrend                     if BUY mode and below price
 Rec_Stop = max(floors)                    # the highest real floor
 clamp to [price − 4·ATR, price − 1.5·ATR]
 no floors → price − 2.5·ATR               # basis "vol"
+
+Rec_Stop_Hard = price − max(1.5 × soft_distance, 3·ATR)
+clamp to price − 8·ATR
 ```
 
 `max`, not `min`: among valid floors the nearest one is the one whose break
@@ -82,9 +102,21 @@ actually means something. Choosing a lower one just donates the difference.
 The quarter-ATR cushion sits *below* the pivot because resting exactly on an
 obvious swing low is where stop runs are aimed.
 
-### Rec_Trim
+The hard stop is **proportional, not fixed**: a name whose technical level is
+already 4 ATR out does not need another 4 ATR on top, and one with a tight
+1.5 ATR stop needs more room than that before "disaster" is the right word.
+Measured across the book: soft stops sit a median −7.5% from price, hard stops
+−13.1%.
 
-The MRC zone **is** the stretch measurement, so it chooses the level:
+**Neither is a size.** At 1.5–4 ATR these get tagged by ordinary noise several
+times a year on the volatile names.
+
+### Rec_Trim — three levels, not one
+
+**A single trim level forces an all-or-nothing decision, and you will always
+feel you sold too early.** Three levels capture the move.
+
+The MRC zone **is** the stretch measurement, so it chooses the *first* level:
 
 | `MRC_Zone` | level | basis |
 |---|---|---|
@@ -98,18 +130,56 @@ The MRC zone **is** the stretch measurement, so it chooses the level:
 and for those R1 is not a plan — FCEL at 16.81 has R1 at 29.26, +74% away.
 Trimming there is a wish. Reverting to the mean is the realistic first exit.
 
-### Rec_Dip
+The other two thirds follow from it:
+
+```
+Rec_Trim3 = MRC_R2 if it is sane and beyond Rec_Trim, else price + 16·ATR
+Rec_Trim2 = midpoint of Rec_Trim and Rec_Trim3     # evenly spaced
+```
+
+Dropped entirely when `Rec_Trim3` would land within half an ATR of
+`Rec_Trim` — a ladder that tight is noise, not a plan.
+
+### Rec_Dip — a ladder, in two tiers
+
+The first version vetoed any dip below the stop, reasoning that bidding under
+your own stop is incoherent. **That was wrong.** The stop protects the shares
+you *hold*; the dip deploys *fresh* capital at a better price. Different money.
+
+Measured on 2026-10-01, that veto discarded real levels: PLTR had a pivot at
+164.55 under a 171.78 stop, CRDO had `MRC_S1` at 157.30 under a 169.09 stop.
+Both are exactly where you want a bid.
 
 ```
 Structure == BEARISH and Regime == BEAR  →  blank ("broken")
-base = max(Nearest_Support, MRC_S1)  below price
-Rec_Dip = base + 0.25·ATR                 # just ABOVE the pivot
-require Rec_Dip ≤ price − 1·ATR
+
+rungs: Nearest_Support, MRC_S1, MRC_S2, MRC_Mean   (+0.25·ATR each)
+       price − 2/3/4·ATR                           (volatility fallback)
+keep only rungs ≤ price − 1·ATR
+
+add tier      highest STRUCTURAL rung above the stop        → "add:…"
+re-entry tier highest rung below (stop − 0.5·ATR)           → "re:…"
+Rec_Dip  = the add tier if one exists, else the re-entry
+Rec_Dip2 = the other one, or the next rung deeper
 ```
 
-The cushion sits *above* the pivot, the mirror of the stop sitting below it:
+The cushion sits *above* each pivot, the mirror of the stop sitting below it:
 **one level, two sides, defined risk.** You want the fill before the crowd's
 stops trigger, not after.
+
+**Volatility rungs are a fallback, never a competitor.** A line at
+`price − 2·ATR` is not a level anyone else is watching, so it must not outrank
+a real pivot for being nearer — which it did on PLTR, where 174.86 beat the
+164.55 swing low until this was fixed.
+
+**The add tier requires structure, with no volatility fallback at all.**
+Adding at a vol rung that happens to sit above the stop is the worst of both:
+you buy, price keeps falling, and 1 ATR later the stop takes out the whole
+position including what you just added. If nothing structural holds above the
+stop, the honest answer is a re-entry, not an add.
+
+Result: `Rec_Dip` went from **36 of 128 populated to 96**. The remaining 32 are
+all `broken`, which is deliberate.
 
 ### Rec_Breakout
 
@@ -192,7 +262,10 @@ stop from a volatility fallback, and the two deserve different confidence.
 |---|---|
 | `ST` | the Supertrend line |
 | `pivot` | an HHLL structural level, offset by the cushion |
-| `R1` / `mean` | an MRC band |
+| `R1` / `mean` / `S1` / `S2` | an MRC band |
+| `add:…` | the dip sits ABOVE the stop — you still hold, this is an add |
+| `re:…` | the dip sits BELOW the stop — you were stopped out, this is the way back |
+| `2ATR` / `3ATR` / `4ATR` | a volatility rung. Nothing structural qualified |
 | `ATH` | the all-time high, having passed the 5× sanity check |
 | `vol` | no structure survived; pure ATR distance |
 | `at-mkt` | already maximally stretched |
@@ -202,6 +275,27 @@ stop from a volatility fallback, and the two deserve different confidence.
 The `~cap` suffix exists because a level reported as `pivot` that is really
 4 ATR of pure volatility is precisely the kind of plausible-looking wrong
 answer this system keeps getting bitten by.
+
+---
+
+## 5a. Earnings
+
+`Earnings_Alert` is computed by `data/stock_scoring.get_earnings_alert` and was
+previously unused. It now appears in two places:
+
+- **a banner at the top of the Dashboard**, listing every *held* ticker with
+  earnings inside the window. Buried in a block it would be found only by
+  someone already scrolled to that ticker, and the point is to be seen before
+  deciding anything.
+- **in the basis line of that ticker's block.**
+
+**Earnings is the one event that defeats a close-confirmed stop** — the gap
+happens before any close can confirm anything, so `Rec_Stop` cannot protect
+you through it and `Rec_Stop_Hard` is what actually catches it.
+
+It does **not** move any level today. Suppressing the soft stop into earnings
+is a judgement call, and the warning puts it in front of the human rather than
+making it silently — open item in [PROJECT_PLAN.md](PROJECT_PLAN.md) §6.
 
 ---
 
@@ -243,7 +337,10 @@ decision.
 
 ## 8. What this does not do
 
-- **No position sizing.** These are levels, not quantities.
+- **No position sizing.** These are levels, not quantities — and this is the
+  real missing half. A stop level without a size is not a risk decision. AEHR
+  carries an **8.3% ATR**: a 1.5–4 ATR stop there is a 12–33% stop, which is a
+  position-size problem that no amount of level-tuning fixes.
 - **No execution.** Nothing here places, cancels or modifies an order.
 - **Equity only**, like the rest of the order path. An options overlay would
   need its own treatment — see the note in `PROJECT_PLAN.md` §6.

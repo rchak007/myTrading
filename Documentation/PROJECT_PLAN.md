@@ -683,6 +683,24 @@ invisible on the Dashboard while still reserving the shares against it, so a
 close-triggered sell could fail the same way a resting trim does. Not a problem
 today; it would be on day one of doing this through the system.
 
+### 💡 OPEN — two refinements deferred from the 2026-10-01 build
+
+**Size from the stop.** The biggest remaining gap. A stop level without a size
+is half a risk decision. R-based sizing (risk 1% of the book, stop 8% away →
+position is 12.5% of the book) would close it. AEHR carries an 8.3% ATR, where
+a normal 1.5–4 ATR stop is a 12–33% stop — a sizing problem no level-tuning
+fixes.
+
+**Earnings should move the levels, not just warn.** The banner landed
+2026-10-01; the levels did not change. Holding a close-confirmed `Rec_Stop`
+through an earnings gap is exactly how the soft stop fails. Candidate rule:
+inside the window, suppress the soft stop and show only `Rec_Stop_Hard`.
+
+**Also deferred (ranked below these):** RSI → trim/dip timing, since `MRC_Zone`
+uses a 200-bar mean and cannot see short-horizon stretch; ADXR → stop width, so
+a strong trend gets the full 4 ATR and a chop does not; volume → a breakout
+confirmation gate. `MOST` was skipped deliberately — it duplicates Supertrend.
+
 ### ❓ OPEN — is there a "keeper" list, and what defines one?
 Raised 2026-10-01, after the Rec_* levels landed. Chakravarti:
 

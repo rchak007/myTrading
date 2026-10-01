@@ -20,7 +20,9 @@ EXPECTED = {
     "token_watch": ["send", "load_mail_env", "read_from_sheet", "compose",
                     "mail_env_path", "recently_sent", "mark_sent"],
     "reminders": ["read_rows", "write_rows", "due", "compose", "notes_images"],
-    "core.recommend": ["recommend", "recommend_row", "attach", "tick_round", "Rec"],
+    "core.recommend": ["recommend", "recommend_row", "attach", "tick_round",
+                       "Rec", "earnings_soon", "TIER1", "TIER2", "TIER3",
+                       "ALL_LEVELS", "FIELDS"],
 }
 
 # Signatures another module actually calls through. A name that still exists
