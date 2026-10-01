@@ -693,6 +693,29 @@ Otherwise items added on different days drift onto separate schedules and
 arrive as separate mails — which is how a reminder becomes noise you learn to
 ignore.
 
+### 📎 INFO NOTES — `reminder_notes/`
+Every image in `reminder_notes/` is shown **inline at the end of every
+reminder email**. Added 2026-09-30 at Chakravarti's request: *"I'm going to
+look at it once in a while just as a more like a info notes."*
+
+These are **not to-dos** and are never struck out. They are the things worth
+re-reading periodically rather than doing once. Currently one:
+
+| file | what |
+|---|---|
+| `ia-house-rules.png` | IA house rules — Always Rotate (trim into strength) · Always Hedge (defined-risk overlays) · Sell Premium (fund the next addition) · No Round-Trips (bank life-changing gains) |
+
+**Inline, not attached.** A note you have to tap twice to open is one you stop
+opening. The message is `multipart/alternative[ text/plain,
+multipart/related[ text/html, image… ] ]` — the pictures hang off the HTML
+part, so a client showing plain text does not advertise attachments it cannot
+place, and the text part stays the authoritative copy of the words.
+
+**To add one:** drop the image in the folder and commit. No code change — the
+folder is read at send time and sorted by filename so the order is stable.
+`--dry-run` lists what would ride along. Anything over 8 MB or not an
+image is skipped with a log line rather than costing the email.
+
 
 **Goal:** Keep the coverage log and watchlist current, so bucket assignments
 (accumulate / trade / avoid) reflect what the businesses are actually doing

@@ -99,9 +99,10 @@ that produced the file.
 | file | role |
 |---|---|
 | `schwab_auth.py` | token store in `~/.schwabdev/tokens.db`. `--status`, `--url`, `--code`. Takes the job lock when installing |
-| `token_watch.py` | emails before the token dies. `--from-sheet` lets Pi 2 do it |
+| `token_watch.py` | emails before the token dies. `--from-sheet` lets Pi 2 do it. Owns `send()` — the one mailer, including inline images |
+| `reminders.py` | nags about `reminders.csv` until struck out. One email, all items, `reminder_notes/` pictures at the end |
 | `health_check.py` | cron lines, output freshness, token, trading state, P&L quality |
-| `smoke_test.py` | asserts every cross-module function still exists. **Run before pushing** |
+| `smoke_test.py` | asserts every cross-module function still exists, and that the few cross-module *signatures* still take the arguments their callers pass. **Run before pushing** |
 
 ### Probes
 

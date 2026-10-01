@@ -189,13 +189,65 @@ def load_mail_env(path: Path | None = None) -> dict:
     return values
 
 
-def send(subject: str, body: str, log=print) -> bool:
+IMAGE_SUBTYPES = {".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg",
+                  ".gif": "gif", ".webp": "webp"}
+MAX_IMAGE_BYTES = 8 * 1024 * 1024          # Gmail rejects well before 25MB total
+
+
+def _read_images(paths, log) -> list[tuple[str, str, bytes]]:
+    """(cid, subtype, data) for each readable image. Skips, never raises.
+
+    An unreadable picture must not cost the email. The whole point of the
+    attachment is that the text arrives.
+    """
+    out = []
+    for i, p in enumerate(paths or []):
+        p = Path(p)
+        sub = IMAGE_SUBTYPES.get(p.suffix.lower())
+        if sub is None:
+            log(f"skipping {p.name}: not an image type I inline")
+            continue
+        try:
+            data = p.read_bytes()
+        except Exception as e:
+            log(f"skipping {p.name}: {e}")
+            continue
+        if len(data) > MAX_IMAGE_BYTES:
+            log(f"skipping {p.name}: {len(data)/1e6:.1f} MB is too big to mail")
+            continue
+        out.append((f"img{i}@mytrading", sub, data))
+    return out
+
+
+def _html_body(body: str, images: list[tuple[str, str, bytes]]) -> str:
+    """The plain text, preserved verbatim, with the pictures under it.
+
+    The text part stays authoritative — this is the same words, not a second
+    version of them, so the two alternatives can never disagree.
+    """
+    import html as _html
+    parts = ["<div style=\"font-family:ui-monospace,Menlo,Consolas,monospace;"
+             "font-size:13px;white-space:pre-wrap\">",
+             _html.escape(body),
+             "</div>"]
+    for cid, _sub, _data in images:
+        parts.append(f'<div style="margin-top:18px">'
+                     f'<img src="cid:{cid}" style="max-width:100%;height:auto">'
+                     f'</div>')
+    return "".join(parts)
+
+
+def send(subject: str, body: str, log=print, images=None) -> bool:
     """Send, and NEVER raise. Returns whether every recipient got it.
 
     A failure here must not propagate: the caller only marks the warning as
     sent on success, so a refused send simply retries on the next run rather
     than being silently swallowed. For a token about to expire, a missed
     warning is the whole failure.
+
+    `images` are paths shown INLINE at the end of the message, not handed over
+    as files to open. A note you have to tap twice to see is a note you stop
+    looking at — Chakravarti asked for the house rules to be glanceable.
     """
     env = load_mail_env()
     address = env.get("GMAIL_ADDRESS", "")
@@ -216,6 +268,11 @@ def send(subject: str, body: str, log=print) -> bool:
     if not to:
         log("ALERT_TO is empty — nobody to tell")
         return False
+
+    # Read each picture ONCE, before connecting — the bytes are reused for
+    # every recipient, and a bad path should be reported before we hold an
+    # open SMTP session.
+    imgs = _read_images(images, log)
 
     try:
         server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15)
@@ -243,6 +300,16 @@ def send(subject: str, body: str, log=print) -> bool:
             msg["From"] = formataddr(("myTrading on Pi 1", address))
             msg["To"] = addr
             msg.set_content(body)
+            if imgs:
+                # alternative[ text/plain, related[ text/html, image... ] ].
+                # The images hang off the HTML part, not off the message, or a
+                # client showing plain text advertises attachments it cannot
+                # place.
+                msg.add_alternative(_html_body(body, imgs), subtype="html")
+                html_part = msg.get_payload()[-1]
+                for cid, sub, data in imgs:
+                    html_part.add_related(data, maintype="image", subtype=sub,
+                                          cid=f"<{cid}>")
             try:
                 server.send_message(msg)
                 log(f"sent to {addr}")

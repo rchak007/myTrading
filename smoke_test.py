@@ -17,7 +17,15 @@ EXPECTED = {
     "schwab_quotes": ["fetch_quotes", "extract_price", "price_map", "bid_ask",
                       "marketable_limit"],
     "remote_ops": ["run_verb", "run_pyverb", "safe_arg", "write_back"],
+    "token_watch": ["send", "load_mail_env", "read_from_sheet", "compose",
+                    "mail_env_path", "recently_sent", "mark_sent"],
+    "reminders": ["read_rows", "write_rows", "due", "compose", "notes_images"],
 }
+
+# Signatures another module actually calls through. A name that still exists
+# with the keyword removed passes the hasattr check above and fails at send
+# time — which for a reminder means silence, the one failure nobody notices.
+SIGNATURES = {("token_watch", "send"): ["subject", "body", "images"]}
 
 bad = 0
 for mod, names in EXPECTED.items():
@@ -30,6 +38,18 @@ for mod, names in EXPECTED.items():
     missing = [n for n in names if not hasattr(m, n)]
     print(f"  {mod:<16} {'OK' if not missing else 'MISSING: ' + ', '.join(missing)}")
     bad += len(missing)
+
+import inspect
+for (mod, fn), params in SIGNATURES.items():
+    try:
+        sig = inspect.signature(getattr(importlib.import_module(mod), fn))
+    except Exception as e:
+        print(f"  {mod}.{fn:<10} SIGNATURE UNREADABLE: {e}")
+        bad += 1
+        continue
+    gone = [p for p in params if p not in sig.parameters]
+    print(f"  {mod + '.' + fn:<16} {'OK' if not gone else 'LOST PARAM: ' + ', '.join(gone)}")
+    bad += len(gone)
 
 print(f"\n{'all present' if not bad else str(bad) + ' problem(s)'}")
 raise SystemExit(1 if bad else 0)

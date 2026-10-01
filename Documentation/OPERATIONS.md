@@ -35,7 +35,7 @@ All times Pacific. `flock` prevents two jobs writing the same files at once.
 | When | Job | Does |
 |---|---|---|
 | `08:30`, `18:30` | `token_watch.py --from-sheet` | Schwab token expiry + Pi 1 liveness |
-| `09:15` | `reminders.py` | nags about anything outstanding in `reminders.csv` |
+| `09:15` | `reminders.py` | nags about anything outstanding in `reminders.csv`, with `reminder_notes/` images inline at the end |
 
 **Not yet scheduled:** `health_check.py` (see §5).
 

@@ -27,6 +27,11 @@ STRIKING OUT
     Put anything in the `done` column. Nothing is deleted — a struck row stays
     as a record that it was finished, and re-reading an old one is occasionally
     the point.
+
+INFO NOTES
+    Images in ./reminder_notes/ ride along INLINE at the end of every email.
+    They are not to-dos and are never struck out — they are the things worth
+    glancing at repeatedly. The IA house rules card is the first one.
 """
 from __future__ import annotations
 
@@ -43,6 +48,22 @@ if str(HERE) not in sys.path:
 
 FILE = Path(os.getenv("REMINDERS_FILE", HERE / "reminders.csv"))
 COLS = ["id", "added", "every_days", "last_sent", "done", "title", "url", "note"]
+
+# INFO NOTES. Every image in here is shown inline at the END of every reminder
+# email — not tied to any one row, and not struck out with them. These are the
+# things worth re-reading periodically rather than doing once: the IA house
+# rules went in first. Drop another picture in the folder and it joins them; no
+# code change.
+NOTES_DIR = Path(os.getenv("REMINDER_NOTES_DIR", HERE / "reminder_notes"))
+NOTE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+
+def notes_images() -> list[Path]:
+    """Sorted so the order in the email is stable, not filesystem order."""
+    if not NOTES_DIR.is_dir():
+        return []
+    return sorted(p for p in NOTES_DIR.iterdir()
+                  if p.is_file() and p.suffix.lower() in NOTE_SUFFIXES)
 
 
 def read_rows() -> list[dict]:
@@ -125,8 +146,10 @@ def compose(rows: list[dict]) -> tuple[str, str]:
              "  Or put anything in the `done` column of reminders.csv.",
              "",
              "  ids: " + ", ".join(r["id"] for r in rows),
-             "",
-             "— reminders.py on Pi 2"]
+             ""]
+    if notes_images():
+        body += ["INFO NOTES below — not to-dos. They stay in every email.", ""]
+    body.append("— reminders.py on Pi 2")
     return subject, "\n".join(body)
 
 
@@ -174,12 +197,17 @@ def main() -> int:
         return 0
 
     subject, body = compose(pending)
+    pics = notes_images()
     if args.dry_run:
         print(f"Subject: {subject}\n\n{body}")
+        for p in pics:
+            print(f"[inline image: {p.name}, {p.stat().st_size/1024:.0f} KB]")
+        if not pics:
+            print(f"[no info-note images in {NOTES_DIR}]")
         return 0
 
     from token_watch import send            # one mailer, one set of gotchas
-    if not send(subject, body):
+    if not send(subject, body, images=pics):
         # Do NOT stamp last_sent on failure, or a refused send silently costs
         # a whole cycle — the same reason token_watch only marks on success.
         print("send failed — last_sent not updated, will retry next run")
