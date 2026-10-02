@@ -118,6 +118,13 @@ price.** `BUY` + `CLOSES BELOW` is a dip buy whatever number you typed — even
 buying strength. A resting Schwab order has no direction to read, so which
 side of today's price it sits on is the only information there is.
 
+**The `ORDERS` list under each block shows both sources**, so a `P` always
+has something to point at. A resting Schwab order shows its real type
+(`LIMIT`, `STOP`) and order id; a waiting sheet intent shows `CLOSE BELOW` or
+`CLOSE ABOVE`, its trigger in the `Stop_Price` column, `sheet` where the
+timestamp would be, and its `Row_ID`. They are tinted differently on purpose —
+one is at the broker, the other is a promise this system has to keep.
+
 **An order already sent to Schwab stops counting as an intent.** Once a row is
 `SUBMITTED` it has handed off: if the order is still resting it shows as `Y`,
 and if it filled there is nothing left to protect anything.

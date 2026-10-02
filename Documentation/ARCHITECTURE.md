@@ -70,7 +70,7 @@ that produced the file.
 
 | file | role |
 |---|---|
-| `orders_sheet.py` | builds and writes Positions, Cash, Dashboard, header. Coverage flags, fenced markers, block layout |
+| `orders_sheet.py` | builds and writes Positions, Cash, Dashboard, header. Coverage flags, fenced markers, block layout. The per-block `ORDERS` list carries both resting Schwab orders and waiting sheet intents |
 | `orders_sheet_init.py` | creates the four tabs from scratch. `--force` **wipes** them |
 | `orders_sheet_prices.py` | `Live_Price` and `Day_%` only, every 5 min. Sheet-only: no files, no git |
 | `remote_ops.py` | the ops-sheet poller. Allowlisted verbs, top-scan row model |

@@ -698,7 +698,8 @@ def _rec_rows(ticker, price, signals_df, is_fenced, pos_width):
 def build_dashboard(positions: pd.DataFrame, orders_df=None,
                     quotes: dict | None = None,
                     fenced: set | None = None,
-                    signals_df=None, chitra_rows=None) -> tuple[list, dict]:
+                    signals_df=None, chitra_rows=None,
+                    intents_df=None) -> tuple[list, dict]:
     """
     One block per ticker: the positions mini-table, then the live Schwab orders
     for that ticker.
@@ -716,7 +717,8 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     # missing trim on a position actually held. The point is discipline: an
     # unprotected holding should be impossible to scroll past.
     marks = {"ticker": [], "label": [], "header": [], "title": [],
-             "warn": [], "rec": [], "warn_row": [], "chitra": []}
+             "warn": [], "rec": [], "warn_row": [], "chitra": [],
+             "intent": []}
 
     def col_of(field: str) -> str:
         """Column letter for a POS_HDR field. Derived, because these shift:
@@ -735,7 +737,8 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     n_tickers = positions.loc[positions["Acct"] != TOTAL, "Ticker"].nunique()
     marks["title"].append(add(["DASHBOARD", f"updated {_now()}"]))
     add(["", f"{n_tickers} ticker(s) · read-only, regenerated every cycle · "
-             f"ORDERS rows are live Schwab orders, not the Orders tab"])
+             f"ORDERS shows live Schwab orders AND the Orders-tab intents "
+             f"waiting on a close (Type 'CLOSE BELOW/ABOVE', Entered 'sheet')"])
 
     # EARNINGS, up top as well as per block. Buried in a block it is found
     # only by someone already scrolled to that ticker — and the whole point is
@@ -825,15 +828,37 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         legs = pd.DataFrame()
         if orders_df is not None and not getattr(orders_df, "empty", True):
             legs = orders_df[orders_df["Ticker"].astype(str).str.upper() == ticker]
-        if legs.empty:
+        for _, o in legs.iterrows():
+            add(["", acct_key(o.get("Account")), o.get("Side", ""),
+                 o.get("Order_Type", ""), o.get("Remaining_QTY", o.get("QTY", "")),
+                 o.get("Limit_Price", ""), o.get("Stop_Price", ""),
+                 o.get("Status", ""), str(o.get("Entered_Time", ""))[:16],
+                 o.get("Order_ID", "")])
+
+        # SHEET INTENTS, under the resting orders. Without them a block could
+        # say Has_Stop = P and then show nothing at all underneath, which is
+        # the Dashboard asserting protection it never points at.
+        #
+        # Same columns, deliberately. Trigger_Price goes in Stop_Price because
+        # both mean the same thing — the price that ACTIVATES the order — and
+        # Limit_Price stays blank because the engine derives the limit from
+        # the live market at submit time, not from anything typed here.
+        wait = pd.DataFrame()
+        if intents_df is not None and not getattr(intents_df, "empty", True):
+            wait = intents_df[intents_df["Ticker"].astype(str).str.upper() == ticker]
+        for _, o in wait.iterrows():
+            marks["intent"].append(add(
+                ["", o.get("Account", ""), o.get("Side", ""),
+                 # The mechanism is the one thing that must not be mistaken: a
+                 # CLOSE trigger cannot be hit by a wick, and does nothing at
+                 # all while Pi 1 is down.
+                 f"CLOSE {o.get('Close_Is', '')}".strip(),
+                 o.get("Qty", ""), "", o.get("Trigger_Price", ""),
+                 o.get("Status", "") or "waiting", "sheet",
+                 o.get("Row_ID", "")]))
+
+        if legs.empty and wait.empty:
             add(["", "— no open orders —"])
-        else:
-            for _, o in legs.iterrows():
-                add(["", acct_key(o.get("Account")), o.get("Side", ""),
-                     o.get("Order_Type", ""), o.get("Remaining_QTY", o.get("QTY", "")),
-                     o.get("Limit_Price", ""), o.get("Stop_Price", ""),
-                     o.get("Status", ""), str(o.get("Entered_Time", ""))[:16],
-                     o.get("Order_ID", "")])
         add([])
         add([])
 
@@ -929,6 +954,13 @@ def _paint(ws, marks, log):
                        "textFormat": {"bold": True,
                                       "foregroundColor": {"red": 0.60, "green": 0.15,
                                                           "blue": 0.0}}})
+        if marks.get("intent"):
+            # Mint, distinct from the resting Schwab orders beside them. These
+            # fire only on a completed daily CLOSE and only while Pi 1 is
+            # alive, which is a materially weaker claim than an order sitting
+            # at the broker — so they must not look identical to one.
+            ws.format([f"B{r}:{_last_col()}{r}" for r in marks["intent"]],
+                      {"backgroundColor": {"red": 0.89, "green": 0.96, "blue": 0.91}})
         if marks.get("chitra"):
             # Lavender, distinct from every other colour on the tab. Her rows
             # sit inside his blocks and must never be mistaken for his.
@@ -956,7 +988,8 @@ def _paint(ws, marks, log):
 
 def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
                     quotes: dict | None = None, fenced: set | None = None,
-                    log=print, signals_df=None, chitra_rows=None) -> int:
+                    log=print, signals_df=None, chitra_rows=None,
+                    intents_df=None) -> int:
     if positions is None or positions.empty:
         return 0
     try:
@@ -965,7 +998,7 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
         ws = book.add_worksheet(title="Dashboard", rows=1000, cols=DASH_WIDTH + 2)
 
     rows, marks = build_dashboard(positions, orders_df, quotes, fenced,
-                                  signals_df, chitra_rows)
+                                  signals_df, chitra_rows, intents_df)
     ws.clear()
     ws.update(values=rows, range_name=f"A1:{_last_col()}{len(rows)}")
     ws.freeze(rows=0)
@@ -1016,7 +1049,7 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
 
     n_dash = write_dashboard(book, positions, orders_df, quotes, fenced,
                              log=log, signals_df=signals_df,
-                             chitra_rows=chitra_rows)
+                             chitra_rows=chitra_rows, intents_df=intents)
 
     # ---- header block. LAST POLL is the health check: if this stops moving,
     # ---- whatever runs this module has died.

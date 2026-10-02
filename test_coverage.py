@@ -117,5 +117,36 @@ check("an intent in another account protects nothing here",
 check("no price → every flag blank, nothing asserted",
       set(coverage_for("TSLA", "171", None, None).values()) == {""})
 
+print("\n── the ORDERS block shows what the flag points at ──")
+# A block saying Has_Stop = P and then showing nothing underneath is the
+# Dashboard asserting protection it never points at.
+from orders_sheet import build_dashboard                 # noqa: E402
+pos = pd.DataFrame([{"Ticker": "BE", "Acct": "171", "Qty": 23,
+                     "Avg_Cost": 217.85, "Market_Value": 6518.43,
+                     "Unrealized_PL": 1507.88, "Has_Stop": "P",
+                     "Has_Trim": "N", "Has_Dip": "N", "Has_Breakout": "N",
+                     "Seed_Reserved": ""}])
+ints = intent("SELL", "BELOW", 214, qty=23.0, ticker="BE")
+ints.loc[0, "Row_ID"] = "2026-09-29-BE-01"
+rows, marks = build_dashboard(pos, None, {"BE": {"quote": {"lastPrice": 283.29}}},
+                              set(), None, None, ints)
+flat = [" ".join(str(c) for c in r) for r in rows]
+check("the waiting intent appears under ORDERS",
+      any("CLOSE BELOW" in r for r in flat))
+check("its trigger price is shown", any("214" in r for r in flat))
+check("its Row_ID is shown, so the sheet row is findable",
+      any("2026-09-29-BE-01" in r for r in flat))
+check("'sheet' marks where a Schwab timestamp would be",
+      any("sheet" in r for r in flat))
+check("it is marked for its own paint", len(marks["intent"]) == 1,
+      str(marks["intent"]))
+check("'no open orders' is NOT claimed when an intent is waiting",
+      not any("no open orders" in r for r in flat))
+
+bare, _ = build_dashboard(pos, None, {"BE": {"quote": {"lastPrice": 283.29}}},
+                          set(), None, None, None)
+check("...but it still says so when there is genuinely nothing",
+      any("no open orders" in " ".join(str(c) for c in r) for r in bare))
+
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 raise SystemExit(1 if FAILED else 0)
