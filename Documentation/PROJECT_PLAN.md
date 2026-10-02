@@ -644,16 +644,15 @@ the hardest to detect from logs alone.
 
 ## 6. Research review cadence
 
-### 🔁 OUTSTANDING — study: "Turn $8K Into $45K Without Killing Your Core Bag"
+### ✅ STRUCK OUT 2026-10-02 — study: "Turn $8K Into $45K Without Killing Your Core Bag"
 https://www.youtube.com/live/mZIwo0EBIkI
 
-Asked 2026-09-30. Emailed **every 2 days until struck out** by `reminders.py`
-on Pi 2 (`15 9 * * *`). Chakravarti's instruction: keep it open "till I strike
-out".
+Asked 2026-09-30, struck out 2026-10-02 at Chakravarti's word. Reminded four
+times over two days before that.
 
-To stop it: `.venv/bin/python reminders.py --done study-8k-45k` on Pi 2, or put
-anything in the `done` column of `reminders.csv`. Nothing is deleted — a struck
-row stays as a record it was finished.
+Kept rather than deleted, because the two options items below came out of this
+video — the house-rules and process cards in `reminder_notes/` are its slides.
+Deleting the source would leave those looking like they arrived from nowhere.
 
 ### 🔁 OUTSTANDING — streamline Chitra's stocks
 `CHITRA_TICKERS` in `app.py` — 12 symbols. Asked 2026-09-30, on the same
