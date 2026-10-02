@@ -36,6 +36,7 @@ All times Pacific. `flock` prevents two jobs writing the same files at once.
 |---|---|---|
 | `08:30`, `18:30` | `token_watch.py --from-sheet` | Schwab token expiry + Pi 1 liveness |
 | `09:15` | `reminders.py` | nags about anything outstanding in `reminders.csv`, with `reminder_notes/` images inline at the end |
+| `09:30`, `11:00`, `12:30` Mon–Fri | `reminders.py --channel options` | the OPTIONS list, **only while the market is actually open** |
 
 **Not yet scheduled:** `health_check.py` (see §5).
 
@@ -209,6 +210,25 @@ the live data contains**, not a hypothetical — FCEL's reverse-split ATH of
 234,900, SOFI's Supertrend sitting above price, MSTX's negative MRC band,
 TSLA's collapsed stop ladder. Run it with `smoke_test.py` after touching
 `core/recommend.py`.
+
+### The OPTIONS channel checks the market itself
+
+Cron fires all three on every weekday; `reminders.py` asks
+`market_calendar.py` whether the market is open and sends nothing if not.
+
+**The split is deliberate.** Cron cannot know about Good Friday, and it cannot
+know that the day after Thanksgiving shuts at **10:00 PT** — which would make
+two of the three fire into a closed market three times a year and look exactly
+like working ones.
+
+It fails **open**: if the calendar module breaks, the email still goes and the
+log says why. A broken calendar should cost an extra email, never a missed one.
+
+```bash
+.venv/bin/python market_calendar.py              # open right now?
+.venv/bin/python market_calendar.py --year 2027  # that year's closures
+.venv/bin/python test_market_calendar.py         # rules vs the published calendar
+```
 
 ### `test_coverage.py` — the Dashboard protection flags
 

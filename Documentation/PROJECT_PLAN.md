@@ -834,6 +834,29 @@ MSTR, MU, TSLA — 40% of the book. ARKB ($107k, the single largest holding),
 IBIT ($24k) and HODL ($10k) are **not** fenced, so 42% of the book sits in
 bitcoin vehicles carrying no mark of any kind.
 
+### 🎯 LIVE — the OPTIONS reminder channel
+Added 2026-10-02. **09:30, 11:00 and 12:30 PT, weekdays, only while the market
+is actually open.** Chakravarti's ask: a separate reminder from the open-items
+list, for the things that need the market open to act on.
+
+`options_reminders.csv`, sent by `reminders.py --channel options`. The two
+options items moved here out of `reminders.csv` — they are exactly this kind
+of thing, and leaving them on a daily cadence meant being reminded to sell
+premium at 09:15 PT, fifteen minutes before the open.
+
+**Cron fires; the program decides.** All three lines run every weekday, and
+`market_calendar.py` says whether to send. Cron cannot know about Good Friday,
+and it cannot know the day after Thanksgiving shuts at 10:00 PT — two of the
+three would fire into a closed market three times a year and look exactly like
+working ones. It fails **open**: a broken calendar costs an extra email, never
+a missed one.
+
+**`every_days` is 0 on this list**, meaning every send. Cron already decides
+the cadence; a per-row day counter would only fight it.
+
+**No images.** Three a day with a megabyte of cards attached is not a
+reminder.
+
 ### How the reminders work
 `reminders.csv` lives in the REPO, not machine-local state: a reminder that
 vanished with an SD card would be worse than none.

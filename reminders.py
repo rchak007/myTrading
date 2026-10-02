@@ -46,8 +46,55 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-FILE = Path(os.getenv("REMINDERS_FILE", HERE / "reminders.csv"))
 COLS = ["id", "added", "every_days", "last_sent", "done", "title", "url", "note"]
+
+# ─────────────────────────────────────────────────────────── channels
+# Two lists, two cadences, one nagger. A second copy of this file for the
+# options list would be a second set of the Gmail gotchas to keep in sync, and
+# those have cost real debugging once already.
+#
+#   open-items  daily at 09:15. `every_days` gates each row. Carries the
+#               reminder_notes/ cards.
+#   options     09:30 / 11:00 / 12:30 PT, and ONLY while the market is open.
+#               No per-row cadence — cron already decides when, so every
+#               outstanding row goes in every send. No images: three a day
+#               with a megabyte of cards attached is not a reminder.
+CHANNELS = {
+    "open-items": {
+        "file": "reminders.csv",
+        "emoji": "\U0001F4CC",
+        "what": "still to look at",
+        "subject": "{emoji} {n} thing{s} still to look at",
+        "subject1": "{emoji} Still to look at: {first}",
+        "intro": ["These are outstanding in reminders.csv. They will keep arriving",
+                  "until struck out."],
+        "images": True,
+        "market_hours": False,
+    },
+    "options": {
+        "file": "options_reminders.csv",
+        "emoji": "\U0001F3AF",
+        "what": "OPTIONS",
+        "subject": "{emoji} OPTIONS \u2014 {n} to act on while the market is open",
+        "subject1": "{emoji} OPTIONS \u2014 {first}",
+        "intro": ["Sent at 09:30, 11:00 and 12:30 PT on trading days only.",
+                  "These are the moves that need the market open to make."],
+        "images": False,
+        "market_hours": True,
+    },
+}
+CHANNEL_NAME = "open-items"
+CHANNEL = CHANNELS[CHANNEL_NAME]
+FILE = Path(os.getenv("REMINDERS_FILE", HERE / CHANNEL["file"]))
+
+
+def use_channel(name: str) -> dict:
+    """Point the module at one channel's list. Returns its config."""
+    global CHANNEL, CHANNEL_NAME, FILE
+    CHANNEL_NAME = name
+    CHANNEL = CHANNELS[name]
+    FILE = Path(os.getenv("REMINDERS_FILE", HERE / CHANNEL["file"]))
+    return CHANNEL
 
 # INFO NOTES. Every image in here is shown inline at the END of every reminder
 # email — not tied to any one row, and not struck out with them. These are the
@@ -118,22 +165,25 @@ def due(row: dict) -> bool:
     """
     if str(row.get("done", "")).strip():
         return False
-    since = days_since(row.get("last_sent", ""))
-    if since is None:
-        return True
     try:
         every = int(row.get("every_days") or 2)
     except ValueError:
         every = 2
-    return since >= every
+    # 0 means EVERY send. That is how the options channel works: cron already
+    # decides the three times a day, so a per-row day counter would fight it.
+    if every <= 0:
+        return True
+    since = days_since(row.get("last_sent", ""))
+    return True if since is None else since >= every
 
 
 def compose(rows: list[dict]) -> tuple[str, str]:
     n = len(rows)
-    subject = (f"📌 {n} thing{'s' if n != 1 else ''} still to look at"
-               if n != 1 else f"📌 Still to look at: {rows[0]['title'][:60]}")
-    body = ["These are outstanding in reminders.csv. They will keep arriving",
-            "until struck out.", ""]
+    tpl = CHANNEL["subject"] if n != 1 else CHANNEL["subject1"]
+    subject = tpl.format(emoji=CHANNEL["emoji"], n=n,
+                         s="s" if n != 1 else "",
+                         first=rows[0]["title"][:60])
+    body = list(CHANNEL["intro"]) + [""]
     for r in rows:
         age = days_since(r.get("added", ""))
         body.append(f"• {r.get('title') or r['id']}")
@@ -141,19 +191,23 @@ def compose(rows: list[dict]) -> tuple[str, str]:
             body.append(f"    {r['url']}")
         if r.get("note"):
             body.append(f"    {r['note']}")
+        cadence = (f" · every {r.get('every_days','2')} day(s)"
+                   if not CHANNEL["market_hours"] else "")
         body.append(f"    added {r.get('added','?')}"
                     + (f", {age} day(s) ago" if age is not None else "")
-                    + f" · every {r.get('every_days','2')} day(s)")
+                    + cadence)
         body.append("")
     body += ["TO STOP ONE",
-             "  On Pi 2:  .venv/bin/python reminders.py --done <id>",
-             "  Or put anything in the `done` column of reminders.csv.",
+             f"  On Pi 2:  .venv/bin/python reminders.py"
+             + ("" if CHANNEL_NAME == "open-items" else f" --channel {CHANNEL_NAME}")
+             + "  --done <id>",
+             f"  Or put anything in the `done` column of {FILE.name}.",
              "",
              "  ids: " + ", ".join(r["id"] for r in rows),
              ""]
-    if notes_images():
+    if CHANNEL["images"] and notes_images():
         body += ["INFO NOTES below — not to-dos. They stay in every email.", ""]
-    body.append("— reminders.py on Pi 2")
+    body.append(f"— reminders.py ({CHANNEL_NAME}) on Pi 2")
     return subject, "\n".join(body)
 
 
@@ -163,7 +217,10 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="print the email")
     ap.add_argument("--done", metavar="ID", help="strike one out")
     ap.add_argument("--force", action="store_true", help="send even if not due")
+    ap.add_argument("--channel", default="open-items", choices=sorted(CHANNELS),
+                    help="which list (default: open-items)")
     args = ap.parse_args()
+    use_channel(args.channel)
 
     rows = read_rows()
     if not rows:
@@ -196,17 +253,32 @@ def main() -> int:
     anything_due = args.force or any(due(r) for r in outstanding)
     pending = outstanding if anything_due else []
     if not pending:
-        print(f"nothing due ({len(outstanding)} outstanding, none ready "
-              f"to re-send)")
+        print(f"{CHANNEL_NAME}: nothing due ({len(outstanding)} outstanding, "
+              f"none ready to re-send)")
         return 0
 
+    # MARKET HOURS GATE. Checked here rather than in cron, because cron cannot
+    # know about Good Friday or that the day after Thanksgiving shuts at 10:00
+    # PT — so a 11:00 reminder would fire into a closed market three times a
+    # year and look exactly like a working one.
+    if CHANNEL["market_hours"] and not args.force:
+        try:
+            import market_calendar
+            if not market_calendar.is_open():
+                print(f"market {market_calendar.describe()} — nothing sent")
+                return 0
+        except Exception as e:
+            # Fail OPEN: a broken calendar should cost an extra email, never a
+            # missed one. Say so, so it does not pass for normal.
+            print(f"⚠️  market calendar unavailable ({e}) — sending anyway")
+
     subject, body = compose(pending)
-    pics = notes_images()
+    pics = notes_images() if CHANNEL["images"] else []
     if args.dry_run:
         print(f"Subject: {subject}\n\n{body}")
         for p in pics:
             print(f"[inline image: {p.name}, {p.stat().st_size/1024:.0f} KB]")
-        if not pics:
+        if CHANNEL["images"] and not pics:
             print(f"[no info-note images in {NOTES_DIR}]")
         return 0
 

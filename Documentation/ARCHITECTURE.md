@@ -102,11 +102,13 @@ that produced the file.
 |---|---|
 | `schwab_auth.py` | token store in `~/.schwabdev/tokens.db`. `--status`, `--url`, `--code`. Takes the job lock when installing |
 | `token_watch.py` | emails before the token dies. `--from-sheet` lets Pi 2 do it. Owns `send()` — the one mailer, including inline images |
-| `reminders.py` | nags about `reminders.csv` until struck out. One email, all items, `reminder_notes/` pictures at the end |
+| `reminders.py` | nags until struck out. **Two channels:** `open-items` daily, `options` three times a day while the market is open. One mailer, one set of Gmail gotchas |
+| `market_calendar.py` | is the market open? NYSE holidays and half-days **derived from rules**, no table to expire and no dependency. Pure |
 | `health_check.py` | cron lines, output freshness, token, trading state, P&L quality |
 | `smoke_test.py` | asserts every cross-module function still exists, and that the few cross-module *signatures* still take the arguments their callers pass. **Run before pushing** |
 | `test_recommend.py` | the recommendation formulas, every case a real trap from the live data |
 | `test_coverage.py` | the Dashboard protection flags. Both bugs here said "covered" about something that was not |
+| `test_market_calendar.py` | the derived calendar against the published NYSE one, including the years the observance rules surprise you |
 
 ### Probes
 
