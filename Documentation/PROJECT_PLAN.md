@@ -654,17 +654,22 @@ Kept rather than deleted, because the two options items below came out of this
 video — the house-rules and process cards in `reminder_notes/` are its slides.
 Deleting the source would leave those looking like they arrived from nowhere.
 
-### 🔁 OUTSTANDING — streamline Chitra's stocks
-`CHITRA_TICKERS` in `app.py` — 12 symbols. Asked 2026-09-30, on the same
-2-day reminder.
+### ✅ STRUCK OUT 2026-10-02 — streamline Chitra's stocks
+`CHITRA_TICKERS` in `app.py` — 12 symbols. Asked 2026-09-30, struck out
+2026-10-02.
 
-**Partly explained 2026-09-30.** CBRS and PBLS are recent IPOs, and
-`fetch_stock_1d_df` required **120 daily bars** — so any stock listed within
-the last six months was dropped entirely, no row and no warning. Lowered to 60
-(`MIN_DAILY_BARS`), and skipped tickers now say why. Whether they now produce
-signals depends on how recent the listing is; SATS remains unexplained.
+**What it turned up, which is why the entry stays.** CBRS and PBLS are recent
+IPOs, and `fetch_stock_1d_df` required **120 daily bars** — so any stock
+listed within the previous six months was dropped entirely, with no row and no
+warning. Chakravarti's hypothesis ("maybe we go back quite a few days for some
+indicators") was exactly right. Lowered to 60 via `MIN_DAILY_BARS`, and
+skipped tickers now say why they were skipped (`fb2a909`).
 
-Strike with `reminders.py --done streamline-chitra`.
+**SATS was never explained** and is still unexplained. If her list looks short
+again, start there.
+
+Superseded in part by the Chitra tab below, which renders her *actual*
+holdings from a statement rather than a hand-kept ticker list.
 
 ### 🔁 OUTSTANDING — sell covered calls at the top
 On assets actually worth holding. Premium when the asset is stretched; the risk

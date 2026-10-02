@@ -13,7 +13,7 @@
 # would be worse than no reminder at all.
 id,added,every_days,last_sent,done,title,url,note
 study-8k-45k,2026-09-30,2,2026-09-30,2026-10-02,How to Turn $8K Into $45K Without Killing Your Core Bag,https://www.youtube.com/live/mZIwo0EBIkI,Chakravarti asked to be nagged every 2 days until studied
-streamline-chitra,2026-09-30,2,2026-09-30,,Streamline Chitra's stocks,,"CHITRA_TICKERS in app.py — 12 symbols incl. CBRS, which returns no data"
+streamline-chitra,2026-09-30,2,2026-09-30,2026-10-02,Streamline Chitra's stocks,,"CHITRA_TICKERS in app.py — 12 symbols incl. CBRS, which returns no data"
 covered-calls-at-top,2026-09-30,2,2026-09-30,,Sell covered calls at the top,,"On assets I actually want to hold. Collect premium when stretched; risk is shares called away, so size strikes to keep the core bag"
 cash-secured-puts-at-bottom,2026-09-30,2,2026-09-30,,Sell cash-secured puts at the bottom,,"Only on assets I genuinely want to own at that strike — assignment means buying them, so the strike has to be a price I would pay"
 chitra-merrill-orders,2026-10-02,2,,,Get Chitra's open orders from Merrill Lynch,,"IRA-Edge 272-98230. Holdings come from a statement; open orders are not in chitra_holdings.csv at all, so her Dashboard rows show no stops or trims whether or not any exist"
