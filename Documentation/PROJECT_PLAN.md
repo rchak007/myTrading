@@ -665,8 +665,20 @@ warning. Chakravarti's hypothesis ("maybe we go back quite a few days for some
 indicators") was exactly right. Lowered to 60 via `MIN_DAILY_BARS`, and
 skipped tickers now say why they were skipped (`fb2a909`).
 
-**SATS was never explained** and is still unexplained. If her list looks short
-again, start there.
+**SATS was explained 2026-10-02, and it was never the bar count.** The job log
+said so all along: `possibly delisted; no price data found (1d 1927-10-27 ->
+2026-10-02)` — it asked for the symbol's entire history and got nothing, which
+is the signature of a RENAME, not a thin listing. Chakravarti's hunch ("maybe
+that company changed later") was right: **SATS is now ECHO**, renamed in
+`app.py` across `STOCK_TICKERS`, `INVESTANSWERS`, `CHITRA_TICKERS` and the
+space-sector label.
+
+The dated `INVESTAnswers 4/17/26` allocation note keeps `SATS→ECHO` rather
+than being rewritten — the ticker genuinely was SATS on that date, and
+silently changing a dated record is how a note stops being evidence.
+
+With that fixed, SATS was the **only** skipped ticker in the 2026-10-02 run;
+CBRS and PBLS both produce signals since `MIN_DAILY_BARS` dropped to 60.
 
 Superseded in part by the Chitra tab below, which renders her *actual*
 holdings from a statement rather than a hand-kept ticker list.

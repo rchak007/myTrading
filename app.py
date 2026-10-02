@@ -117,7 +117,7 @@ STOCK_TICKERS = [
     "NBIS", "NBR", "NEE", "NET", "NOC", "NPK", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL", "OUST",
     "PANW", "PBLS", "PL", "PLTR",
     "QBTS","QUBT","RCAT", "RDDT", "RDW", "RGTI", "RIOT", "RKLB", "RTX",
-    "SATS", "SE", "SIMO", "SITM", "SKHY", "SLV", "SOFI", "SPCX", "SPY", "SMCI", "SMR", "SNA", "SNDK", "SSK","STKE", "STM", "STRC", "STX",
+    "ECHO", "SE", "SIMO", "SITM", "SKHY", "SLV", "SOFI", "SPCX", "SPY", "SMCI", "SMR", "SNA", "SNDK", "SSK","STKE", "STM", "STRC", "STX",
     "TEM",  "TER", "TLN",  "TSLA","TSM","UMAC", "UPXI","VCX", "VRT", "VST", "VUG", "WDC", "WTI", "XLE"  
 ]
 
@@ -133,10 +133,16 @@ BETH_FUNDS = [ "AMD", "AVGO", "NVDA", "TSM", "MRVL",  "ARM", "MU", "SNDK", "SIMO
                   "VRT", "META", "NET", "PLTR", "GOOG", "RDDT",     "NEE" ]
 
 INVESTANSWERS = [
-    "TSLA","NVDA","STRC","MSTR", "SATS", "MU", "AMD",   "AVGO", "BABA","ALAB", "MRVL"
+    "TSLA","NVDA","STRC","MSTR", "ECHO", "MU", "AMD",   "AVGO", "BABA","ALAB", "MRVL"
 ]
 
-CHITRA_TICKERS = [ "TSLA", "MSTR", "STRC", "GOOG", "PLTR", "LITE", "MSFT", "TSM", "SATS", "CIEN", "IBIT", "CBRS" ]
+# WATCHLIST, not a holdings list. What she ACTUALLY owns is
+# chitra_holdings.csv (rendered to the Chitra tab); this is what we track
+# signals for, which is a superset. MRVL and MU were added 2026-10-02 —
+# she held both and neither was here, so her own positions were the one
+# thing the list was missing. SATS became ECHO the same day.
+CHITRA_TICKERS = [ "TSLA", "MSTR", "STRC", "GOOG", "PLTR", "LITE", "MSFT",
+                   "TSM", "ECHO", "CIEN", "IBIT", "CBRS", "MRVL", "MU" ]
 # Invest answers old - "NPPTF","PLTR","SE", ,"RIOT","CLSK
 
 # DESCRIPTION_STOCKS = ["
@@ -163,7 +169,7 @@ STOCKS_NOTES = [
     "🌐 Crypto / Bitcoin Proxy IBIT, ETHA, HODL, ARKB, COIN, HOOD, MSTR, MSTX, ABTC GLXY STRC BMNR IREN, CLSK",
     "🔒 Cybersecurity CRWD, PANW",
     "🛸 Defense  Rare earth MP , NPPTF ,  ONDS, UMAC, RKLB ASTS IRDM LUNR (space) PL",
-    "🛸 Space  SATS RKLB ASTS IRDM LUNR (space) PL",
+    "🛸 Space  ECHO RKLB ASTS IRDM LUNR (space) PL",
     "💊 Healthcare / Biotech HIMS",
     "🏦 Fintech / Banking SOFI, CFG, SE",
     "🪙 Commodities / Macro Hedges GLD, SLV, COPX    ",
@@ -172,7 +178,7 @@ STOCKS_NOTES = [
     "IO-FUND 4/24/26 - ALAB 7%, AAOI 8%,  AEHR 6%, BE 11%, BTCUSD 2%, COHR 7%, GEV 8%, GOOGL 4%, LITE 7%, LINKUSD 1%  ",
            "META 5%, MU 9%, NEE 5%, NVDA 5%, PLTR 2%, RDDT 4%, SNDK 8%",
            "Knox momentum - SIMO SITM MXL ",
-    "INVESTAnswers 4/17/26 - BTC 6.7%, SOL 4.5%, AVGO 1.0%, IBIT 3.6%, SATS 1.5%, BABA 0.4%, ALAB 0.6%", 
+    "INVESTAnswers 4/17/26 - BTC 6.7%, SOL 4.5%, AVGO 1.0%, IBIT 3.6%, SATS→ECHO 1.5%, BABA 0.4%, ALAB 0.6%", 
     "    InvestAnswers NPPTF 0.4%, STRC 11.1%, PLTR 1.2%, SE 0.7%, MRVL 0.4%, AMD 0.4%, RIOT 0.1%, CLSK 0.7%, NVDA 5.5%, MSTR 10.8%",
 
 
