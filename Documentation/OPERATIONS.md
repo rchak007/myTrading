@@ -198,6 +198,40 @@ to `cash_reserve.py` removed `build_reserves_table` and `overcommit_warnings`
 — both syntactically fine, both silently gone — and the reserves step failed
 `(non-fatal)` for two days before anyone noticed the CSV had stopped changing.
 
+### `test_recommend.py` — the recommendation formulas
+
+```bash
+.venv/bin/python test_recommend.py
+```
+
+Runs anywhere: no Schwab, no Sheets, no network. **Every case is a real trap
+the live data contains**, not a hypothetical — FCEL's reverse-split ATH of
+234,900, SOFI's Supertrend sitting above price, MSTX's negative MRC band,
+TSLA's collapsed stop ladder. Run it with `smoke_test.py` after touching
+`core/recommend.py`.
+
+### A config file that vanishes from git
+
+**`.gitignore` has eaten a config CSV three times now.** The `*.csv`
+catch-all is broad on purpose — the pipeline writes a lot of CSVs — so any
+file the *repo* owns needs an explicit negation placed **after** it:
+
+```gitignore
+*.csv
+!/Data/*.csv
+!/reminders.csv            # these must come AFTER the catch-all
+!/chitra_holdings.csv      # or it wins, silently
+```
+
+The failure is invisible: `git add -A` reports nothing, the commit succeeds,
+and the file simply is not there. `reminders.csv` ran untracked for a day
+while its own docstring claimed it was versioned. **After adding any config
+file, check it:**
+
+```bash
+git check-ignore -v <file>     # no output = tracked, which is what you want
+```
+
 ### `health_check.py` — whether it is all still running
 
 Checks six things, none of which require the jobs to cooperate:

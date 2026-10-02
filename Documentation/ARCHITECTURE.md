@@ -197,6 +197,7 @@ Each of these shipped, ran, and was wrong in a way nothing announced.
 | A seed double-counted a sale | manual `seed` plus `apply_fills` crediting the same money |
 | A row skipped as history | `stamp_row_ids` recycled a spent Row_ID; the skip logged nothing |
 | A reverse-split ATH read as a high | FCEL's ATH field says 234,900 against a $16 price — a number, not an error |
+| A config CSV never reached git (×3) | `.gitignore`'s `*.csv` ate it; `git add -A` reports nothing and the commit succeeds |
 | Eleven months of P&L missing | `_fetch_chunk` returned `[]` on a non-200, indistinguishable from "no transactions" |
 
 **The common shape: a failure that looks like a normal result.** Hence the

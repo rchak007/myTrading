@@ -80,6 +80,7 @@ silent. Either one gets an email.
 | **Positions** | the same holdings as a flat table |
 | **Cash** | cash per account, less money reserved for specific tickers |
 | **History** | completed rows |
+| **Chitra** | your sister's account, which you manage. Read-only, rendered from `chitra_holdings.csv` in the repo — see §5b |
 
 The **header block** at the top of `Orders` is rewritten every cycle. Its own
 staleness is the health check: a `LAST POLL` three days old means Pi 1 is dead,
@@ -115,6 +116,67 @@ instead of "touches".
 protects only the shares in that account. Rolling it up would report a position
 as protected while half of it is naked — not less precise, *false*, and false in
 the expensive direction.
+
+---
+
+## 5a. Recommended levels: where an order *would* go
+
+The flags above say whether an order **exists**. Under them, each block carries
+three lines saying where one **would go** — four prices derived from the
+indicators the signals job already computes.
+
+```
+RECOMMENDED                                     Rec_Stop  Rec_Trim  Rec_Dip
+① ⅓ out · ⅓ trim · first bid · ATR 11.27 (3.2%)   339.01    413.18   254.33
+② another ⅓ out (close-confirmed) · ⅓ trim        327.75    446.67      —
+③ ALL OUT — hard stop, rests at Schwab · final ⅓  316.47    480.16      —
+```
+
+**Read the rows top to bottom as a scale-out: a third, a third, then the rest.**
+
+**Two stops, two mechanisms, and the difference is the point.** ① and ② are
+*close-confirmed* — they belong in the Orders tab as "closes below", so a wick
+cannot take you out at the worst price of the day. ③ is a *resting Schwab
+stop*: a touch trigger, further out, and a **full exit**. Earnings is the one
+event that defeats ① and ②, because the gap happens before any close can
+confirm anything — which is why held names with earnings inside the window get
+a banner at the top of the Dashboard.
+
+**Trim is three levels because one forces an all-or-nothing decision**, and you
+will always feel you sold too early.
+
+**The dip is either an add or a re-entry**, labelled as such. An `add:` sits
+above the stop — you still hold. A `re:` sits below the whole stop ladder —
+you were stopped out, and this is the way back in.
+
+**They place nothing.** These are numbers to read. Typing one into the Orders
+tab is a deliberate act, and the levels are *levels* — they carry no position
+size, which is still the missing half of the risk decision.
+
+Full derivation, including the three traps in the data that any obvious
+formula falls into: [RECOMMENDED-LEVELS.md](RECOMMENDED-LEVELS.md).
+
+---
+
+## 5b. Chitra's account
+
+Chakravarti manages his sister's IRA. It appears in two places:
+
+- **the `Chitra` tab** — her whole account, priced live
+- **a lavender `CHITRA` row** inside any Dashboard block whose ticker she
+  shares, so a move on a name you both hold is visible where you make it
+
+**Her shares never touch your numbers.** The row is added when the Dashboard is
+drawn, *after* your per-ticker TOTAL is worked out, so it cannot reach your
+totals, your coverage flags, your reserves, or the order engine. The coverage
+columns on her row are blank rather than `N` — there is no Schwab connection to
+her account, so "no stop" is not something this system can honestly claim.
+
+**To update it: send the statement.** The holdings live in
+`chitra_holdings.csv` in the repo, not in the sheet — anything typed into the
+tab is overwritten on the next cycle. The file header records what the
+statement totalled, so if the tab's TOTAL stops matching it, a row was
+mistyped.
 
 ---
 
