@@ -136,13 +136,28 @@ INVESTANSWERS = [
     "TSLA","NVDA","STRC","MSTR", "ECHO", "MU", "AMD",   "AVGO", "BABA","ALAB", "MRVL"
 ]
 
-# WATCHLIST, not a holdings list. What she ACTUALLY owns is
-# chitra_holdings.csv (rendered to the Chitra tab); this is what we track
-# signals for, which is a superset. MRVL and MU were added 2026-10-02 —
-# she held both and neither was here, so her own positions were the one
-# thing the list was missing. SATS became ECHO the same day.
-CHITRA_TICKERS = [ "TSLA", "MSTR", "STRC", "GOOG", "PLTR", "LITE", "MSFT",
-                   "TSM", "ECHO", "CIEN", "IBIT", "CBRS", "MRVL", "MU" ]
+# Chitra's account — DERIVED from chitra_holdings.csv, which is what the
+# Chitra tab renders and what Chakravarti refreshes from her statement.
+#
+# Hand-kept, this list drifted to a 4-of-12 overlap with what she actually
+# owned: eight names she did not hold, and missing MRVL and MU, which she did.
+# Deriving it means the next statement fixes it for free instead of needing
+# someone to notice.
+#
+# Falls back to a static list if the file is unreadable — losing her signals
+# entirely would be a worse failure than tracking a slightly stale set.
+def _chitra_tickers() -> list:
+    fallback = ["TSLA", "GOOG", "MSFT", "IBIT", "MU", "MRVL"]
+    try:
+        import chitra
+        held = sorted({r["Ticker"] for r in chitra.load(log=lambda *_: None)
+                       if r.get("Asset") != "CASH"})
+        return held or fallback
+    except Exception:
+        return fallback
+
+
+CHITRA_TICKERS = _chitra_tickers()
 # Invest answers old - "NPPTF","PLTR","SE", ,"RIOT","CLSK
 
 # DESCRIPTION_STOCKS = ["
