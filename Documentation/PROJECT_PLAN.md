@@ -683,6 +683,44 @@ invisible on the Dashboard while still reserving the shares against it, so a
 close-triggered sell could fail the same way a resting trim does. Not a problem
 today; it would be on day one of doing this through the system.
 
+### 🔁 OPEN — buy and seed $1,000 each: STM · RDW · GEV · SMCI
+Asked 2026-10-01. Two halves, and only the first is done.
+
+**Done — tracking.** All four are now in `STOCK_TICKERS` (`app.py`), so they
+get signals, scores, MRC bands and recommended levels from the next full
+`jobStocksSignals` run. **GEV and SMCI were already there** — GEV is already
+held, SMCI was tracked but not held. Only `STM` and `RDW` were new.
+
+**Not done — the money.** Buying and seeding happen on PI 1 and are
+Chakravarti's to run; nothing here places an order or moves cash.
+
+Seed $1,000 per ticker, per account. Pick the account first — a reserve is per
+*(account, ticker)*, so `171` and `431` are separate reserves and seeding
+"STM" alone is not a thing.
+
+From the **ops sheet** (no SSH — put the verb in column A):
+
+```
+seed  <ACCT> STM 1000
+seed  <ACCT> RDW 1000
+seed  <ACCT> GEV 1000
+seed  <ACCT> SMCI 1000
+```
+
+Or **on Pi 1** directly:
+
+```bash
+.venv/bin/python cash_reserve.py --seed --account <ACCT> --ticker STM --amount 1000
+```
+
+**Seeding reserves cash, it does not buy.** The $1,000 is earmarked so it stops
+showing as free-to-deploy; the purchase is still a separate act. And seeding
+more than an account holds is possible — the Dashboard flags it as
+`OVER-FENCED` rather than refusing, so check `Free_To_Deploy` on the Cash tab
+first.
+
+Strike this when all four are bought and seeded.
+
 ### 📒 LIVE — Chitra's account
 Chakravarti manages his sister's **IRA-Edge 272-98230**. Added 2026-10-01 at
 his request: *"once a while i will re-update what i hope for her here and you
