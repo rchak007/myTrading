@@ -683,6 +683,36 @@ invisible on the Dashboard while still reserving the shares against it, so a
 close-triggered sell could fail the same way a resting trim does. Not a problem
 today; it would be on day one of doing this through the system.
 
+### 📒 LIVE — Chitra's account
+Chakravarti manages his sister's **IRA-Edge 272-98230**. Added 2026-10-01 at
+his request: *"once a while i will re-update what i hope for her here and you
+can update the chitra tab."*
+
+**That sentence set the design.** He sends a statement, Pi 2 edits
+`chitra_holdings.csv` and pushes, Pi 1 renders it. The sheet is never the
+source — anything typed into the Chitra tab is overwritten next cycle.
+
+**Two outputs:** the `Chitra` tab (whole account, priced live), and a lavender
+`CHITRA` row inside any Dashboard block whose ticker she shares. She currently
+holds MU, MRVL, TSLA, MSFT, IBIT, GOOG and an IIAXX sweep — all six equities
+are names he holds too, so all six blocks carry her line.
+
+**Display-only, and that is load-bearing.** Her rows are injected at RENDER
+time, after the per-ticker TOTAL is computed, so they cannot reach his totals,
+the market-value sort, coverage flags, `sell_guard`, the reserve ledger or the
+order engine. Coverage columns are blank rather than `N`: there is no Schwab
+connection to her account, so "no stop" is not something this code can assert.
+
+**To update:** send the statement. Replace the rows, bump `As_Of`, commit. The
+header records what the statement totalled ($16,543.36, +14.82% on
+2026-09-30) and the rows reproduce it to the cent — if TOTAL stops matching,
+a row was mistyped.
+
+**Not done:** no recommended levels on her rows (they are driven by his
+position blocks), and no reconciliation against a real feed. If she ever needs
+her own levels that is a larger change — her account is not in the Schwab
+login, so there is no live quantity to check against.
+
 ### 💡 OPEN — two refinements deferred from the 2026-10-01 build
 
 **Size from the stop.** The biggest remaining gap. A stop level without a size

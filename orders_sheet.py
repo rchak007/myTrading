@@ -572,6 +572,20 @@ ORD_HDR = ["Acct", "Side", "Type", "Qty", "Limit_Price", "Stop_Price",
 DASH_WIDTH = 1 + len(POS_HDR)          # column A holds the ticker label
 
 
+def _chitra_line(ticker, chitra_rows, quotes):
+    """One CHITRA row for a block, or None. Degrades silently.
+
+    Her account is an addition to the picture, never a prerequisite for it, so
+    a bad row must cost her line and nothing else.
+    """
+    try:
+        from chitra import dashboard_row
+        return dashboard_row(ticker, chitra_rows, quotes, _extract_price,
+                             DASH_WIDTH)
+    except Exception:
+        return None
+
+
 def _earnings_tickers(signals_df, held: set) -> list:
     """Held tickers with earnings inside the alert window, sorted.
 
@@ -656,7 +670,7 @@ def _rec_rows(ticker, price, signals_df, is_fenced, pos_width):
 def build_dashboard(positions: pd.DataFrame, orders_df=None,
                     quotes: dict | None = None,
                     fenced: set | None = None,
-                    signals_df=None) -> tuple[list, dict]:
+                    signals_df=None, chitra_rows=None) -> tuple[list, dict]:
     """
     One block per ticker: the positions mini-table, then the live Schwab orders
     for that ticker.
@@ -674,7 +688,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     # missing trim on a position actually held. The point is discipline: an
     # unprotected holding should be impossible to scroll past.
     marks = {"ticker": [], "label": [], "header": [], "title": [],
-             "warn": [], "rec": [], "warn_row": []}
+             "warn": [], "rec": [], "warn_row": [], "chitra": []}
 
     def col_of(field: str) -> str:
         """Column letter for a POS_HDR field. Derived, because these shift:
@@ -748,6 +762,15 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
             for field in ("Has_Stop", "Has_Trim"):
                 if str(r.get(field, "")).strip().upper() == NO:   # P is arranged
                     marks["warn"].append(f"{col_of(field)}{len(rows)}")
+
+        # CHITRA sits with the holdings but outside them: injected at RENDER
+        # time, after the TOTAL row is already computed, so her shares can
+        # never reach his totals, the market-value sort, coverage, the reserve
+        # ledger or the order engine.
+        if chitra_rows:
+            crow = _chitra_line(ticker, chitra_rows, quotes)
+            if crow:
+                marks["chitra"].append(add(crow))
 
         # RECOMMENDED levels, between the holdings and the live orders —
         # deliberately adjacent to both, because the question they answer is
@@ -878,6 +901,11 @@ def _paint(ws, marks, log):
                        "textFormat": {"bold": True,
                                       "foregroundColor": {"red": 0.60, "green": 0.15,
                                                           "blue": 0.0}}})
+        if marks.get("chitra"):
+            # Lavender, distinct from every other colour on the tab. Her rows
+            # sit inside his blocks and must never be mistaken for his.
+            ws.format([f"B{r}:{_last_col()}{r}" for r in marks["chitra"]],
+                      {"backgroundColor": {"red": 0.93, "green": 0.90, "blue": 0.98}})
         if marks.get("rec"):
             # Grey and italic, NOT the yellow used for ORDERS/labels. These are
             # advisory levels, not state — and nothing on this tab should look
@@ -900,7 +928,7 @@ def _paint(ws, marks, log):
 
 def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
                     quotes: dict | None = None, fenced: set | None = None,
-                    log=print, signals_df=None) -> int:
+                    log=print, signals_df=None, chitra_rows=None) -> int:
     if positions is None or positions.empty:
         return 0
     try:
@@ -909,7 +937,7 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
         ws = book.add_worksheet(title="Dashboard", rows=1000, cols=DASH_WIDTH + 2)
 
     rows, marks = build_dashboard(positions, orders_df, quotes, fenced,
-                                  signals_df)
+                                  signals_df, chitra_rows)
     ws.clear()
     ws.update(values=rows, range_name=f"A1:{_last_col()}{len(rows)}")
     ws.freeze(rows=0)
@@ -946,8 +974,21 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
 
     n_pos = _put(book.worksheet("Positions"), positions, POSITIONS_COLS, log)
     n_cash = _put(book.worksheet("Cash"), cash, CASH_COLS, log)
+    # Chitra's account: her own tab, plus a CHITRA line in any block whose
+    # ticker she shares. Wrapped because it is an addition to the picture and
+    # must never be the reason the rest of the write fails.
+    chitra_rows = []
+    try:
+        import chitra
+        chitra_rows = chitra.load(log=log)
+        if chitra_rows:
+            chitra.write_tab(book, quotes, _extract_price, log=log)
+    except Exception as e:
+        log(f"⚠️  Chitra tab skipped (everything else is fine): {e}")
+
     n_dash = write_dashboard(book, positions, orders_df, quotes, fenced,
-                             log=log, signals_df=signals_df)
+                             log=log, signals_df=signals_df,
+                             chitra_rows=chitra_rows)
 
     # ---- header block. LAST POLL is the health check: if this stops moving,
     # ---- whatever runs this module has died.

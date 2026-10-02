@@ -20,6 +20,8 @@ EXPECTED = {
     "token_watch": ["send", "load_mail_env", "read_from_sheet", "compose",
                     "mail_env_path", "recently_sent", "mark_sent"],
     "reminders": ["read_rows", "write_rows", "due", "compose", "notes_images"],
+    "chitra": ["load", "meta", "build_table", "write_tab", "dashboard_row",
+               "ACCT_LABEL", "COLS"],
     "core.recommend": ["recommend", "recommend_row", "attach", "tick_round",
                        "Rec", "earnings_soon", "TIER1", "TIER2", "TIER3",
                        "ALL_LEVELS", "FIELDS"],
@@ -29,7 +31,8 @@ EXPECTED = {
 # with the keyword removed passes the hasattr check above and fails at send
 # time — which for a reminder means silence, the one failure nobody notices.
 SIGNATURES = {("token_watch", "send"): ["subject", "body", "images"],
-              ("orders_sheet", "build_dashboard"): ["signals_df", "fenced"],
+              ("orders_sheet", "build_dashboard"): ["signals_df", "fenced",
+                                                    "chitra_rows"],
               ("core.recommend", "recommend"): ["price", "atr", "fenced"]}
 
 bad = 0

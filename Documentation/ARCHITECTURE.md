@@ -75,6 +75,7 @@ that produced the file.
 | `orders_sheet_prices.py` | `Live_Price` and `Day_%` only, every 5 min. Sheet-only: no files, no git |
 | `remote_ops.py` | the ops-sheet poller. Allowlisted verbs, top-scan row model |
 | `gsheet_notes.py` | reads notes from a sheet; degrades silently if gspread is absent |
+| `chitra.py` | Chitra's account — her own tab, plus a `CHITRA` row in any Dashboard block whose ticker she shares. Source of truth is `chitra_holdings.csv` in the repo, **not** the sheet. Display-only: injected at render time so her shares cannot reach his totals, coverage, reserves or the order engine |
 
 ### Orders
 
@@ -130,6 +131,7 @@ failure. **Measure before writing against an endpoint.**
 | `~/.local/state/myTrading/remote_ops_audit.log` | ops verbs | JSON per line, never rotated |
 | `schwabAPI/data/transactions/` | transaction cache | per account, with a `.state.json` watermark |
 | `~/github/jobMyTrading/` | published output | the only thing `gitpush.py` commits |
+| `chitra_holdings.csv` | Chitra's positions | in the REPO. From a statement, not the API — only the price is live |
 
 **Balances are always a fold over the ledger**, never a stored number.
 `Balance_After` is advisory.
