@@ -751,6 +751,28 @@ position blocks), and no reconciliation against a real feed. If she ever needs
 her own levels that is a larger change — her account is not in the Schwab
 login, so there is no live quantity to check against.
 
+#### 🔁 OUTSTANDING — get her OPEN ORDERS from Merrill Lynch
+Asked 2026-10-02. On the **2-day email reminder** as `chitra-merrill-orders`.
+
+**What is missing.** `chitra_holdings.csv` carries positions only. Whatever
+stops, trims or limits are resting in that account are invisible here, so her
+Dashboard rows show no coverage **whether or not any exists** — and unlike his
+own rows, that silence is not evidence of anything.
+
+That asymmetry is worth naming: on his accounts a blank coverage flag means
+*measured, and nothing is there*. On hers it means *not looked*.
+
+**What to send:** the open-orders list from Merrill (side, quantity, type,
+limit/stop price, duration) alongside the next statement.
+
+**Then:** add an `Orders` section to `chitra_holdings.csv` or a sibling file,
+and feed it into the block's `ORDERS` list the way the Orders-tab intents now
+are — a third source beside resting Schwab orders and sheet intents, marked as
+hers. Her coverage columns could then be populated honestly instead of staying
+blank.
+
+Strike with `reminders.py --done chitra-merrill-orders`.
+
 ### 💡 OPEN — two refinements deferred from the 2026-10-01 build
 
 **Size from the stop.** The biggest remaining gap. A stop level without a size
