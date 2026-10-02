@@ -106,6 +106,7 @@ that produced the file.
 | `health_check.py` | cron lines, output freshness, token, trading state, P&L quality |
 | `smoke_test.py` | asserts every cross-module function still exists, and that the few cross-module *signatures* still take the arguments their callers pass. **Run before pushing** |
 | `test_recommend.py` | the recommendation formulas, every case a real trap from the live data |
+| `test_coverage.py` | the Dashboard protection flags. Both bugs here said "covered" about something that was not |
 
 ### Probes
 
@@ -198,6 +199,8 @@ Each of these shipped, ran, and was wrong in a way nothing announced.
 | A row skipped as history | `stamp_row_ids` recycled a spent Row_ID; the skip logged nothing |
 | A reverse-split ATH read as a high | FCEL's ATH field says 234,900 against a $16 price — a number, not an error |
 | A config CSV never reached git (×3) | `.gitignore`'s `*.csv` ate it; `git add -A` reports nothing and the commit succeeds |
+| A dip buy reported as a breakout | the intent's `Close_Is` was read and then dropped, so coverage guessed from the price |
+| A filled order still claiming coverage | `SUBMITTED` is live to the engine, so a spent intent read as arranged protection |
 | Eleven months of P&L missing | `_fetch_chunk` returned `[]` on a non-200, indistinguishable from "no transactions" |
 
 **The common shape: a failure that looks like a normal result.** Hence the

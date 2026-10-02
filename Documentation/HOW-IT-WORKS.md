@@ -112,6 +112,16 @@ trim (profit target above) actually exist.
 an intraday collapse — that is the trade you accept by saying "closes below"
 instead of "touches".
 
+**A sheet intent is classified by its direction, a Schwab order by its
+price.** `BUY` + `CLOSES BELOW` is a dip buy whatever number you typed — even
+400 when the stock is at 357, because buying weakness is the opposite of
+buying strength. A resting Schwab order has no direction to read, so which
+side of today's price it sits on is the only information there is.
+
+**An order already sent to Schwab stops counting as an intent.** Once a row is
+`SUBMITTED` it has handed off: if the order is still resting it shows as `Y`,
+and if it filled there is nothing left to protect anything.
+
 **Coverage is per (ticker, account), never rolled up.** A stop in one account
 protects only the shares in that account. Rolling it up would report a position
 as protected while half of it is naked — not less precise, *false*, and false in

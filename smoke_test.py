@@ -33,7 +33,9 @@ EXPECTED = {
 SIGNATURES = {("token_watch", "send"): ["subject", "body", "images"],
               ("orders_sheet", "build_dashboard"): ["signals_df", "fenced",
                                                     "chitra_rows"],
-              ("core.recommend", "recommend"): ["price", "atr", "fenced"]}
+              ("core.recommend", "recommend"): ["price", "atr", "fenced"],
+              ("orders_sheet", "_classify"): ["side", "px", "price",
+                                              "direction"]}
 
 bad = 0
 for mod, names in EXPECTED.items():

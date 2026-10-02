@@ -210,6 +210,17 @@ the live data contains**, not a hypothetical — FCEL's reverse-split ATH of
 TSLA's collapsed stop ladder. Run it with `smoke_test.py` after touching
 `core/recommend.py`.
 
+### `test_coverage.py` — the Dashboard protection flags
+
+```bash
+.venv/bin/python test_coverage.py
+```
+
+These flags decide whether a position reads as **protected**, and both bugs
+they have had said "covered" about something that was not — the expensive
+direction to be wrong in. Run it after touching `coverage_for`, `_classify` or
+`read_intents`.
+
 ### A config file that vanishes from git
 
 **`.gitignore` has eaten a config CSV three times now.** The `*.csv`

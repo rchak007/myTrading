@@ -148,15 +148,29 @@ def fetch_positions_detailed(client_wrapper, log=print) -> pd.DataFrame:
 
 
 # ────────────────────────────────────────────────────── coverage flags
-def _classify(side: str, px: float, price: float) -> str:
-    """Which coverage slot a leg at `px` fills, given the current price.
+def _classify(side: str, px: float, price: float, direction: str = "") -> str:
+    """Which coverage slot a leg fills.
 
-    One rule for both sources, mirroring sell_guard.py: a SELL BELOW the
-    current price is protection, a SELL ABOVE it is a profit target. The same
-    order is a stop or a trim depending only on which side of the price it
-    sits, which is why this cannot be read off the order type alone.
+    TWO SOURCES, TWO RULES, because they carry different information.
+
+    A RESTING SCHWAB ORDER has no direction field. A SELL at 480 is a stop or
+    a trim depending only on which side of the current price it sits — which
+    is why this cannot be read off the order type alone. Same rule as
+    sell_guard.py.
+
+    A SHEET INTENT states its direction outright in `Close_Is`, and that is
+    the truth regardless of where the trigger price happens to sit. "BUY if it
+    CLOSES BELOW 400" is a dip buy even when 400 is above today's price —
+    which is exactly the case the price rule got wrong: TSLA at 357.68 with a
+    BUY/BELOW/400 intent was reported as Has_Breakout, when buying weakness is
+    the opposite of buying strength.
     """
     is_sell = str(side).upper().startswith("SELL")
+    d = str(direction or "").strip().upper()
+    if d in ("ABOVE", "BELOW"):
+        below = d == "BELOW"
+        return ("Has_Stop" if below else "Has_Trim") if is_sell else \
+               ("Has_Dip" if below else "Has_Breakout")
     if is_sell:
         return "Has_Stop" if px < price else "Has_Trim"
     return "Has_Dip" if px <= price else "Has_Breakout"
@@ -213,7 +227,8 @@ def coverage_for(ticker: str, acct: str, price: float | None,
                 if want and want > held_qty + 1e-6:
                     continue
 
-            slot = _classify(o.get("Side", ""), px, price)
+            slot = _classify(o.get("Side", ""), px, price,
+                             o.get("Close_Is", ""))
             if out[slot] != YES:            # never downgrade Y to P
                 out[slot] = mark
     return out
@@ -450,8 +465,8 @@ def read_intents(book, log=print) -> pd.DataFrame:
     Only rows that could still act are returned. A row already filled,
     cancelled, expired or voided is history and protects nothing.
     """
-    cols = ["Ticker", "Account", "Side", "Trigger_Price", "Qty", "Row_ID",
-            "Status"]
+    cols = ["Ticker", "Account", "Side", "Close_Is", "Trigger_Price", "Qty",
+            "Row_ID", "Status"]
     try:
         ws = book.worksheet("Orders")
         values = ws.get_all_values()
@@ -464,7 +479,15 @@ def read_intents(book, log=print) -> pd.DataFrame:
     # protection. It is recoverable rather than terminal, so it returns to
     # counting the moment the block clears; it just may not claim coverage
     # while it stands.
-    dead = {"FILLED", "CANCELLED", "EXPIRED", "VOID", "REJECTED", "BLOCKED"}
+    #
+    # SUBMITTED is terminal HERE even though the engine keeps it live: the
+    # intent has done its job and handed off to Schwab. If that order is still
+    # resting, orders_df reports it as Y — a stronger and truer claim. If it
+    # filled, there is nothing left to protect anything. Counting the spent
+    # intent as P instead left TSLA claiming coverage from a BUY that filled
+    # on 2026-09-29 and no longer exists.
+    dead = {"FILLED", "CANCELLED", "EXPIRED", "VOID", "REJECTED", "BLOCKED",
+            "SUBMITTED"}
     rows = []
     for i, raw in enumerate(values, start=1):
         if i < ORDERS_DATA_START:
@@ -481,6 +504,11 @@ def read_intents(book, log=print) -> pd.DataFrame:
         rows.append({"Ticker": rec["Ticker"].upper(),
                      "Account": acct_key(rec["Acct"]),
                      "Side": rec["Side"].upper(),
+                     # Close_Is is the whole reason an intent can be
+                     # classified honestly — without it coverage has to guess
+                     # from the price, and guesses wrong whenever the trigger
+                     # sits on the far side of today's quote.
+                     "Close_Is": rec["Close_Is"].upper(),
                      "Trigger_Price": trig,
                      "Qty": _num(rec["Qty"]),
                      "Row_ID": rec["Row_ID"],
