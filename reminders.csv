@@ -1,0 +1,18 @@
+# reminders.csv — things to come back to, nagged by email until struck out.
+#
+# Emailed by reminders.py from PI 2 (which holds the Gmail credentials).
+#
+#   done        leave BLANK while it is outstanding. Put ANY text here to stop
+#               the reminders — "done", "x", a date, a note. Nothing is
+#               deleted: a struck item stays as a record that it was finished.
+#   every_days  how often to nag.
+#   last_sent   written by reminders.py. Leave blank on a new row.
+#
+# In the repo rather than machine-local state on purpose: it is visible in git,
+# editable from either Pi, and a reminder that quietly vanished with an SD card
+# would be worse than no reminder at all.
+id,added,every_days,last_sent,done,title,url,note
+study-8k-45k,2026-09-30,2,2026-09-30,,How to Turn $8K Into $45K Without Killing Your Core Bag,https://www.youtube.com/live/mZIwo0EBIkI,Chakravarti asked to be nagged every 2 days until studied
+streamline-chitra,2026-09-30,2,2026-09-30,,Streamline Chitra's stocks,,"CHITRA_TICKERS in app.py — 12 symbols incl. CBRS, which returns no data"
+covered-calls-at-top,2026-09-30,2,2026-09-30,,Sell covered calls at the top,,"On assets I actually want to hold. Collect premium when stretched; risk is shares called away, so size strikes to keep the core bag"
+cash-secured-puts-at-bottom,2026-09-30,2,2026-09-30,,Sell cash-secured puts at the bottom,,"Only on assets I genuinely want to own at that strike — assignment means buying them, so the strike has to be a price I would pay"

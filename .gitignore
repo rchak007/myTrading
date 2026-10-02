@@ -53,6 +53,14 @@ transactions_cache/
 *.csv
 # ranked signal snapshots — intentionally tracked
 !/Data/*.csv
+# CONFIG CSVs ARE SOURCE, not pipeline output: the repo owns them and they are
+# meant to be diffed, reviewed and restored from git. These negations MUST sit
+# after the *.csv catch-all above, or it wins and they vanish silently — which
+# is exactly what happened to reminders.csv (documented as "versioned, visible
+# in a diff" while untracked and living only on one SD card) and nearly
+# happened to chitra_holdings.csv.
+!/reminders.csv
+!/chitra_holdings.csv
 *.parquet
 *.json
 

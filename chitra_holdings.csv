@@ -1,0 +1,40 @@
+# chitra_holdings.csv — Chitra's account, which Chakravarti manages.
+#
+# SOURCE OF TRUTH. This file is, not the sheet. Pi 1 renders it to the Chitra
+# tab and into the Dashboard every cycle; anything typed into the tab is
+# overwritten on the next run.
+#
+# WHY A FILE AND NOT THE SHEET
+#     Chakravarti sends an updated statement now and then and asks for the tab
+#     to be refreshed. Pi 2 can edit this file and push; Pi 1 cannot be typed
+#     into remotely. In the repo it is also versioned, so "what did she hold in
+#     October" stays answerable.
+#
+# NOT A SCHWAB-API ACCOUNT. These holdings come from a statement screenshot,
+# not from the API, so nothing here is live except the price. Quantity and
+# cost basis are only as fresh as As_Of below. Positions are display-only:
+# they never touch reserves, coverage flags, totals, or the order engine.
+#
+#   Account   IRA-Edge 272-98230
+#   As_Of     2026-09-30
+#
+# The statement showed $16,543.36, +$2,134.84 (+14.82%) on that date, and the
+# rows below reproduce it to the cent. Worth re-checking after any edit: if
+# the TOTAL stops matching the statement, a row was mistyped.
+#
+# COLUMNS
+#   Ticker      symbol, or the sweep fund for cash
+#   Qty         shares
+#   Cost_Basis  TOTAL cost for the whole position, not per share
+#   Asset       EQUITY or CASH. CASH is held at $1.00 and never priced
+#   Note        free text
+#
+# To update: replace the rows, bump As_Of above, commit. No code change.
+Ticker,Qty,Cost_Basis,Asset,Note
+IIAXX,6764.2300,6764.23,CASH,Money account — BANK OF AMERICA NA RASP sweep
+MU,3,2445.82,EQUITY,
+MRVL,9,1574.42,EQUITY,
+TSLA,4,1384.00,EQUITY,
+MSFT,2.0037,813.09,EQUITY,
+IBIT,20,791.90,EQUITY,
+GOOG,2.0037,635.06,EQUITY,Alphabet Class C
