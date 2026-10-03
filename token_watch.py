@@ -50,6 +50,7 @@ import os
 import smtplib
 import sys
 from datetime import datetime, timedelta, timezone
+from datetime import time as dtime      # `import time` below shadows it
 import time
 from email.message import EmailMessage
 from email.utils import formataddr
@@ -319,6 +320,54 @@ def send(subject: str, body: str, log=print, images=None) -> bool:
     return ok
 
 
+# jobStocksSignals' cron: `15,50 1-16 * * 1-5`. Pi 1 is NOT expected to poll
+# outside these, which is the whole reason this is here — a flat "3 hours"
+# threshold cried wolf every Saturday and Sunday morning, and twice before
+# anyone checked whether anything was actually wrong.
+POLL_MINUTES = (15, 50)
+POLL_HOURS = range(1, 17)          # 01:00–16:59 PT
+POLL_WEEKDAYS = range(0, 5)        # Mon–Fri
+# The job takes ~8-10 minutes. Allow it to finish before calling it late.
+POLL_GRACE_MIN = int(os.getenv("POLL_GRACE_MIN", "40"))
+
+
+def expected_last_poll(now: datetime) -> datetime | None:
+    """The most recent moment the stocks job was SCHEDULED to start.
+
+    Staleness has to be measured against the schedule, not against the clock.
+    `LAST POLL` being 16 hours old at 08:30 on a Saturday is exactly correct —
+    Friday's final slot is 16:50 and there is nothing until Monday.
+    """
+    day = now.date()
+    for back in range(0, 10):
+        d = day - timedelta(days=back)
+        if d.weekday() not in POLL_WEEKDAYS:
+            continue
+        past = [datetime.combine(d, dtime(h, m), tzinfo=now.tzinfo)
+                for h in POLL_HOURS for m in POLL_MINUTES
+                if datetime.combine(d, dtime(h, m), tzinfo=now.tzinfo) <= now]
+        if past:
+            return max(past)
+    return None
+
+
+def poll_is_stale(last_poll: datetime | None, now: datetime | None = None) -> bool:
+    """Has Pi 1 missed a run it was actually scheduled for?
+
+    True only when a scheduled slot has come and gone, with time to finish,
+    and the header still predates it.
+    """
+    if last_poll is None:
+        return False
+    now = now or datetime.now(last_poll.tzinfo)
+    # Look back from `now - grace`, not from `now`. Asking for the newest slot
+    # and then allowing grace lets an OLDER missed slot hide behind a recent
+    # one that is still legitimately running: at 02:10 the 01:50 run is within
+    # its grace, but 01:15 was skipped entirely and nothing noticed.
+    due = expected_last_poll(now - timedelta(minutes=POLL_GRACE_MIN))
+    return due is not None and last_poll < due
+
+
 def read_from_sheet(log=print) -> tuple[dict, str | None, float | None]:
     """Token state and poll freshness, read from the Orders header.
 
@@ -369,6 +418,7 @@ def read_from_sheet(log=print) -> tuple[dict, str | None, float | None]:
         pt = ZoneInfo("America/Los_Angeles")
         when = datetime.strptime(poll[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pt)
         age = (datetime.now(pt) - when).total_seconds() / 3600
+        st["_last_poll"] = when
     except Exception:
         pass
     return st, None, age
@@ -415,7 +465,12 @@ def main() -> int:
     # readable, which is indistinguishable from expired as far as trading goes.
     # A header that has stopped moving means Pi 1 is down — worth an email in
     # its own right, and something Pi 1 could never tell you itself.
-    stale = poll_age is not None and poll_age > float(os.getenv("POLL_STALE_HOURS", "3"))
+    # Measured against the SCHEDULE, not a flat hour count. Falls back to the
+    # old threshold only when the timestamp could not be parsed at all.
+    last_poll = (st or {}).get("_last_poll")
+    stale = (poll_is_stale(last_poll) if last_poll is not None
+             else (poll_age is not None
+                   and poll_age > float(os.getenv("POLL_STALE_HOURS", "3"))))
     due = (args.force or stale
            or state in ("EXPIRED", "MISSING", "UNKNOWN", "RENEW_NOW")
            or (days is not None and days <= args.days))

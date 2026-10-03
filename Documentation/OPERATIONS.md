@@ -76,8 +76,22 @@ A3  LAST POLL      2026-09-29 10:59:13 PDT
 
 **It watches two things, and the second is free.** `LAST POLL` is rewritten
 every cycle, so a header that has stopped moving means **Pi 1 itself is down** —
-which is precisely the failure Pi 1 could never report. Over
-`POLL_STALE_HOURS` (default 3) the email leads with it.
+which is precisely the failure Pi 1 could never report.
+
+**Staleness is measured against the SCHEDULE, not the clock.** The stocks cron
+is `15,50 1-16 * * 1-5`, so at 08:30 on a Saturday the newest possible poll is
+Friday's 16:50 run and `LAST POLL` being 16 hours old is exactly correct. A
+flat hour threshold emailed "🔴 Pi 1 has not polled in 16h" on 2026-10-03 with
+nothing whatsoever wrong — `health_check.py` passed every line green at the
+same moment, saying "weekend — not scheduled".
+
+`poll_is_stale()` finds the most recent slot that has had time to finish
+(`POLL_GRACE_MIN`, default 40) and alerts only if the header predates it. It
+looks back from `now - grace` rather than from `now`, so a slot skipped an hour
+ago cannot hide behind one that is still legitimately running.
+
+`POLL_STALE_HOURS` survives as the fallback for a header whose timestamp
+cannot be parsed at all.
 
 `token_watch.py` without `--from-sheet` still reads the local token store, for
 running on Pi 1 by hand.

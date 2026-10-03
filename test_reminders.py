@@ -101,5 +101,37 @@ check("...and the email will say 'every Monday', not 'every 2 day(s)'",
       "every Monday" in R.compose([screenshot])[1],
       R.compose([screenshot])[1].split("\n")[3])
 
+print("\n── Pi-1 poll staleness is measured against the SCHEDULE ──")
+# THE FALSE ALARM, 2026-10-03. A flat "3 hours" threshold emailed
+# "🔴 Pi 1 has not polled in 16h" at 08:30 on a SATURDAY. Friday's last slot
+# is 16:50 and the next is Monday 01:15, so 16 hours was exactly right.
+from datetime import datetime                              # noqa: E402
+from zoneinfo import ZoneInfo                              # noqa: E402
+import token_watch as T                                    # noqa: E402
+PT = ZoneInfo("America/Los_Angeles")
+D = lambda *a: datetime(*a, tzinfo=PT)
+for name, now_, poll_, want in (
+        ("Sat 08:30 after a normal Friday — the false alarm",
+         D(2026, 10, 3, 8, 30), D(2026, 10, 2, 16, 58), False),
+        ("Sun 20:00", D(2026, 10, 4, 20, 0), D(2026, 10, 2, 16, 58), False),
+        ("Mon 01:10, before the day's first slot",
+         D(2026, 10, 5, 1, 10), D(2026, 10, 2, 16, 58), False),
+        ("Mon 02:10, 01:15 was skipped",
+         D(2026, 10, 5, 2, 10), D(2026, 10, 2, 16, 58), True),
+        ("Mon 09:00 after a genuinely dead weekend",
+         D(2026, 10, 5, 9, 0), D(2026, 10, 2, 16, 58), True),
+        ("Tue 11:00, polled 10:52 — healthy",
+         D(2026, 10, 6, 11, 0), D(2026, 10, 6, 10, 52), False),
+        ("Tue 11:05, a slot missed but still inside its grace",
+         D(2026, 10, 6, 11, 5), D(2026, 10, 6, 10, 20), False),
+        ("Tue 11:35, that slot now past grace",
+         D(2026, 10, 6, 11, 35), D(2026, 10, 6, 10, 20), True),
+        ("Fri 22:00, after the last slot of the week",
+         D(2026, 10, 2, 22, 0), D(2026, 10, 2, 16, 58), False)):
+    check(f"{name} → {'ALERT' if want else 'quiet'}",
+          T.poll_is_stale(poll_, now_) is want)
+check("an unparseable timestamp alerts on nothing",
+      T.poll_is_stale(None) is False)
+
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 raise SystemExit(1 if FAILED else 0)
