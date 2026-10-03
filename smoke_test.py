@@ -23,7 +23,7 @@ EXPECTED = {
                   "use_channel", "CHANNELS"],
     "market_calendar": ["is_open", "is_trading_day", "holidays", "early_closes",
                         "close_time", "easter", "describe"],
-    "chitra": ["load", "load_orders", "meta", "write_tab", "dashboard_row",
+    "chitra": ["load", "load_orders", "load_reserves", "cash_position", "meta", "write_tab", "dashboard_row",
                "read_conditions", "evaluate", "coverage", "build_positions",
                "build_orders", "build_condition_status",
                "ACCT_LABEL", "POS_COLS", "ORD_COLS", "CON_COLS", "MET"],

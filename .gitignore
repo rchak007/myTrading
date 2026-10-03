@@ -62,6 +62,7 @@ transactions_cache/
 !/reminders.csv
 !/chitra_holdings.csv
 !/chitra_orders.csv
+!/chitra_reserves.csv
 !/options_reminders.csv
 *.parquet
 *.json

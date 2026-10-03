@@ -208,6 +208,18 @@ act.
 with room to grow, and each one clears only its own range. A position
 appearing or disappearing cannot shift your rows.
 
+**Seeding and fencing work differently for her.** `chitra_reserves.csv` holds
+both: `Fenced = Y` puts the 🔒 on her row, and `Seed` earmarks dollars from
+her **IIAXX sweep**. The tab header shows `sweep $6,764.23 · seeded $X · free
+$Y`, and goes to **⚠️ OVER-SEEDED** if you commit more than she has.
+
+**It is a note, not a ledger**, and that difference is the whole point. On
+your Schwab accounts `cash_reserve.py` watches for fills, debits the reserve
+itself, and the order engine *refuses* a buy that exceeds it. None of that can
+exist here — no API to see a fill, no engine to gate one. So her reserves are
+only as current as the last screenshot you sent, and seeing an over-commitment
+is the only protection there is.
+
 **To update her positions:** send the statement — they live in
 `chitra_holdings.csv` in the repo.
 **To update her resting orders:** send a screenshot of the Merrill

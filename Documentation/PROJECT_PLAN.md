@@ -799,6 +799,19 @@ typed.
 `SIDEWAYS` typo fell through to the price rule and showed `Has_Stop = P` on a
 row that can never act — the Dashboard's recurring failure in miniature.
 
+**Fencing and seeding, 2026-10-02.** `chitra_reserves.csv` carries both. All
+six of her holdings — MU, MRVL, TSLA, MSFT, IBIT, GOOG — are fenced at his
+request; nothing is seeded yet. Her cash is the **IIAXX sweep, $6,764.23**,
+and the tab header shows `sweep · seeded · free`, flipping to **OVER-SEEDED**
+when the earmarks exceed it.
+
+**A note, not a ledger, and deliberately so.** `cash_reserve.py` on his own
+accounts sees fills through the Schwab API and the order engine refuses an
+over-spend. Neither exists for Merrill, so hers records intent and makes
+over-commitment *visible*. It enforces nothing and is only as current as the
+last screenshot. Pretending otherwise would be the worst option — a reserve
+that looks enforced and is not.
+
 *Still open:* `chitra_orders.csv` is empty, recorded as checked-and-none on
 2026-10-02 (the Merrill page read "No orders found"). The reminder
 `chitra-merrill-orders` stays on the 2-day email until there are orders to

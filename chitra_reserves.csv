@@ -1,0 +1,30 @@
+# chitra_reserves.csv — fencing and cash earmarks for Chitra's account.
+#
+# HER CASH IS THE IIAXX SWEEP, $6,764.23 as of 2026-09-30. Everything seeded
+# below comes out of that one pool, and the tab shows cash / seeded / free so
+# over-committing is visible rather than discovered.
+#
+# THIS IS A NOTE, NOT A LEDGER — and the difference matters.
+#   On Chakravarti's OWN accounts, cash_reserve.py watches Schwab for fills,
+#   debits the reserve automatically, and the order engine REFUSES a buy that
+#   exceeds it. None of that can exist here: there is no Merrill API to see a
+#   fill and no engine to gate one.
+#   So this file is only as current as the last screenshot he sent. It records
+#   intent and makes over-commitment visible. It enforces nothing.
+#
+#   Seed   dollars earmarked from the sweep for this ticker. 0 = fenced only.
+#   Fenced Y means "this is hers to keep the proceeds of" — when it sells, the
+#          money stays assigned to this ticker rather than becoming free cash.
+#          Same meaning as `fence` on his Schwab accounts: no cash moves now.
+#
+# A ticker she does not hold yet can still be seeded — that is the point of
+# seeding something.
+#
+#   As_Of  2026-10-02
+Ticker,Seed,Fenced,Note
+MU,0,Y,
+MRVL,0,Y,
+TSLA,0,Y,
+MSFT,0,Y,
+IBIT,0,Y,
+GOOG,0,Y,

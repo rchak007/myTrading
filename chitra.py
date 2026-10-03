@@ -35,6 +35,7 @@ NEVER ws.clear()
 WHERE THE TRUTH IS
     chitra_holdings.csv  positions      ← from her statement
     chitra_orders.csv    resting orders ← from his Merrill screenshots
+    chitra_reserves.csv  fencing + cash earmarks against the IIAXX sweep
     the SHEET            conditions     ← the only thing he types, and the only
                                           thing the repo does not own
 """
@@ -48,6 +49,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 FILE = Path(os.getenv("CHITRA_FILE", HERE / "chitra_holdings.csv"))
 ORDERS_FILE = Path(os.getenv("CHITRA_ORDERS_FILE", HERE / "chitra_orders.csv"))
+RESERVES_FILE = Path(os.getenv("CHITRA_RESERVES_FILE", HERE / "chitra_reserves.csv"))
 
 ACCT_LABEL = "CHITRA"
 TAB = "Chitra"
@@ -146,9 +148,37 @@ def load(log=print) -> list[dict]:
         out.append({"Ticker": t, "Qty": qty,
                     "Cost_Basis": _num(r.get("Cost_Basis"), 0.0) or 0.0,
                     "Asset": str(r.get("Asset", "EQUITY")).strip().upper(),
-                    "Fenced": str(r.get("Fenced", "")).strip(),
+                    # Fencing lives in chitra_reserves.csv, not here. Two
+                    # places to declare it would be one place to forget.
                     "Note": str(r.get("Note", "")).strip()})
     return out
+
+
+def load_reserves(log=print) -> dict:
+    """{TICKER: {"seed": float, "fenced": bool, "note": str}}.
+
+    A NOTE, NOT A LEDGER. On his Schwab accounts cash_reserve.py sees fills
+    and the engine refuses an over-spend; neither exists here, so this records
+    intent and makes over-commitment visible. It enforces nothing, and it is
+    only as current as the last screenshot.
+    """
+    out = {}
+    for r in _rows(RESERVES_FILE, log):
+        t = str(r.get("Ticker", "")).strip().upper()
+        if not t:
+            continue
+        out[t] = {"seed": _num(r.get("Seed"), 0.0) or 0.0,
+                  "fenced": str(r.get("Fenced", "")).strip().upper().startswith("Y"),
+                  "note": str(r.get("Note", "")).strip()}
+    return out
+
+
+def cash_position(rows, reserves) -> tuple:
+    """(cash, seeded, free) for the sweep. `free` goes negative when
+    over-committed, which is the number worth seeing."""
+    cash = sum(r["Cost_Basis"] for r in rows if r.get("Asset") == "CASH")
+    seeded = sum(v["seed"] for v in reserves.values())
+    return cash, seeded, cash - seeded
 
 
 def load_orders(log=print) -> list[dict]:
@@ -276,8 +306,10 @@ def coverage(ticker, price, orders, conditions, held_qty):
 
 
 # ── the three blocks ────────────────────────────────────────────────────────
-def build_positions(rows, quotes, extract, orders, conditions) -> list[list]:
+def build_positions(rows, quotes, extract, orders, conditions,
+                    reserves=None) -> list[list]:
     """The positions block, with a TOTAL line."""
+    reserves = reserves or {}
     out, tot_val, tot_cost = [], 0.0, 0.0
     for r in rows:
         px, pct = _price(r, quotes, extract)
@@ -303,8 +335,8 @@ def build_positions(rows, quotes, extract, orders, conditions) -> list[list]:
             round(upl, 2) if upl is not None else "",
             round(pcnt, 2) if pcnt is not None else "",
             cov["Has_Stop"], cov["Has_Trim"], cov["Has_Dip"], cov["Has_Breakout"],
-            "🔒" if r.get("Fenced") else "",
-            "",                      # Seed_Reserved: no reserve ledger here
+            "🔒" if reserves.get(r["Ticker"], {}).get("fenced") else "",
+            round(reserves.get(r["Ticker"], {}).get("seed", 0.0), 2) or "",
             r["Note"],
         ])
     if out:
@@ -349,10 +381,11 @@ def write_tab(book, quotes, extract, signals_df=None, log=print) -> int:
 
     rows = load(log=log)
     orders = load_orders(log=log)
+    reserves = load_reserves(log=log)
     conditions = read_conditions(ws, log=log)
     closes = _closes(signals_df)
 
-    pos = build_positions(rows, quotes, extract, orders, conditions)
+    pos = build_positions(rows, quotes, extract, orders, conditions, reserves)
     ords = build_orders(orders)
     status = build_condition_status(conditions, quotes, extract, closes)
     for block, cap, name in ((pos, POS_MAX, "positions"),
@@ -363,11 +396,18 @@ def write_tab(book, quotes, extract, signals_df=None, log=print) -> int:
             del block[cap:]
 
     m, mo = meta(), meta(ORDERS_FILE)
+    cash, seeded, free = cash_position(rows, reserves)
+    # Seeded against the sweep, on the face of the tab. Over-committing is
+    # visible rather than discovered — nothing here can refuse a trade, so
+    # seeing it is the only protection there is.
+    money = (f"sweep ${cash:,.2f} · seeded ${seeded:,.2f} · "
+             + (f"free ${free:,.2f}" if free >= 0
+                else f"⚠️ OVER-SEEDED by ${-free:,.2f}"))
     head = [[f"CHITRA — {m.get('Account', 'account')}",
              f"positions as of {m.get('As_Of', '?')} · orders as of "
              f"{mo.get('As_Of', '?')} · prices live · managed by Chakravarti"],
-            ["", "NOTHING IS PLACED FROM HERE. A green row below means go and "
-                 "do it at Merrill by hand."]]
+            ["", money + "  ·  NOTHING IS PLACED FROM HERE: a green row below "
+                         "means go and do it at Merrill by hand."]]
 
     # Each section clears only its OWN range. ws.clear() would erase every
     # condition he has typed, which is the whole reason this is not one write.
@@ -411,6 +451,9 @@ def write_tab(book, quotes, extract, signals_df=None, log=print) -> int:
     met = sum(1 for v in status.values() if v[2] == MET)
     log(f"Chitra tab: {len(rows)} position(s), {len(orders)} resting order(s), "
         f"{len(conditions)} condition(s)" + (f", {met} MET 🟢" if met else ""))
+    if free < 0:
+        log(f"⚠️  Chitra: OVER-SEEDED by ${-free:,.2f} against a "
+            f"${cash:,.2f} sweep")
     return len(rows)
 
 

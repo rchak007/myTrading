@@ -103,6 +103,34 @@ check("every row is the full width",
       all(len(r) == len(chitra.POS_COLS) for r in pos),
       str({len(r) for r in pos}))
 
+print("\n── fencing and the sweep ──")
+res = chitra.load_reserves(log=lambda *_: None)
+check("all six holdings are fenced",
+      {t for t, v in res.items() if v["fenced"]}
+      == {"MU", "MRVL", "TSLA", "MSFT", "IBIT", "GOOG"}, str(sorted(res)))
+cash, seeded, free = chitra.cash_position(rows, res)
+check("the sweep is read from the CASH row, not guessed",
+      abs(cash - 6764.23) < 0.01, f"{cash}")
+check("fencing alone seeds nothing", seeded == 0.0, str(seeded))
+check("free cash is the whole sweep while nothing is seeded",
+      abs(free - cash) < 0.01)
+# Over-commitment has to be VISIBLE, because nothing here can refuse a trade.
+over = {"MU": {"seed": 5000.0, "fenced": True, "note": ""},
+        "TSLA": {"seed": 3000.0, "fenced": True, "note": ""}}
+_, s_over, f_over = chitra.cash_position(rows, over)
+check("seeding past the sweep makes free go NEGATIVE",
+      s_over == 8000.0 and f_over < 0, f"seeded {s_over} free {f_over}")
+fenced_pos = chitra.build_positions(rows, Q, EX, [], [], res)
+by_f = {r[0]: r for r in fenced_pos}
+check("a fenced ticker shows the lock", by_f["MU"][13] == "🔒", by_f["MU"][13])
+check("cash is not fenced", by_f["IIAXX"][13] == "", by_f["IIAXX"][13])
+check("Seed_Reserved is blank at zero, not 0.0",
+      by_f["MU"][14] == "", repr(by_f["MU"][14]))
+seeded_pos = chitra.build_positions(
+    rows, Q, EX, [], [], {"MU": {"seed": 2000.0, "fenced": True, "note": ""}})
+check("a seeded ticker shows its dollars",
+      {r[0]: r for r in seeded_pos}["MU"][14] == 2000.0)
+
 print("\n── the orders block ──")
 empty = chitra.build_orders([])
 check("an empty file says NONE AS OF A DATE, not just nothing",

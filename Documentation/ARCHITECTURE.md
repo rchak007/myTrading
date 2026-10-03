@@ -137,6 +137,7 @@ failure. **Measure before writing against an endpoint.**
 | `~/github/jobMyTrading/` | published output | the only thing `gitpush.py` commits |
 | `chitra_holdings.csv` | Chitra's positions | in the REPO. From a statement, not the API — only the price is live |
 | `chitra_orders.csv` | her resting Merrill orders | in the REPO, transcribed from screenshots. Records its own `As_Of`, so "none" means checked |
+| `chitra_reserves.csv` | her fencing and cash earmarks | in the REPO. A **note, not a ledger** — nothing watches fills or refuses an over-spend on that account |
 | the `Chitra` tab, cols A–F | her conditions | **human-owned.** The only Chitra state the repo does not hold |
 
 **Balances are always a fold over the ledger**, never a stored number.
