@@ -110,6 +110,7 @@ that produced the file.
 | `test_coverage.py` | the Dashboard protection flags. Both bugs here said "covered" about something that was not |
 | `test_market_calendar.py` | the derived calendar against the published NYSE one, including the years the observance rules surprise you |
 | `test_chitra.py` | her tab: close-not-live triggers, and that an unjudgeable row claims no protection |
+| `test_reminders.py` | the cadence logic. Too eager is noise he ignores; too quiet loses the item |
 
 ### Probes
 

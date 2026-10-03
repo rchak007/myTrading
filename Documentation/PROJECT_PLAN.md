@@ -885,6 +885,15 @@ the cadence; a per-row day counter would only fight it.
 **No images.** Three a day with a megabyte of cards attached is not a
 reminder.
 
+### Pinning a reminder to a weekday
+Added 2026-10-02 for `chitra-screenshots` — "send this every Monday or so".
+
+`every_days` **cannot** express that. `every_days=7` drifts the first time a
+send is missed or runs late, and "every Monday" quietly becomes "every
+Thursday". So rows gained an optional `weekday` column: `Mon`, `monday` or
+`0`–`6`. Set it and the row is due on that day and only that day, once; leave
+it blank and the day counter works as before.
+
 ### How the reminders work
 `reminders.csv` lives in the REPO, not machine-local state: a reminder that
 vanished with an SD card would be worse than none.

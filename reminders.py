@@ -46,7 +46,27 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-COLS = ["id", "added", "every_days", "last_sent", "done", "title", "url", "note"]
+COLS = ["id", "added", "every_days", "weekday", "last_sent", "done", "title",
+        "url", "note"]
+# Mon=0, matching date.weekday(). Accepts "Mon", "monday", or the number.
+WEEKDAYS = {n: i for i, n in enumerate(
+    ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])}
+WEEKDAY_NAME = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
+                "Saturday", "Sunday"]
+
+
+def weekday_of(row) -> int | None:
+    """The weekday a row is pinned to, or None for a plain day-counter row."""
+    raw = str(row.get("weekday", "")).strip().lower()
+    if not raw:
+        return None
+    if raw[:3] in WEEKDAYS:
+        return WEEKDAYS[raw[:3]]
+    try:
+        n = int(raw)
+        return n if 0 <= n <= 6 else None
+    except ValueError:
+        return None
 
 # ─────────────────────────────────────────────────────────── channels
 # Two lists, two cadences, one nagger. A second copy of this file for the
@@ -165,6 +185,17 @@ def due(row: dict) -> bool:
     """
     if str(row.get("done", "")).strip():
         return False
+
+    # PINNED TO A WEEKDAY. A day counter cannot hold a weekday: `every_days=7`
+    # drifts the moment one send is missed or late, and "every Monday" quietly
+    # becomes "every Thursday". So a weekday row is due on that day and only
+    # that day, once.
+    wd = weekday_of(row)
+    if wd is not None:
+        if date.today().weekday() != wd:
+            return False
+        return days_since(row.get("last_sent", "")) != 0
+
     try:
         every = int(row.get("every_days") or 2)
     except ValueError:
@@ -191,8 +222,10 @@ def compose(rows: list[dict]) -> tuple[str, str]:
             body.append(f"    {r['url']}")
         if r.get("note"):
             body.append(f"    {r['note']}")
-        cadence = (f" · every {r.get('every_days','2')} day(s)"
-                   if not CHANNEL["market_hours"] else "")
+        wd = weekday_of(r)
+        cadence = ("" if CHANNEL["market_hours"]
+                   else f" · every {WEEKDAY_NAME[wd]}" if wd is not None
+                   else f" · every {r.get('every_days','2')} day(s)")
         body.append(f"    added {r.get('added','?')}"
                     + (f", {age} day(s) ago" if age is not None else "")
                     + cadence)

@@ -20,7 +20,7 @@ EXPECTED = {
     "token_watch": ["send", "load_mail_env", "read_from_sheet", "compose",
                     "mail_env_path", "recently_sent", "mark_sent"],
     "reminders": ["read_rows", "write_rows", "due", "compose", "notes_images",
-                  "use_channel", "CHANNELS"],
+                  "use_channel", "CHANNELS", "weekday_of", "WEEKDAY_NAME"],
     "market_calendar": ["is_open", "is_trading_day", "holidays", "early_closes",
                         "close_time", "easter", "describe"],
     "chitra": ["load", "load_orders", "load_reserves", "cash_position", "meta", "write_tab", "dashboard_row",
