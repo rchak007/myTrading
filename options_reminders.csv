@@ -1,0 +1,20 @@
+# options_reminders.csv — the OPTIONS channel. Things that need the market
+# OPEN to act on, so they are nagged intraday rather than once a day.
+#
+# Emailed by reminders.py --channel options from PI 2, at 09:30, 11:00 and
+# 12:30 PT, and ONLY on a day the market is actually trading. Holidays and
+# half-days are worked out by market_calendar.py, so the day after
+# Thanksgiving (shuts 10:00 PT) sends once, not three times.
+#
+#   done        leave BLANK while outstanding. ANY text stops the reminders.
+#   every_days  0 means EVERY send — which is the point of this list. Cron
+#               decides the three times a day; a per-row day counter would
+#               only fight it. Put a number here to slow one row down.
+#   last_sent   written by reminders.py. Leave blank on a new row.
+#
+# Separate from reminders.csv on purpose. That list is "come back to this
+# sometime"; this one is "the market is open RIGHT NOW and this is the window".
+# Mixing them would drag the whole open-items list into a three-a-day cadence.
+id,added,every_days,last_sent,done,title,url,note
+covered-calls-at-top,2026-09-30,0,2026-10-02,,Sell covered calls at the top,,"On assets I actually want to hold. Collect premium when stretched; risk is shares called away, so size strikes to keep the core bag. Check Rec_Trim on the Dashboard for where stretched actually is"
+cash-secured-puts-at-bottom,2026-09-30,0,2026-10-02,,Sell cash-secured puts at the bottom,,"Only on assets I genuinely want to own at that strike — assignment means buying them, so the strike has to be a price I would pay. Rec_Dip is the level worth bidding"

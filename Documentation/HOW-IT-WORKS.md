@@ -175,25 +175,50 @@ formula falls into: [RECOMMENDED-LEVELS.md](RECOMMENDED-LEVELS.md).
 
 ---
 
-## 5b. Chitra's account
+## 5b. Chitra's account — managed entirely on its own tab
 
-Chakravarti manages his sister's IRA. It appears in two places:
+You manage your sister's IRA at Merrill, and there is **no API for it**. So
+the `Chitra` tab is not a report, it is the whole working surface: three
+sections, and one of them is yours to type in.
 
-- **the `Chitra` tab** — her whole account, priced live
-- **a lavender `CHITRA` row** inside any Dashboard block whose ticker she
-  shares, so a move on a name you both hold is visible where you make it
+```
+POSITIONS            ← from her statement, priced live, with the same
+                       Has_Stop / Has_Trim / Has_Dip / Has_Breakout flags
+BROKERAGE ORDERS     ← what is actually resting at Merrill, from your
+                       screenshots
+MY CONDITIONS        ← YOU TYPE HERE. Columns A–F are yours.
+```
 
-**Her shares never touch your numbers.** The row is added when the Dashboard is
-drawn, *after* your per-ticker TOTAL is worked out, so it cannot reach your
-totals, your coverage flags, your reserves, or the order engine. The coverage
-columns on her row are blank rather than `N` — there is no Schwab connection to
-her account, so "no stop" is not something this system can honestly claim.
+**A condition goes green when it fires.** Type `TSLA · SELL · BELOW · 500`
+and Pi 1 fills in the live price, the last close, and the status every cycle.
+When the close crosses your level the whole row turns **bright green** — that
+is your cue to go and place it at Merrill by hand. **Nothing is ever placed
+from here.**
 
-**To update it: send the statement.** The holdings live in
-`chitra_holdings.csv` in the repo, not in the sheet — anything typed into the
-tab is overwritten on the next cycle. The file header records what the
-statement totalled, so if the tab's TOTAL stops matching it, a row was
-mistyped.
+Conditions are judged on the **close**, never the live price, exactly like the
+Orders tab. "Closes below 500" is not "touched 500", and a wick must not turn
+a row green.
+
+A row it cannot judge — a missing direction, a typo — says so in plain words
+and **claims no protection**. That matters: an unreadable row that counted as
+a stop would make the tab say covered about the one instruction that can never
+act.
+
+**Your columns are never overwritten.** The machine sections sit at fixed rows
+with room to grow, and each one clears only its own range. A position
+appearing or disappearing cannot shift your rows.
+
+**To update her positions:** send the statement — they live in
+`chitra_holdings.csv` in the repo.
+**To update her resting orders:** send a screenshot of the Merrill
+order-status page — they live in `chitra_orders.csv`. That file records the
+date it was taken, so "no orders" reads as *checked and there were none*
+rather than *never looked*.
+
+She also appears as a lavender `CHITRA` row inside any Dashboard block whose
+ticker you both hold — but **her shares never touch your numbers.** That row
+is added after your totals are worked out, so it cannot reach your totals,
+coverage, reserves or the order engine.
 
 ---
 

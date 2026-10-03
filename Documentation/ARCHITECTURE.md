@@ -75,7 +75,7 @@ that produced the file.
 | `orders_sheet_prices.py` | `Live_Price` and `Day_%` only, every 5 min. Sheet-only: no files, no git |
 | `remote_ops.py` | the ops-sheet poller. Allowlisted verbs, top-scan row model |
 | `gsheet_notes.py` | reads notes from a sheet; degrades silently if gspread is absent |
-| `chitra.py` | Chitra's account — her own tab, plus a `CHITRA` row in any Dashboard block whose ticker she shares. Source of truth is `chitra_holdings.csv` in the repo, **not** the sheet. Display-only: injected at render time so her shares cannot reach his totals, coverage, reserves or the order engine |
+| `chitra.py` | Chitra's account. Her tab is the whole management surface — positions, Merrill orders, and HUMAN-TYPED conditions that go green when the close crosses them. Fixed row layout; each section clears only its own range, never `ws.clear()`. Also the lavender `CHITRA` row on his Dashboard, which cannot reach his totals |
 
 ### Orders
 
@@ -109,6 +109,7 @@ that produced the file.
 | `test_recommend.py` | the recommendation formulas, every case a real trap from the live data |
 | `test_coverage.py` | the Dashboard protection flags. Both bugs here said "covered" about something that was not |
 | `test_market_calendar.py` | the derived calendar against the published NYSE one, including the years the observance rules surprise you |
+| `test_chitra.py` | her tab: close-not-live triggers, and that an unjudgeable row claims no protection |
 
 ### Probes
 
@@ -135,6 +136,8 @@ failure. **Measure before writing against an endpoint.**
 | `schwabAPI/data/transactions/` | transaction cache | per account, with a `.state.json` watermark |
 | `~/github/jobMyTrading/` | published output | the only thing `gitpush.py` commits |
 | `chitra_holdings.csv` | Chitra's positions | in the REPO. From a statement, not the API — only the price is live |
+| `chitra_orders.csv` | her resting Merrill orders | in the REPO, transcribed from screenshots. Records its own `As_Of`, so "none" means checked |
+| the `Chitra` tab, cols A–F | her conditions | **human-owned.** The only Chitra state the repo does not hold |
 
 **Balances are always a fold over the ledger**, never a stored number.
 `Balance_After` is advisory.

@@ -1043,7 +1043,8 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
         import chitra
         chitra_rows = chitra.load(log=log)
         if chitra_rows:
-            chitra.write_tab(book, quotes, _extract_price, log=log)
+            chitra.write_tab(book, quotes, _extract_price,
+                             signals_df=signals_df, log=log)
     except Exception as e:
         log(f"⚠️  Chitra tab skipped (everything else is fine): {e}")
 

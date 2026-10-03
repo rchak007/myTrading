@@ -61,6 +61,8 @@ transactions_cache/
 # happened to chitra_holdings.csv.
 !/reminders.csv
 !/chitra_holdings.csv
+!/chitra_orders.csv
+!/options_reminders.csv
 *.parquet
 *.json
 

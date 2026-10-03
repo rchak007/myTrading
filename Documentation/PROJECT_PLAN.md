@@ -767,27 +767,42 @@ position blocks), and no reconciliation against a real feed. If she ever needs
 her own levels that is a larger change — her account is not in the Schwab
 login, so there is no live quantity to check against.
 
-#### 🔁 OUTSTANDING — get her OPEN ORDERS from Merrill Lynch
-Asked 2026-10-02. On the **2-day email reminder** as `chitra-merrill-orders`.
+#### ✅ BUILT 2026-10-02 — her tab is now the whole management surface
+Chakravarti: *"i dont have ability to actually trade. So we can only manage
+status of what to do. So lets manage everything for chitra on this very
+sheet."*
 
-**What is missing.** `chitra_holdings.csv` carries positions only. Whatever
-stops, trims or limits are resting in that account are invisible here, so her
-Dashboard rows show no coverage **whether or not any exists** — and unlike his
-own rows, that silence is not evidence of anything.
+Three sections on the `Chitra` tab:
 
-That asymmetry is worth naming: on his accounts a blank coverage flag means
-*measured, and nothing is there*. On hers it means *not looked*.
+| | source | who writes it |
+|---|---|---|
+| POSITIONS | `chitra_holdings.csv` | machine |
+| BROKERAGE ORDERS | `chitra_orders.csv`, from his Merrill screenshots | machine |
+| MY CONDITIONS | **the sheet itself, columns A–F** | **him** |
 
-**What to send:** the open-orders list from Merrill (side, quantity, type,
-limit/stop price, duration) alongside the next statement.
+Her positions now carry the same `Has_Stop` / `Has_Trim` / `Has_Dip` /
+`Has_Breakout` / `Fenced` flags his Dashboard does, computed by the SAME
+`orders_sheet.coverage_for` — one definition of protection, so the two cannot
+drift. `Seed_Reserved` is present but blank: there is no reserve ledger for
+her account, and inventing one would be worse than an empty column.
 
-**Then:** add an `Orders` section to `chitra_holdings.csv` or a sibling file,
-and feed it into the block's `ORDERS` list the way the Orders-tab intents now
-are — a third source beside resting Schwab orders and sheet intents, marked as
-hers. Her coverage columns could then be populated honestly instead of staying
-blank.
+A condition turns the whole row **bright green** when the close crosses it.
+Judged on the CLOSE, never the live price — "closes below 500" is not
+"touched 500". Nothing is ever placed; green means go do it by hand.
 
-Strike with `reminders.py --done chitra-merrill-orders`.
+**The layout is fixed** so his typed rows cannot be shifted by a position
+appearing, and each machine section clears only its own range. The first
+version used `ws.clear()`, which would have erased every condition he had
+typed.
+
+**A row it cannot judge claims no protection.** Caught in testing: a
+`SIDEWAYS` typo fell through to the price rule and showed `Has_Stop = P` on a
+row that can never act — the Dashboard's recurring failure in miniature.
+
+*Still open:* `chitra_orders.csv` is empty, recorded as checked-and-none on
+2026-10-02 (the Merrill page read "No orders found"). The reminder
+`chitra-merrill-orders` stays on the 2-day email until there are orders to
+transcribe. Send a screenshot whenever they change.
 
 ### 💡 OPEN — two refinements deferred from the 2026-10-01 build
 

@@ -1,0 +1,32 @@
+# chitra_orders.csv — orders ACTUALLY RESTING at Merrill Lynch in Chitra's
+# account, transcribed from the screenshots Chakravarti sends.
+#
+# This is the stand-in for what stocks_orders.py pulls from the Schwab API on
+# his own accounts. There is no API here, so the chain is: he screenshots the
+# Merrill order-status page, Pi 2 types the rows in, Pi 1 renders them.
+#
+# AS OF 2026-10-02 THERE ARE NONE. The Merrill order-status page read "No
+# orders found", which is why this file has a header and nothing else. That is
+# a FACT worth recording, not an empty file — an empty list and an unknown
+# list look identical otherwise, and on her account the difference matters:
+# her coverage flags are only honest if this is current.
+#
+#   As_Of     2026-10-02
+#
+# COLUMNS — match the ORDERS block on his Dashboard so both read alike
+#   Ticker        symbol
+#   Side          BUY or SELL
+#   Type          LIMIT, STOP, STOP_LIMIT, MARKET
+#   Qty           shares
+#   Limit_Price   for LIMIT and STOP_LIMIT
+#   Stop_Price    the activation price for STOP and STOP_LIMIT
+#   Duration      DAY, GTC
+#   Entered       YYYY-MM-DD the order was placed
+#   Order_ID      Merrill's reference, if the screenshot shows one
+#   Note          free text
+#
+# A SELL below the current price counts as a stop, a SELL above it as a trim —
+# the same rule orders_sheet.py uses for his resting Schwab orders, because an
+# order carries no direction field and which side of price it sits on is the
+# only information there is.
+Ticker,Side,Type,Qty,Limit_Price,Stop_Price,Duration,Entered,Order_ID,Note
