@@ -71,5 +71,31 @@ for (mod, fn), params in SIGNATURES.items():
     print(f"  {mod + '.' + fn:<16} {'OK' if not gone else 'LOST PARAM: ' + ', '.join(gone)}")
     bad += len(gone)
 
+# ── undefined names ──────────────────────────────────────────────────────
+# A NameError is invisible to py_compile and to every check above: the module
+# imports fine, the function exists, and it only explodes on the branch that
+# reaches it. order_engine.py referenced an undefined `orders_df` in the
+# cancel-conflicting-sells path and crashed the FIRST time a SELL triggered —
+# 2026-10-06, live, mid-submit. pyflakes finds it in 40ms.
+import subprocess, glob
+files = sorted(set(glob.glob("*.py") + glob.glob("core/*.py") + glob.glob("data/*.py")))
+try:
+    out = subprocess.run([sys.executable, "-m", "pyflakes", *files],
+                         capture_output=True, text=True, timeout=120)
+    hits = [l for l in out.stdout.splitlines() if "undefined name" in l.lower()]
+    if out.returncode and not out.stdout and "No module named" in out.stderr:
+        raise FileNotFoundError
+    for h in hits:
+        print(f"  UNDEFINED NAME  {h}")
+    bad += len(hits)
+    print(f"  {'pyflakes':<16} {'OK' if not hits else str(len(hits)) + ' undefined name(s)'}"
+          f"  ({len(files)} files)")
+except (FileNotFoundError, subprocess.TimeoutExpired):
+    # Not a failure: Pi 1 and Pi 2 have separate venvs and this is a dev tool.
+    # But say so, because a check that silently does not run is worse than one
+    # that is absent.
+    print("  pyflakes         NOT INSTALLED — undefined names are NOT being "
+          "checked.  .venv/bin/pip install pyflakes")
+
 print(f"\n{'all present' if not bad else str(bad) + ' problem(s)'}")
 raise SystemExit(1 if bad else 0)

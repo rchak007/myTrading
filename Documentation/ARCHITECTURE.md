@@ -212,6 +212,7 @@ Each of these shipped, ran, and was wrong in a way nothing announced.
 | `schwab_auth.py --url` failing by hand | cron sources `.env`, an interactive shell does not — and the error names the file, so it reads as corrupt rather than unread |
 | A covered call's shares read as free | `OPTION` positions were filtered out entirely, so 100 tied-up shares looked sellable to both the Dashboard and the OVERSELL guard |
 | A row retired itself without placing anything | the write-ahead marker was read as "already submitted", so one clean rejection burned the Row_ID — and the next cycle overwrote the reason with "(id unknown)" |
+| `NameError` on the first SELL ever to trigger | the module imported, every function existed, and only that one branch was broken. Invisible to `py_compile` and to the smoke test's import check |
 | Eleven months of P&L missing | `_fetch_chunk` returned `[]` on a non-200, indistinguishable from "no transactions" |
 
 **The common shape: a failure that looks like a normal result.** Hence the

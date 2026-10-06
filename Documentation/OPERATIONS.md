@@ -230,6 +230,19 @@ after a manual run may show nothing — that is expected.
 Imports every module and asserts the functions **other modules call** are still
 present. Run it after any edit and before pushing.
 
+**It also runs `pyflakes` for undefined names**, which is the one class of bug
+every other check here is blind to. `order_engine.py` referenced an undefined
+`orders_df` in the cancel-conflicting-sells path: the module imported fine,
+every function existed, and it crashed the **first time a SELL ever triggered**
+— live, mid-submit, on 2026-10-06. pyflakes finds it in 40 milliseconds.
+
+```bash
+.venv/bin/pip install pyflakes      # once, per venv, on each Pi
+```
+
+If it is missing the smoke test SAYS so rather than quietly skipping, because
+a check that silently does not run is worse than one that is absent.
+
 It exists because `py_compile` cannot see a deleted function. A wholesale edit
 to `cash_reserve.py` removed `build_reserves_table` and `overcommit_warnings`
 — both syntactically fine, both silently gone — and the reserves step failed

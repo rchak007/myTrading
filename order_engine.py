@@ -911,6 +911,7 @@ def main() -> int:
     print()
 
     ledger = read_ledger()
+    orders_df = None                 # lazily fetched by the SELL path below
     for o in orphaned_attempts(ledger):
         _log(f"🔴 ORPHANED SUBMIT  {o.get('row_id')}  {o.get('ticker')} "
              f"{o.get('side')} {o.get('qty')} in {o.get('acct')} at "
@@ -1168,8 +1169,32 @@ def main() -> int:
             continue
 
         # Resting sells that would starve this one of shares.
+        #
+        # FETCHED LAZILY, ONCE. This used to reference an `orders_df` that was
+        # never defined in main() — a NameError that crashed the engine the
+        # FIRST time a SELL triggered, on 2026-10-06. It had gone unnoticed
+        # because the only earlier trigger was a BUY, which never reaches this
+        # branch. Fetching here rather than up front keeps the cost on the
+        # path that actually needs it.
         conflicts, cnote = ([], "")
         if n["Side"] == "SELL" and not args.no_cancel:
+            if orders_df is None:
+                try:
+                    from stocks_orders import build_orders_table
+                    orders_df = build_orders_table(client, open_only=True,
+                                                   restrict_to_tickers=False,
+                                                   log=_log)
+                    _log(f"   open orders at Schwab: "
+                         f"{0 if orders_df is None else len(orders_df)}")
+                except Exception as e:
+                    # Fail CLOSED. Not knowing what rests at Schwab means not
+                    # knowing whether the shares are free, and placing anyway
+                    # is how an exit fails at the moment it matters.
+                    finish("BLOCKED", f"NO_OPEN_ORDERS: cannot read resting "
+                                      f"orders ({type(e).__name__}: {e}) — not "
+                                      f"placing without knowing what they hold",
+                           trigger_close=f"{close:.2f}", submit_cleared="1")
+                    continue
             held = (acct_state or {}).get("positions", {}).get(
                 (n["Acct"], n["Ticker"]), 0.0)
             conflicts, cnote = conflicting_sells(orders_df, n["Acct"],
