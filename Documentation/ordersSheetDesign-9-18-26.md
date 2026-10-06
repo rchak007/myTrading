@@ -673,3 +673,37 @@ Do not re-raise this as a defect. It is a decision.
    or one row per ticker spanning accounts?
 5. **Who cancels?** If you delete a row that is already `SCHWAB_RESTING`, does
    Pi 1 cancel the order at Schwab, or leave it and warn?
+
+
+---
+
+## Three submit outcomes, not two
+
+Added 2026-10-06 after a LITE row reported `already submitted as (id unknown)`
+with no such order anywhere at Schwab.
+
+The write-ahead ledger row is written **before** `submit()` is called, with
+`submit_attempted="1"`. Its job is to catch a crash mid-call: if the process
+dies between sending and recording, the outcome is unknown and the row must
+not be retried blindly. That is correct and stays.
+
+The bug was reading that marker as *"this was submitted"*. Those are different
+claims, and collapsing them meant any clean rejection — a missing limit price,
+an HTTP 400, a cancel that would not clear — retired the Row_ID permanently
+while nothing had been sent.
+
+`submit()` now returns `(order_id, note, certain_not_placed)`:
+
+| outcome | `certain_not_placed` | may the row trigger again? |
+|---|---|---|
+| placed, id known | — | **never** |
+| placed, id unknown | `False` | **never** — reconcile to attach an id |
+| exception around the call | `False` | **never** — genuinely ambiguous |
+| rejected, no limit, bad payload, cancel failed | `True` | **yes** |
+
+`submitted_before()` scans the ledger newest-first and honours a
+`submit_cleared` marker, so the most recent outcome decides.
+
+The idempotency note now also carries the **original failure reason**.
+Replacing it destroyed the only record of why a submit failed, and the sheet
+is often the first place anyone looks.

@@ -87,7 +87,11 @@ COL_ROW_ID = "A"
 
 LEDGER_COLS = ["ts", "row_id", "fingerprint", "state", "note", "acct", "ticker",
                "side", "close_is", "qty", "trigger_price", "limit_price",
-               "trigger_close", "idem_key", "submit_attempted", "schwab_order_id"]
+               "trigger_close", "idem_key", "submit_attempted", "schwab_order_id",
+               # Set when submit() returned a failure it is CERTAIN about —
+               # the order never reached Schwab. Without it the write-ahead
+               # marker alone makes every clean rejection permanent.
+               "submit_cleared"]
 
 
 def _now():
@@ -125,6 +129,30 @@ def append_ledger(row: dict) -> None:
             w.writeheader()
         w.writerow({**{c: "" for c in LEDGER_COLS},
                     "ts": _now().isoformat(), **row})
+
+
+def submitted_before(ledger: list[dict], row_id: str) -> dict | None:
+    """The ledger row proving this intent already went out, or None.
+
+    THREE STATES, not two. A confirmed submission has an order id or state
+    SUBMITTED and must never be resent. An attempt whose outcome is UNKNOWN
+    must also never be resent — that is what the write-ahead marker is for.
+    But an attempt that failed CERTAINLY, before anything was sent, has to be
+    retryable, or one bad limit price retires the row forever.
+
+    Scanned newest-first so the most recent outcome decides: a cleared failure
+    after a genuine submission would be a different row_id entirely.
+    """
+    for r in reversed(ledger):
+        if r.get("row_id") != row_id:
+            continue
+        if r.get("state") == "SUBMITTED" or r.get("schwab_order_id"):
+            return r
+        if r.get("submit_cleared"):
+            return None            # we know it never left the building
+        if r.get("submit_attempted"):
+            return r               # in flight or ambiguous — do not resend
+    return None
 
 
 def latest_states(ledger: list[dict]) -> dict[str, dict]:
@@ -753,8 +781,14 @@ def cancel_order(client_wrapper, acct: str, order_id: str,
 
 
 def submit(client_wrapper, n: dict, idem: str, log=print,
-           conflicts: list | None = None) -> tuple[str | None, str]:
-    """Place the order. Returns (schwab_order_id, note).
+           conflicts: list | None = None) -> tuple[str | None, str, bool]:
+    """Place the order. Returns (schwab_order_id, note, certain_not_placed).
+
+    The third value is the one that matters when the first is None. Most
+    failures happen BEFORE anything is sent — no limit price, a bad payload, a
+    rejection, a cancel that would not clear — and those are safe to retry.
+    Only an exception around the call itself is ambiguous, and only that must
+    freeze the row for a human.
 
     NEVER RETRIES. If the outcome is ambiguous — a timeout, an unexpected
     status — this returns no id and the caller moves the row to BLOCKED for a
@@ -768,12 +802,12 @@ def submit(client_wrapper, n: dict, idem: str, log=print,
     # probe_order_api.py. It is NOT order_place; that guess cost a live run.
     place = getattr(inner, "place_order", None)
     if not callable(place):
-        return None, ("NO_ORDER_API: this schwabdev exposes no place_order() — "
+        return None, True, ("NO_ORDER_API: this schwabdev exposes no place_order() — "
                       "run probe_order_api.py and report the method list")
 
     h = _account_hash(client_wrapper, n["Acct"], log=log)
     if not h:
-        return None, f"NO_ACCOUNT_HASH for {n['Acct']} — is it linked to the app?"
+        return None, True, f"NO_ACCOUNT_HASH for {n['Acct']} — is it linked to the app?"
 
     # CANCEL FIRST. Schwab reserves shares against a resting sell, so a trim
     # sitting on the whole position leaves a triggered exit with nothing to
@@ -784,23 +818,23 @@ def submit(client_wrapper, n: dict, idem: str, log=print,
         log(f"   {len(conflicts)} resting sell(s) block this — cancelling first")
         for c in conflicts:
             if not c["cancelable"]:
-                return None, (f"BLOCKED_BY_ORDER {c['id']} ({c['qty']:g} sh) "
+                return None, True, (f"BLOCKED_BY_ORDER {c['id']} ({c['qty']:g} sh) "
                               f"is not cancelable — cancel it by hand")
             ok, note = cancel_order(client_wrapper, n["Acct"], c["id"], log=log)
             log(f"     {note}")
             if not ok:
                 # Never place on top of an order we could not clear: the
                 # rejection would be confusing and the position unchanged.
-                return None, (f"CANCEL_FAILED for {c['id']}: {note}. "
+                return None, True, (f"CANCEL_FAILED for {c['id']}: {note}. "
                               f"Not placing on top of it.")
 
     px, why = resolve_limit(client_wrapper, n, log=log)
     if not px:
-        return None, f"NO_LIMIT: {why}"
+        return None, True, f"NO_LIMIT: {why}"
     try:
         body = build_order_json(n, limit_price=px)
     except ValueError as e:
-        return None, f"BAD_ORDER: {e}"
+        return None, True, f"BAD_ORDER: {e}"
     log(f"   limit: {why}")
 
     log(f"   submitting {n['Side']} {body['orderLegCollection'][0]['quantity']} "
@@ -810,13 +844,13 @@ def submit(client_wrapper, n: dict, idem: str, log=print,
     try:
         resp = place(h, body)
     except Exception as e:
-        return None, (f"SUBMIT_UNKNOWN: {type(e).__name__}: {e} — the order may "
+        return None, False, (f"SUBMIT_UNKNOWN: {type(e).__name__}: {e} — the order may "
                       f"or may not have reached Schwab. Check the account "
                       f"before doing anything with this row. idem={idem}")
 
     code = getattr(resp, "status_code", None)
     if code not in (200, 201):
-        return None, (f"REJECTED: HTTP {code} "
+        return None, True, (f"REJECTED: HTTP {code} "
                       f"{str(getattr(resp, 'text', ''))[:200]}")
 
     # Schwab returns the new order id in the Location header, not the body.
@@ -830,8 +864,8 @@ def submit(client_wrapper, n: dict, idem: str, log=print,
         # Placed, but we cannot name it. Say so plainly rather than inventing
         # an id — reconciliation against open orders will adopt it.
         return "UNKNOWN", ("PLACED but no order id returned; reconcile against "
-                           "open orders to attach one")
-    return oid, f"placed, Schwab order {oid}"
+                           "open orders to attach one"), False
+    return oid, f"placed, Schwab order {oid}", False
 
 
 # ───────────────────────────────────────────────────────────── main
@@ -965,18 +999,18 @@ def main() -> int:
         # 13:30, 13:45 and 14:05 — one per cron tick. The idempotency key was
         # being written to the ledger and never read back, which is the whole
         # reason it exists.
-        if any(r.get("row_id") == rec["Row_ID"]
-               and (r.get("state") == "SUBMITTED" or r.get("submit_attempted"))
-               for r in ledger):
-            done = next(r for r in reversed(ledger)
-                        if r.get("row_id") == rec["Row_ID"]
-                        and (r.get("state") == "SUBMITTED"
-                             or r.get("submit_attempted")))
+        done = submitted_before(ledger, rec["Row_ID"])
+        if done:
             oid = done.get("schwab_order_id") or "(id unknown)"
             _log(f"   {rid:<26} already submitted as {oid} — not resending")
+            # Carry the ORIGINAL note. Replacing it with this one destroyed the
+            # only record of why a submit failed — the sheet is often the first
+            # and sometimes the only place that gets read.
+            why = str(done.get("note", "")).strip()
             note_only(f"⏹ already submitted as {oid} on "
                       f"{str(done.get('ts',''))[:19]}. A Row_ID is placed ONCE; "
-                      f"use a new row to order again.")
+                      f"use a new row to order again."
+                      + (f" [{why[:160]}]" if why else ""))
             continue
 
         if prior.get("state") in cfg.TERMINAL_STATES:
@@ -1100,7 +1134,8 @@ def main() -> int:
             if cnote:
                 _log(f"   {cnote}")
 
-        oid, snote = submit(client, n, idem, conflicts=conflicts)
+        oid, snote, certain_not_placed = submit(client, n, idem,
+                                                conflicts=conflicts)
         if conflicts and oid:
             snote += (f" · cancelled {len(conflicts)} resting sell(s) first: "
                       + ", ".join(c["id"] for c in conflicts))
@@ -1113,7 +1148,15 @@ def main() -> int:
             finish("SUBMITTED", snote, trigger_close=f"{close:.2f}",
                    idem_key=idem, schwab_order_id=oid, submit_attempted="1")
         else:
-            finish("BLOCKED", snote, trigger_close=f"{close:.2f}", idem_key=idem)
+            # CLEAR THE WRITE-AHEAD when submit is certain nothing was sent.
+            # The marker exists to catch a crash mid-call; treating a clean
+            # rejection the same way made the row permanently unretryable and
+            # then overwrote the real reason with "already submitted as (id
+            # unknown)" on the next cycle. Observed on LITE, 2026-10-06.
+            finish("BLOCKED", snote, trigger_close=f"{close:.2f}", idem_key=idem,
+                   submit_cleared="1" if certain_not_placed else "")
+            if certain_not_placed:
+                _log(f"   nothing reached Schwab — this row can trigger again")
 
     # Mirror state back into the engine columns. Best effort: the ledger is the
     # record, the sheet is a view of it.

@@ -211,6 +211,7 @@ Each of these shipped, ran, and was wrong in a way nothing announced.
 | "Pi 1 has not polled in 16h" on a Saturday | the alert counted hours; the cron runs Mon–Fri. Nothing was wrong, and `health_check` said so at the same moment |
 | `schwab_auth.py --url` failing by hand | cron sources `.env`, an interactive shell does not — and the error names the file, so it reads as corrupt rather than unread |
 | A covered call's shares read as free | `OPTION` positions were filtered out entirely, so 100 tied-up shares looked sellable to both the Dashboard and the OVERSELL guard |
+| A row retired itself without placing anything | the write-ahead marker was read as "already submitted", so one clean rejection burned the Row_ID — and the next cycle overwrote the reason with "(id unknown)" |
 | Eleven months of P&L missing | `_fetch_chunk` returned `[]` on a non-200, indistinguishable from "no transactions" |
 
 **The common shape: a failure that looks like a normal result.** Hence the
