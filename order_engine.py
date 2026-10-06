@@ -131,6 +131,32 @@ def append_ledger(row: dict) -> None:
                     "ts": _now().isoformat(), **row})
 
 
+def orphaned_attempts(ledger: list[dict]) -> list[dict]:
+    """Write-ahead rows that never got an outcome written after them.
+
+    A run that dies BETWEEN the write-ahead and finish() leaves exactly this:
+    state TRIGGERED, submit_attempted=1, no order id, and no later row. The
+    order may or may not have reached Schwab, and nothing here can tell which
+    — only the broker knows.
+
+    Found on LITE 2026-10-06: the engine reported "already submitted as (id
+    unknown)" every cycle afterwards, which is true but reads like routine
+    idempotency rather than "a run died and you must go and look". Surfacing
+    it is the whole difference between a known unknown and an invisible one.
+    """
+    last, out = {}, []
+    for r in ledger:
+        if r.get("row_id"):
+            last[r["row_id"]] = r
+    for rid, r in last.items():
+        if (r.get("submit_attempted") and not r.get("schwab_order_id")
+                and r.get("state") not in ("SUBMITTED", "BLOCKED", "CANCELLED",
+                                           "EXPIRED", "VOID", "FILLED")
+                and not r.get("submit_cleared")):
+            out.append(r)
+    return out
+
+
 def submitted_before(ledger: list[dict], row_id: str) -> dict | None:
     """The ledger row proving this intent already went out, or None.
 
@@ -885,6 +911,11 @@ def main() -> int:
     print()
 
     ledger = read_ledger()
+    for o in orphaned_attempts(ledger):
+        _log(f"🔴 ORPHANED SUBMIT  {o.get('row_id')}  {o.get('ticker')} "
+             f"{o.get('side')} {o.get('qty')} in {o.get('acct')} at "
+             f"{str(o.get('ts',''))[:19]} — a run died mid-submit. Only the "
+             f"broker knows whether it landed. Check the account.")
     states = latest_states(ledger)
     n_sub, notional_today = todays_submissions(ledger)
 
@@ -1002,6 +1033,19 @@ def main() -> int:
         done = submitted_before(ledger, rec["Row_ID"])
         if done:
             oid = done.get("schwab_order_id") or "(id unknown)"
+            if (done.get("submit_attempted") and not done.get("schwab_order_id")
+                    and done.get("state") not in ("SUBMITTED", "FILLED")):
+                # A run died between the write-ahead and the outcome. Say that,
+                # loudly — it is not routine idempotency, and only the broker
+                # can resolve it.
+                _log(f"🔴 {rid:<26} a previous run DIED MID-SUBMIT at "
+                     f"{str(done.get('ts',''))[:19]}. The order may or may not "
+                     f"have reached Schwab — CHECK THE ACCOUNT.")
+                note_only(f"🔴 a run died mid-submit on "
+                          f"{str(done.get('ts',''))[:19]} — the order may or "
+                          f"may not have reached Schwab. CHECK THE ACCOUNT, "
+                          f"then use a NEW row to order again.")
+                continue
             _log(f"   {rid:<26} already submitted as {oid} — not resending")
             # Carry the ORIGINAL note. Replacing it with this one destroyed the
             # only record of why a submit failed — the sheet is often the first
