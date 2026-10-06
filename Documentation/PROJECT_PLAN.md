@@ -692,12 +692,28 @@ position. Asked 2026-09-30, same 2-day reminder.
 Only on assets genuinely wanted at that strike — assignment means buying them,
 so the strike must be a price worth paying. Asked 2026-09-30, same reminder.
 
-**Note for whenever these move from idea to practice:** the order engine is
-equity-only. `assetType: EQUITY` is hardcoded in the order payload, and the
-coverage flags do not understand option legs — a covered call would be
-invisible on the Dashboard while still reserving the shares against it, so a
-close-triggered sell could fail the same way a resting trim does. Not a problem
-today; it would be on day one of doing this through the system.
+**Day one arrived 2026-10-05.** Chakravarti sold TSLA 10/30/26 445 C and MSTR
+10/30/26 220 C in account 431, and asked why they were not on the Dashboard.
+The note below had predicted exactly this, so it was built:
+
+- `OPTION` positions are no longer filtered out. They render in the block's
+  `ORDERS` list, tinted amber — an obligation, not an order you can cancel.
+- A short call counts as **`Has_Trim = Y`**. It is a sell at the strike.
+- `fetch_positions_detailed` now returns **`Collateral`** and **`Sellable`**.
+  `Qty` is what is owned; `Sellable` is what can be sold. TSLA 431 reads
+  100.0153 owned, 100 collateral, **0.0153 sellable**.
+- The engine's guard reads `Sellable` and distinguishes the two mistakes:
+  more than you own is `OVERSELL` (a typo), more than is free is `COLLATERAL`
+  (a call you forgot about).
+- A short **put** ties up cash, not shares, so it does not reduce `Sellable`
+  and is not counted as a dip buy. Its cash obligation is recorded.
+- A short call with no shares behind it logs `🔴 ... not fully covered`
+  rather than letting `Sellable` clamp quietly to zero.
+
+**Still equity-only where it matters:** the order engine cannot PLACE an
+option order — `assetType: EQUITY` is still hardcoded in the payload. It can
+now see them, account for them, and refuse to trade through them, which was
+the dangerous half.
 
 ### 🔁 OPEN — buy and seed $1,000 each: STM · RDW · GEV · SMCI
 Asked 2026-10-01. Two halves, and only the first is done.

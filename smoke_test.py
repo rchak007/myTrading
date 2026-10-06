@@ -9,6 +9,7 @@ EXPECTED = {
                      "write_reserve_outputs", "fold_balances", "read_config"],
     "orders_sheet": ["write_orders_sheet", "build_positions_table", "coverage_for",
                      "fetch_positions_detailed", "load_reserves", "load_fenced",
+                     "parse_option",
                      "read_intents", "build_dashboard", "build_cash_rows"],
     "order_engine": ["main", "preflight", "check_guards", "daily_close", "submit",
                      "preview", "resolve_limit", "build_order_json",
@@ -38,7 +39,8 @@ EXPECTED = {
 # time — which for a reminder means silence, the one failure nobody notices.
 SIGNATURES = {("token_watch", "send"): ["subject", "body", "images"],
               ("orders_sheet", "build_dashboard"): ["signals_df", "fenced",
-                                                    "chitra_rows"],
+                                                    "chitra_rows", "options"],
+              ("orders_sheet", "coverage_for"): ["held_qty", "options"],
               ("core.recommend", "recommend"): ["price", "atr", "fenced"],
               ("orders_sheet", "_classify"): ["side", "px", "price",
                                               "direction"]}

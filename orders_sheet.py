@@ -108,32 +108,109 @@ def _now() -> str:
 
 
 # ───────────────────────────────────────────────────── positions fetch
-def fetch_positions_detailed(client_wrapper, log=print) -> pd.DataFrame:
+OPT_MULTIPLIER = 100          # shares per contract
+
+
+def parse_option(sym: str, inst: dict | None = None) -> dict | None:
+    """Underlying, expiry, strike and right from an OCC symbol.
+
+    Schwab's own fields are preferred where present; the symbol is parsed only
+    as a fallback, because the OCC layout is fixed but the API's field names
+    have changed under this project five times already.
+
+        TSLA  261030C00445000
+        └root┘└YYMMDD┘│└strike×1000┘
+                      └ C or P
+    """
+    inst = inst or {}
+    s = str(sym or "").strip()
+    out = {"symbol": s,
+           "underlying": str(inst.get("underlyingSymbol") or "").upper(),
+           "right": str(inst.get("putCall") or "")[:1].upper(),
+           "expiry": "", "strike": None}
+    if len(s) >= 21 and s[12] in ("C", "P"):
+        out["underlying"] = out["underlying"] or s[:6].strip().upper()
+        out["expiry"] = f"20{s[6:8]}-{s[8:10]}-{s[10:12]}"
+        out["right"] = out["right"] or s[12]
+        try:
+            out["strike"] = int(s[13:21]) / 1000.0
+        except ValueError:
+            pass
+    if not out["underlying"] or out["right"] not in ("C", "P"):
+        return None
+    return out
+
+
+def fetch_positions_detailed(client_wrapper, log=print,
+                             with_options=False) -> pd.DataFrame:
     """
     One row per (ticker, account), with cost basis — what the aggregated
     fetch_schwab_holdings() throws away.
+
+    COLLATERAL AND SELLABLE. A short call ties up 100 shares per contract. The
+    sheet used to report every share as free, so a covered call was invisible
+    while still spoken for — and the OVERSELL guard, which reads these same
+    rows, would have waved through a sale that broke the call. `Sellable` is
+    what you can actually sell; `Qty` is what you own.
+
+    Short PUTS tie up cash, not shares, so they do not reduce Sellable. They
+    are still returned for display — the obligation is real, it is just a
+    different pocket.
+
+    `with_options=True` also returns the option rows, for the Dashboard.
     """
-    cols = ["Ticker", "Acct", "Qty", "Avg_Cost", "Market_Value", "Unrealized_PL"]
+    cols = ["Ticker", "Acct", "Qty", "Avg_Cost", "Market_Value", "Unrealized_PL",
+            "Collateral", "Sellable"]
     try:
         data = client_wrapper.fetch_positions()
     except Exception as e:
         log(f"⚠️  positions fetch failed: {e}")
         return pd.DataFrame(columns=cols)
 
-    rows = []
+    rows, options, collateral = [], [], {}
     for acct in data or []:
         sa = acct.get("securitiesAccount", {}) or {}
         acct_no = acct_key(sa.get("accountNumber"))
         for pos in sa.get("positions", []) or []:
             inst = pos.get("instrument", {}) or {}
             sym = inst.get("symbol")
-            if not sym or inst.get("assetType") not in ("EQUITY", "COLLECTIVE_INVESTMENT", "ETF"):
+            if not sym:
                 continue
-            qty = (_num(pos.get("longQuantity"), 0.0) or 0.0) - (_num(pos.get("shortQuantity"), 0.0) or 0.0)
+            asset = inst.get("assetType")
+            long_q = _num(pos.get("longQuantity"), 0.0) or 0.0
+            short_q = _num(pos.get("shortQuantity"), 0.0) or 0.0
+            qty = long_q - short_q
             if abs(qty) < 1e-9:
                 continue
             mv = _num(pos.get("marketValue"), 0.0) or 0.0
             avg = _num(pos.get("averagePrice"), 0.0) or 0.0
+
+            if asset == "OPTION":
+                o = parse_option(sym, inst)
+                if not o:
+                    log(f"⚠️  option {sym} could not be parsed — not counted "
+                        f"as collateral. Check it by hand.")
+                    continue
+                mult = _num(pos.get("optionMultiplier"), OPT_MULTIPLIER) or OPT_MULTIPLIER
+                # ONLY A SHORT CALL TIES UP SHARES. A short put is secured by
+                # cash and a long option obligates nothing, so neither may
+                # reduce what is sellable.
+                if short_q > 0 and o["right"] == "C":
+                    collateral[(acct_no, o["underlying"])] = (
+                        collateral.get((acct_no, o["underlying"]), 0.0)
+                        + short_q * mult)
+                options.append({**o, "Acct": acct_no, "Qty": round(qty, 4),
+                                "Multiplier": mult, "Market_Value": round(mv, 2),
+                                "Avg_Cost": round(avg, 4),
+                                "Shares_Tied": round(short_q * mult, 0)
+                                if (short_q and o["right"] == "C") else 0,
+                                "Cash_Tied": round(short_q * mult * o["strike"], 2)
+                                if (short_q and o["right"] == "P" and o["strike"])
+                                else 0})
+                continue
+
+            if asset not in ("EQUITY", "COLLECTIVE_INVESTMENT", "ETF"):
+                continue
             upl = _num(pos.get("longOpenProfitLoss"))
             if upl is None:
                 upl = mv - (avg * qty)
@@ -141,10 +218,29 @@ def fetch_positions_detailed(client_wrapper, log=print) -> pd.DataFrame:
                          "Avg_Cost": round(avg, 4), "Market_Value": round(mv, 2),
                          "Unrealized_PL": round(upl, 2)})
 
+    # Applied AFTER the loop: a short call can appear before its underlying in
+    # the payload, so netting as we go would miss it.
+    for r in rows:
+        tied = collateral.get((r["Acct"], r["Ticker"]), 0.0)
+        r["Collateral"] = round(tied, 4)
+        r["Sellable"] = round(max(r["Qty"] - tied, 0.0), 4)
+
     df = pd.DataFrame(rows, columns=cols)
+    tied_pairs = {k for k, v in collateral.items() if v}
     log(f"Positions: {len(df)} (ticker, account) rows across "
-        f"{df['Acct'].nunique() if not df.empty else 0} accounts")
-    return df
+        f"{df['Acct'].nunique() if not df.empty else 0} accounts"
+        + (f" · {len(options)} option(s), {len(tied_pairs)} pair(s) with "
+           f"shares tied up" if options else ""))
+    # A short call with no shares behind it is NAKED, and in an IRA that should
+    # not be possible — so say it loudly rather than letting Sellable clamp
+    # quietly to zero.
+    held = {(r["Acct"], r["Ticker"]): r["Qty"] for r in rows}
+    for (a, t), tied in collateral.items():
+        if tied > held.get((a, t), 0.0) + 1e-6:
+            log(f"🔴 {t} {a}: short call(s) tie up {tied:g} shares but only "
+                f"{held.get((a, t), 0.0):g} are held — that call is not fully "
+                f"covered.")
+    return (df, options) if with_options else df
 
 
 # ────────────────────────────────────────────────────── coverage flags
@@ -179,7 +275,8 @@ def _classify(side: str, px: float, price: float, direction: str = "") -> str:
 def coverage_for(ticker: str, acct: str, price: float | None,
                  orders_df: pd.DataFrame | None,
                  intents_df: pd.DataFrame | None = None,
-                 held_qty: float | None = None) -> dict:
+                 held_qty: float | None = None,
+                 options: list | None = None) -> dict:
     """
     Which of the four protective/entry orders exist for this pair.
 
@@ -231,13 +328,28 @@ def coverage_for(ticker: str, acct: str, price: float | None,
                              o.get("Close_Is", ""))
             if out[slot] != YES:            # never downgrade Y to P
                 out[slot] = mark
+
+    # A SHORT CALL IS A TRIM. If it is assigned the shares go at the strike,
+    # which is exactly what a resting sell above the price does — so it is
+    # dishonest to show Has_Trim = N beside one. Counted as Y: the obligation
+    # sits at the broker and holds whether or not anything here is running.
+    #
+    # A short PUT is not a dip buy in the same way. Assignment is not optional
+    # and the price is fixed at the strike, so it is deliberately NOT folded
+    # into Has_Dip — it would read as arranged accumulation when it is really
+    # an obligation. It shows in the ORDERS list instead.
+    for o in (options or []):
+        if (str(o.get("underlying", "")).upper() == ticker
+                and str(o.get("Acct", "")) == acct
+                and o.get("right") == "C" and (o.get("Qty") or 0) < 0):
+            out["Has_Trim"] = YES
     return out
 
 
 # ──────────────────────────────────────────────────── positions table
 def build_positions_table(positions_df, signals_df=None, orders_df=None,
                           reserves=None, intents_df=None, fenced=None,
-                          log=print) -> pd.DataFrame:
+                          log=print, options=None) -> pd.DataFrame:
     """
     Per (ticker, account), plus a TOTAL row for any ticker held in more than
     one account. Avg_Cost on a TOTAL row is QUANTITY-WEIGHTED — a mean of the
@@ -295,8 +407,14 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
                 flags = {k: BLANK for k in
                          ("Has_Stop", "Has_Trim", "Has_Dip", "Has_Breakout")}
             else:
+                # held_qty is SELLABLE where we have it: a sell for shares
+                # backing a covered call cannot run, and counting it as
+                # protection is the exact failure these flags keep having.
+                sellable = _num(r.get("Sellable"))
                 flags = coverage_for(ticker, r["Acct"], px, orders_df,
-                                     intents_df, held_qty=qty)
+                                     intents_df,
+                                     held_qty=sellable if sellable is not None else qty,
+                                     options=options)
             out.append({
                 "Ticker": ticker, "Acct": r["Acct"], "Qty": r["Qty"],
                 "Avg_Cost": r["Avg_Cost"], "Market_Value": r["Market_Value"],
@@ -699,7 +817,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                     quotes: dict | None = None,
                     fenced: set | None = None,
                     signals_df=None, chitra_rows=None,
-                    intents_df=None) -> tuple[list, dict]:
+                    intents_df=None, options=None) -> tuple[list, dict]:
     """
     One block per ticker: the positions mini-table, then the live Schwab orders
     for that ticker.
@@ -718,7 +836,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     # unprotected holding should be impossible to scroll past.
     marks = {"ticker": [], "label": [], "header": [], "title": [],
              "warn": [], "rec": [], "warn_row": [], "chitra": [],
-             "intent": []}
+             "intent": [], "option": []}
 
     def col_of(field: str) -> str:
         """Column letter for a POS_HDR field. Derived, because these shift:
@@ -857,7 +975,26 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                  o.get("Status", "") or "waiting", "sheet",
                  o.get("Row_ID", "")]))
 
-        if legs.empty and wait.empty:
+        # OPTION POSITIONS, in the same list. A covered call is an obligation
+        # to deliver shares at the strike — functionally a resting trim — so
+        # burying it on another tab is how 100 shares end up double-promised.
+        opt_legs = [o for o in (options or [])
+                    if str(o.get("underlying", "")).upper() == ticker]
+        for o in sorted(opt_legs, key=lambda x: (x.get("expiry") or "",
+                                                 x.get("strike") or 0)):
+            short = (o.get("Qty") or 0) < 0
+            kind = {"C": "CALL", "P": "PUT"}.get(o.get("right"), "?")
+            tied = o.get("Shares_Tied") or 0
+            marks["option"].append(add(
+                ["", o.get("Acct", ""), "SHORT" if short else "LONG",
+                 f"{kind} {o.get('expiry', '')}",
+                 abs(o.get("Qty") or 0), "", o.get("strike", ""),
+                 (f"{tied:g} shares tied" if tied else
+                  (f"${o['Cash_Tied']:,.0f} cash tied" if o.get("Cash_Tied")
+                   else "open")),
+                 "option", o.get("symbol", "")]))
+
+        if legs.empty and wait.empty and not opt_legs:
             add(["", "— no open orders —"])
         add([])
         add([])
@@ -954,6 +1091,12 @@ def _paint(ws, marks, log):
                        "textFormat": {"bold": True,
                                       "foregroundColor": {"red": 0.60, "green": 0.15,
                                                           "blue": 0.0}}})
+        if marks.get("option"):
+            # Amber: an obligation, not an order you placed and can simply
+            # cancel. A short call will be exercised against you if it is in
+            # the money, whatever anything here thinks.
+            ws.format([f"B{r}:{_last_col()}{r}" for r in marks["option"]],
+                      {"backgroundColor": {"red": 1.0, "green": 0.93, "blue": 0.80}})
         if marks.get("intent"):
             # Mint, distinct from the resting Schwab orders beside them. These
             # fire only on a completed daily CLOSE and only while Pi 1 is
@@ -989,7 +1132,7 @@ def _paint(ws, marks, log):
 def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
                     quotes: dict | None = None, fenced: set | None = None,
                     log=print, signals_df=None, chitra_rows=None,
-                    intents_df=None) -> int:
+                    intents_df=None, options=None) -> int:
     if positions is None or positions.empty:
         return 0
     try:
@@ -998,7 +1141,7 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
         ws = book.add_worksheet(title="Dashboard", rows=1000, cols=DASH_WIDTH + 2)
 
     rows, marks = build_dashboard(positions, orders_df, quotes, fenced,
-                                  signals_df, chitra_rows, intents_df)
+                                  signals_df, chitra_rows, intents_df, options)
     ws.clear()
     ws.update(values=rows, range_name=f"A1:{_last_col()}{len(rows)}")
     ws.freeze(rows=0)
@@ -1023,14 +1166,19 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
 
     # Caller may have fetched positions already (the reserves step needs the
     # same frame); one Schwab round-trip is worth avoiding.
-    pos_raw = (positions_raw if positions_raw is not None
-               else fetch_positions_detailed(client_wrapper, log=log))
+    opts = []
+    if positions_raw is not None:
+        pos_raw = positions_raw          # injected: no options to go with it
+    else:
+        pos_raw, opts = fetch_positions_detailed(client_wrapper, log=log,
+                                                 with_options=True)
     intents = read_intents(book, log=log)
     fenced = load_fenced(log=log)
     if fenced:
         log(f"Fenced pairs: {len(fenced)}")
     positions = build_positions_table(pos_raw, signals_df, orders_df, reserves,
-                                      intents_df=intents, fenced=fenced, log=log)
+                                      intents_df=intents, fenced=fenced, log=log,
+                                      options=opts)
     cash = build_cash_rows(cash_df, reserves, log=log)
 
     n_pos = _put(book.worksheet("Positions"), positions, POSITIONS_COLS, log)
@@ -1050,7 +1198,8 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
 
     n_dash = write_dashboard(book, positions, orders_df, quotes, fenced,
                              log=log, signals_df=signals_df,
-                             chitra_rows=chitra_rows, intents_df=intents)
+                             chitra_rows=chitra_rows, intents_df=intents,
+                             options=opts)
 
     # ---- header block. LAST POLL is the health check: if this stops moving,
     # ---- whatever runs this module has died.

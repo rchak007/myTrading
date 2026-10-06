@@ -210,6 +210,7 @@ Each of these shipped, ran, and was wrong in a way nothing announced.
 | A filled order still claiming coverage | `SUBMITTED` is live to the engine, so a spent intent read as arranged protection |
 | "Pi 1 has not polled in 16h" on a Saturday | the alert counted hours; the cron runs Mon–Fri. Nothing was wrong, and `health_check` said so at the same moment |
 | `schwab_auth.py --url` failing by hand | cron sources `.env`, an interactive shell does not — and the error names the file, so it reads as corrupt rather than unread |
+| A covered call's shares read as free | `OPTION` positions were filtered out entirely, so 100 tied-up shares looked sellable to both the Dashboard and the OVERSELL guard |
 | Eleven months of P&L missing | `_fetch_chunk` returned `[]` on a non-200, indistinguishable from "no transactions" |
 
 **The common shape: a failure that looks like a normal result.** Hence the

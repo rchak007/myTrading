@@ -117,6 +117,68 @@ check("an intent in another account protects nothing here",
 check("no price → every flag blank, nothing asserted",
       set(coverage_for("TSLA", "171", None, None).values()) == {""})
 
+print("\n── a covered call is a trim, and its shares are spoken for ──")
+# Chakravarti sold TSLA 10/30/26 445 C and MSTR 220 C in 431 on 2026-10-05.
+# Options were filtered out of positions entirely, so the sheet reported all
+# 100.0153 TSLA shares as free while 100 of them backed the call — and the
+# OVERSELL guard reads the same rows.
+from orders_sheet import fetch_positions_detailed, parse_option   # noqa: E402
+
+o = parse_option("TSLA  261030C00445000")
+check("an OCC symbol parses", o and o["underlying"] == "TSLA"
+      and o["right"] == "C" and o["strike"] == 445.0
+      and o["expiry"] == "2026-10-30", str(o))
+check("a non-option symbol parses to None", parse_option("TSLA") is None)
+check("junk parses to None rather than half a contract",
+      parse_option("") is None and parse_option("XXXXXXXXXXXXXXXXXXXXX") is None)
+
+payload = [{"securitiesAccount": {"accountNumber": "67024431", "positions": [
+    {"instrument": {"symbol": "TSLA", "assetType": "EQUITY"},
+     "longQuantity": 100.0153, "averagePrice": 377.03, "marketValue": 37977.81},
+    {"instrument": {"symbol": "TSLA  261030C00445000", "assetType": "OPTION",
+                    "underlyingSymbol": "TSLA", "putCall": "CALL"},
+     "shortQuantity": 1, "averagePrice": 2.71, "marketValue": -271.0},
+    {"instrument": {"symbol": "NVDA  261030P00150000", "assetType": "OPTION",
+                    "underlyingSymbol": "NVDA", "putCall": "PUT"},
+     "shortQuantity": 1, "averagePrice": 3.0, "marketValue": -300.0},
+    {"instrument": {"symbol": "NVDA", "assetType": "EQUITY"},
+     "longQuantity": 10, "averagePrice": 150.0, "marketValue": 2276.0}]}}]
+
+
+class _W:
+    def fetch_positions(self):
+        return payload
+
+
+df, opts = fetch_positions_detailed(_W(), log=lambda *a: None, with_options=True)
+row = lambda t: df[df.Ticker == t].iloc[0]
+check("a short call ties up 100 shares per contract",
+      float(row("TSLA").Collateral) == 100.0, str(row("TSLA").Collateral))
+check("Sellable is what is left, not what is owned",
+      abs(float(row("TSLA").Sellable) - 0.0153) < 1e-6, str(row("TSLA").Sellable))
+check("Qty still reports what is actually OWNED",
+      abs(float(row("TSLA").Qty) - 100.0153) < 1e-6)
+# A short put is secured by CASH. Treating it as share collateral would lock
+# up stock that is not involved.
+check("a short PUT ties up no shares",
+      float(row("NVDA").Collateral) == 0.0 and float(row("NVDA").Sellable) == 10.0,
+      f"{row('NVDA').Collateral} / {row('NVDA').Sellable}")
+check("...but its cash obligation is recorded",
+      any(x["right"] == "P" and x["Cash_Tied"] == 15000.0 for x in opts),
+      str([(x["right"], x["Cash_Tied"]) for x in opts]))
+check("an equity with no options is untouched",
+      float(row("NVDA").Sellable) == float(row("NVDA").Qty))
+
+cov = coverage_for("TSLA", "431", 380.0, None, None, held_qty=0.0153, options=opts)
+check("the covered call shows as Has_Trim = Y", cov["Has_Trim"] == "Y", str(cov))
+check("...and claims nothing else", cov["Has_Stop"] == "N" and cov["Has_Dip"] == "N")
+check("a short PUT is NOT counted as a dip buy",
+      coverage_for("NVDA", "431", 180.0, None, None, held_qty=10,
+                   options=opts)["Has_Dip"] == "N")
+check("another account's call does not cover this one",
+      coverage_for("TSLA", "171", 380.0, None, None, held_qty=109,
+                   options=opts)["Has_Trim"] == "N")
+
 print("\n── the ORDERS block shows what the flag points at ──")
 # A block saying Has_Stop = P and then showing nothing underneath is the
 # Dashboard asserting protection it never points at.

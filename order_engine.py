@@ -413,12 +413,20 @@ def account_state(client_wrapper, log=print) -> dict:
     is caught here — not because 1000 looks odd, but because the account holds
     26 and the engine can see that.
     """
-    out = {"positions": {}, "cash": {}, "tickers": set()}
+    out = {"positions": {}, "cash": {}, "tickers": set(), "held": {}}
     try:
         from orders_sheet import fetch_positions_detailed
         pos = fetch_positions_detailed(client_wrapper, log=lambda *a: None)
         for _, r in pos.iterrows():
-            out["positions"][(str(r["Acct"]), str(r["Ticker"]).upper())] = float(r["Qty"])
+            key = (str(r["Acct"]), str(r["Ticker"]).upper())
+            # SELLABLE, not Qty. Shares backing a short call are spoken for:
+            # selling them turns a covered call naked, which in an IRA is not
+            # a position that is allowed to exist. Falls back to Qty so an
+            # older positions frame without the column still works.
+            sellable = r["Sellable"] if "Sellable" in pos.columns else None
+            out["positions"][key] = float(
+                r["Qty"] if sellable is None or sellable != sellable else sellable)
+            out["held"][key] = float(r["Qty"])
             out["tickers"].add(str(r["Ticker"]).upper())
     except Exception as e:
         log(f"⚠️  could not read positions: {e}")
@@ -490,9 +498,20 @@ def check_guards(n: dict, close: float | None, submitted_today: int,
             if held is None:
                 return (f"NOTHING_TO_SELL: no {n['Ticker']} position in "
                         f"{n['Acct']}")
-            if qty > held + 1e-6:
-                return (f"OVERSELL: {qty:g} shares but only {held:g} held in "
+            # `held` is SELLABLE; `owned` is the real position. The two differ
+            # by whatever backs a short call, and they are DIFFERENT mistakes:
+            # more than you own is a typo, more than is free is a covered call
+            # you forgot about. Checked in that order, or a typo gets blamed
+            # on collateral.
+            owned = (acct_state or {}).get("held", {}).get(
+                (n["Acct"], n["Ticker"]), held)
+            if qty > owned + 1e-6:
+                return (f"OVERSELL: {qty:g} shares but only {owned:g} held in "
                         f"{n['Acct']} — check for a typo")
+            if qty > held + 1e-6:
+                return (f"COLLATERAL: {qty:g} shares but only {held:g} of "
+                        f"{owned:g} are free in {n['Acct']} — "
+                        f"{owned - held:g} back a short call")
 
         if side == "BUY":
             # Unheld and unwatched is almost always a mistyped symbol.

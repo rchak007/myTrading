@@ -129,6 +129,23 @@ one is at the broker, the other is a promise this system has to keep.
 `SUBMITTED` it has handed off: if the order is still resting it shows as `Y`,
 and if it filled there is nothing left to protect anything.
 
+**A covered call counts as a trim, and its shares stop being sellable.** A
+short call is an obligation to deliver 100 shares per contract at the strike —
+functionally a resting sell above the price — so it shows `Has_Trim = Y`, and
+it appears in the block's `ORDERS` list tinted amber, because it is an
+obligation rather than an order you can simply cancel.
+
+More importantly the shares behind it are **no longer free**. `Qty` is what
+you own; `Sellable` is what you can actually sell. Try to sell into them and
+the engine refuses with `COLLATERAL: 10 shares but only 0.02 of 100.02 are
+free in 431 — 100 back a short call`, which is a different mistake from a
+typo and says so.
+
+A short **put** ties up cash, not stock, so it does not reduce `Sellable` and
+is deliberately **not** counted as a dip buy — assignment is not optional, and
+calling it arranged accumulation would overstate it. It still shows in the
+list with its cash obligation.
+
 **Coverage is per (ticker, account), never rolled up.** A stop in one account
 protects only the shares in that account. Rolling it up would report a position
 as protected while half of it is naked — not less precise, *false*, and false in
