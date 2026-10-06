@@ -46,7 +46,7 @@ money history and must live outside the repo.
        ▼
    SCHWAB API
 
-  remote_ops.py ───── every 10 min ──────────── reads ops sheet, runs allowlisted verbs
+  remote_ops.py ───── every minute ──────────── reads ops sheet, runs allowlisted verbs
 ```
 
 **Nothing pushes to git except `gitpush.py`.** Every job runs `--no-push` and

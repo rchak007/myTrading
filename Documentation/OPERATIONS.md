@@ -24,7 +24,7 @@ All times Pacific. `flock` prevents two jobs writing the same files at once.
 | `:15`, `:50` Mon–Fri, 01–16h | `jobStocksSignals.py` | signals, orders, cash, reserves CSVs + **both sheet tabs** | `-w 600` waits |
 | `*/5` | `gitpush.py` | pushes `jobMyTrading` to GitHub | `-n` skips |
 | `*/15` | `gitpush.py bots` | pushes `botsMyTrading` | `-n` skips (bots lock) |
-| `*/10` | `remote_ops.py` | ops sheet results | own lock, `-n` |
+| `*/1` | `remote_ops.py` | ops sheet results | own lock, `-n` |
 | `*/5` 01–16h Mon–Fri | `orders_sheet_prices.py` | `Live_Price`, `Day_%` | `-n` skips |
 | `04:30` daily | `build_pl_report.py` | `outputs/portfolio/*` | `-w 600` waits |
 | `05:00`, `17:00` Mon–Fri | `45_Signal.py` | 45° scan CSVs | scan unlocked, copy locked |
@@ -39,6 +39,17 @@ All times Pacific. `flock` prevents two jobs writing the same files at once.
 | `09:30`, `11:00`, `12:30` Mon–Fri | `reminders.py --channel options` | the OPTIONS list, **only while the market is actually open** |
 
 **Not yet scheduled:** `health_check.py` (see §5).
+
+**Why every minute, not every ten.** The Schwab authorization code expires
+faster than a 10-minute poll. Measured 2026-10-05: a code pasted at 11:21 was
+rejected by the 11:30 exchange with `invalid_grant — Authorization code is
+invalid, expired or revoked`. Nine minutes was too long, and the only reason
+the flow had ever worked was luck of timing against the tick.
+
+Polling every minute removes the race rather than asking anyone to watch a
+clock — which is the whole point of the ops channel. It is cheap: an idle run
+is one sheet read and does nothing, and `flock -n` means a run that overlaps
+simply skips.
 
 ### Re-authorising is safe at any time
 
@@ -166,7 +177,7 @@ file.** If a file is on Pi 1's disk but not on GitHub, look at `gitpush.py`.
 |---|---|---|
 | `myTrading-ORDERS-pi1` · Positions, Cash, Dashboard, header | `jobStocksSignals.py` step 4d | `:15`, `:50` |
 | `myTrading-ORDERS-pi1` · `Live_Price`, `Day_%` | `orders_sheet_prices.py` | every 5 min |
-| `myTrading-ops-pi1` · columns C–J | `remote_ops.py` | every 10 min |
+| `myTrading-ops-pi1` · columns C–J | `remote_ops.py` | **every minute** |
 
 Both sheets are edited by `mytrading-ops@…` (Editor). Pi 2 reads them through
 `mytrading-reader@…` (Viewer). See `ordersSheetDesign` §12.

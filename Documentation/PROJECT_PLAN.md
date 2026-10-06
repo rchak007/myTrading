@@ -885,6 +885,21 @@ the cadence; a per-row day counter would only fight it.
 **No images.** Three a day with a megabyte of cards attached is not a
 reminder.
 
+### ✅ RESOLVED 2026-10-05 — the auth code expired before the poller saw it
+A code pasted into the ops sheet at 11:21 was rejected by the 11:30 exchange:
+`invalid_grant — Authorization code is invalid, expired or revoked`. Schwab's
+code TTL is shorter than nine minutes, so the ops-sheet re-auth had a race in
+it the whole time and had only ever worked by luck of timing.
+
+**Fixed by polling every minute** (`*/1`) instead of every ten. Worst case is
+now 60 seconds. The alternative — telling Chakravarti to paste in the minute
+before a tick — was rejected outright: *"bloody hell whole reason i created
+this is i dont login to pi1."* Clock-watching is exactly what the ops channel
+exists to remove.
+
+Cheap: an idle poll is one sheet read, and `flock -n` means an overlapping run
+skips rather than piling up.
+
 ### Pinning a reminder to a weekday
 Added 2026-10-02 for `chitra-screenshots` — "send this every Monday or so".
 

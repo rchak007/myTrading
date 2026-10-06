@@ -128,7 +128,7 @@ def compose(st: dict, auth_url: str | None) -> tuple[str, str]:
     else:
         body += ["TO RE-AUTHORIZE — add a row at the top of myTrading-ops-pi1:",
                  "    column A: auth_url        (leave B empty)",
-                 "Within 10 minutes column I holds the tappable link.",
+                 "Within a minute column I holds the tappable link.",
                  "Then a second row with auth_code and the pasted URL.", ""]
     body.append("— token_watch.py on Pi 1")
     return subject, "\n".join(body)

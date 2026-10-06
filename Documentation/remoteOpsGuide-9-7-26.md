@@ -215,7 +215,7 @@ with the message in column I, and the row reads `FAIL`.
 This matters because the row is stamped `RUNNING` *before* the verb runs. An
 escaping exception used to kill the whole poll cycle and leave that row looking
 handled — stuck on `RUNNING`, skipped forever, with nothing visible anywhere
-except a poller that quietly died every 10 minutes. `auth_url` was the worst
+except a poller that quietly died every cycle. `auth_url` was the worst
 case: it is what you reach for when the token has expired, which is exactly
 when everything else is failing too.
 
@@ -267,7 +267,7 @@ its policy/target, the same as the CLI.
 
 ```cron
 # Remote ops channel — polls the ops sheet every 10min. See Documentation/remoteOpsGuide-9-7-26.md §4b
-*/10 * * * * cd /home/rchak007/github/myTrading && set -a && . ./.env && set +a && flock -n /tmp/remote_ops.lock timeout 300 .venv/bin/python remote_ops.py >> /home/rchak007/.local/state/myTrading/remote_ops_cron.log 2>&1
+*/1 * * * * cd /home/rchak007/github/myTrading && set -a && . ./.env && set +a && flock -n /tmp/remote_ops.lock timeout 300 .venv/bin/python remote_ops.py >> /home/rchak007/.local/state/myTrading/remote_ops_cron.log 2>&1
 ```
 
 Why each piece is there:
