@@ -209,6 +209,7 @@ Each of these shipped, ran, and was wrong in a way nothing announced.
 | A dip buy reported as a breakout | the intent's `Close_Is` was read and then dropped, so coverage guessed from the price |
 | A filled order still claiming coverage | `SUBMITTED` is live to the engine, so a spent intent read as arranged protection |
 | "Pi 1 has not polled in 16h" on a Saturday | the alert counted hours; the cron runs Mon–Fri. Nothing was wrong, and `health_check` said so at the same moment |
+| `schwab_auth.py --url` failing by hand | cron sources `.env`, an interactive shell does not — and the error names the file, so it reads as corrupt rather than unread |
 | Eleven months of P&L missing | `_fetch_chunk` returned `[]` on a non-200, indistinguishable from "no transactions" |
 
 **The common shape: a failure that looks like a normal result.** Hence the

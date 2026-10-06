@@ -17,5 +17,5 @@
 id,added,every_days,weekday,last_sent,done,title,url,note
 study-8k-45k,2026-09-30,2,,2026-09-30,2026-10-02,How to Turn $8K Into $45K Without Killing Your Core Bag,https://www.youtube.com/live/mZIwo0EBIkI,Chakravarti asked to be nagged every 2 days until studied
 streamline-chitra,2026-09-30,2,,2026-09-30,2026-10-02,Streamline Chitra's stocks,,"CHITRA_TICKERS in app.py — 12 symbols incl. CBRS, which returns no data"
-chitra-merrill-orders,2026-10-02,2,,2026-10-02,,Get Chitra's open orders from Merrill Lynch,,"IRA-Edge 272-98230. Holdings come from a statement; open orders are not in chitra_holdings.csv at all, so her Dashboard rows show no stops or trims whether or not any exist"
-chitra-screenshots,2026-10-02,,Mon,,,Send Chitra's Merrill screenshots,,"Positions AND open orders. Her tab is only as current as the last one — qty, cost basis, resting orders and the sweep balance all come from them, and nothing here can see a fill"
+chitra-merrill-orders,2026-10-02,2,,2026-10-05,,Get Chitra's open orders from Merrill Lynch,,"IRA-Edge 272-98230. Holdings come from a statement; open orders are not in chitra_holdings.csv at all, so her Dashboard rows show no stops or trims whether or not any exist"
+chitra-screenshots,2026-10-02,,Mon,2026-10-05,,Send Chitra's Merrill screenshots,,"Positions AND open orders. Her tab is only as current as the last one — qty, cost basis, resting orders and the sweep balance all come from them, and nothing here can see a fill"

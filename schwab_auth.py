@@ -87,6 +87,33 @@ SECRET_KEYS = {"access_token", "refresh_token", "id_token", "code"}
 # Credentials
 # ---------------------------------------------------------------------
 def creds() -> tuple[str, str, str]:
+    """app_key / app_secret / callback_url, from the environment or .env.
+
+    LOADS .env ITSELF, the way remote_ops.py does. The cron lines source it
+    with `set -a && . ./.env`, so this worked for years from cron and failed
+    the first time it was run by hand — with `missing in .env: app_key,
+    app_secret, callback_url`, which reads like the file is broken rather
+    than unread.
+
+    That failure lands at the worst possible moment: you only reach for this
+    script when the token is about to die, and then you are debugging a shell
+    instead of re-authorizing.
+    """
+    if not (os.getenv("app_key") or os.getenv("APP_KEY")):
+        # Parsed by hand rather than via python-dotenv, which is NOT in every
+        # venv — it is missing from Pi 2's. A re-auth script that needs an
+        # optional package to read its own config is one more thing to fail on
+        # the day the token dies.
+        env = Path(__file__).resolve().parent / ".env"
+        try:
+            for line in env.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, _, v = line.partition("=")
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+        except Exception:
+            pass                       # no .env here: the error below says so
     key = os.getenv("app_key") or os.getenv("APP_KEY", "")
     secret = os.getenv("app_secret") or os.getenv("APP_SECRET", "")
     cb = os.getenv("callback_url") or os.getenv("CALLBACK_URL", "")

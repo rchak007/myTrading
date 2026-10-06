@@ -255,6 +255,25 @@ they have had said "covered" about something that was not — the expensive
 direction to be wrong in. Run it after touching `coverage_for`, `_classify` or
 `read_intents`.
 
+### Running a job by hand needs `.env`
+
+The cron lines source it (`set -a && . ./.env && set +a`); an interactive
+shell does not. So a script that has worked from cron for months can fail the
+first time you run it yourself, with an error that reads like the file is
+broken rather than unread:
+
+```
+RuntimeError: missing in .env: app_key, app_secret, callback_url
+```
+
+`schwab_auth.py` now reads `.env` itself — it is the one script you reach for
+when the token is dying, and debugging a shell at that moment is the worst
+possible time. Anything else, wrap it:
+
+```bash
+cd ~/github/myTrading && set -a && . ./.env && set +a && .venv/bin/python <script>
+```
+
 ### A config file that vanishes from git
 
 **`.gitignore` has eaten a config CSV three times now.** The `*.csv`
