@@ -833,6 +833,20 @@ that looks enforced and is not.
 `chitra-merrill-orders` stays on the 2-day email until there are orders to
 transcribe. Send a screenshot whenever they change.
 
+### 🐞 OPEN — the History tab is created and never written
+`orders_sheet_init.py` builds it with `Orders` columns plus `Completed_At` and
+`Outcome`. **Nothing writes to it** — zero code references outside the
+creation call. The design intent was that a finished row (FILLED, CANCELLED,
+EXPIRED, or a spent SUBMITTED) moves there so the Orders tab stays short.
+
+Noticed 2026-10-06 when Chakravarti asked what it was for. The Orders tab is
+now 11 rows, two of them spent, and the clutter is the thing History was meant
+to prevent.
+
+**Not done because the move is destructive** — it deletes from one tab and
+appends to another, and a half-completed move loses the row. Wants the same
+care the rest of the sheet writes get, and probably a dry-run mode.
+
 ### 💡 OPEN — two refinements deferred from the 2026-10-01 build
 
 **Size from the stop.** The biggest remaining gap. A stop level without a size

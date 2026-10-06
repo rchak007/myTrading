@@ -368,6 +368,52 @@ def poll_is_stale(last_poll: datetime | None, now: datetime | None = None) -> bo
     return due is not None and last_poll < due
 
 
+# Rows the engine has flagged. 🔴 is its own marker for "a human must look":
+# an orphaned submit, an oversell, collateral, a blocked row. Pi 1 cannot send
+# email — market-tracker's Gmail credentials live on Pi 2 only — so the SHEET
+# is the channel, exactly as it is for the token state.
+PROBLEM_MARKS = ("🔴", "⛔")
+PROBLEM_STATES = ("BLOCKED", "REJECTED", "ERROR")
+
+
+def read_order_problems(log=print) -> list[dict]:
+    """Orders-tab rows that need a human. [] on anything unexpected.
+
+    Read from the sheet rather than from Pi 1's ledger because this runs on
+    Pi 2, which has the mailer and no access to Pi 1's disk. The engine already
+    writes its verdict into the Validation column every cycle; this just
+    notices.
+    """
+    try:
+        from google.oauth2.service_account import Credentials
+        import gspread
+        creds = os.getenv("GSHEET_READER_CREDS", "")
+        sid = os.getenv("GSHEET_ORDERS_ID", "")
+        if not creds or not sid:
+            return []
+        c = Credentials.from_service_account_file(
+            creds, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
+        ws = gspread.authorize(c).open_by_key(sid).worksheet("Orders")
+        grid = ws.get("A9:N500")
+    except Exception as e:
+        log(f"could not read the Orders tab for problems: {e}")
+        return []
+
+    out = []
+    for raw in grid or []:
+        r = list(raw) + [""] * 14
+        rid, ticker, side = str(r[0]).strip(), str(r[3]).strip(), str(r[4]).strip()
+        status, valid = str(r[11]).strip(), str(r[13]).strip()
+        if not rid and not ticker:
+            continue
+        hit = (any(m in valid for m in PROBLEM_MARKS)
+               or status.upper() in PROBLEM_STATES)
+        if hit:
+            out.append({"row_id": rid or "(no id)", "ticker": ticker,
+                        "side": side, "status": status, "validation": valid})
+    return out
+
+
 def read_from_sheet(log=print) -> tuple[dict, str | None, float | None]:
     """Token state and poll freshness, read from the Orders header.
 
@@ -471,11 +517,17 @@ def main() -> int:
     stale = (poll_is_stale(last_poll) if last_poll is not None
              else (poll_age is not None
                    and poll_age > float(os.getenv("POLL_STALE_HOURS", "3"))))
-    due = (args.force or stale
+    # ORDER PROBLEMS ARE A REASON TO EMAIL. Pi 1 flags a row and then has no
+    # way to tell anyone — it has no mailer. Before this, a submit that died
+    # mid-call sat on the sheet until Chakravarti happened to open it, which
+    # is how the LITE row went unnoticed from 13:30 to the evening.
+    problems = read_order_problems(log=print) if args.from_sheet else []
+    due = (args.force or stale or problems
            or state in ("EXPIRED", "MISSING", "UNKNOWN", "RENEW_NOW")
            or (days is not None and days <= args.days))
     if not due:
-        print(f"nothing to do — more than {args.days} day(s) left")
+        print(f"nothing to do — more than {args.days} day(s) left, "
+              f"no flagged order rows")
         return 0
 
     if not args.force and not args.dry_run and recently_sent():
@@ -491,6 +543,20 @@ def main() -> int:
             print(f"could not build authorize url: {type(e).__name__}: {e}")
 
     subject, body = compose(st, auth_url)
+    if problems:
+        n = len(problems)
+        subject = f"🔴 {n} order row(s) need you — {subject}"
+        lines = [f"{n} row(s) on the Orders tab are flagged. Pi 1 cannot email,",
+                 "so this is how they reach you.", ""]
+        for p_ in problems:
+            lines.append(f"  • {p_['row_id']}  {p_['ticker']} {p_['side']}"
+                         + (f"  [{p_['status']}]" if p_['status'] else ""))
+            lines.append(f"      {p_['validation'][:300]}")
+        lines += ["", "A row that says a run DIED MID-SUBMIT means the order may",
+                  "or may not have reached Schwab. Check the account before",
+                  "re-arming it, and use a NEW Row_ID rather than reusing one.",
+                  "", "─" * 60, ""]
+        body = "\n".join(lines) + body
     if stale:
         subject = f"🔴 Pi 1 has not polled in {poll_age:.0f}h — {subject}"
         body = (f"LAST POLL on the Orders sheet is {poll_age:.1f} HOURS old.\n"

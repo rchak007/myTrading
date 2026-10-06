@@ -85,7 +85,18 @@ A3  LAST POLL      2026-09-29 10:59:13 PDT
 30 8,18 * * * cd /home/chakravarti/github/myTrading && set -a && . ./.env && set +a && timeout 120 .venv/bin/python token_watch.py --from-sheet >> /home/chakravarti/.local/state/token_watch.log 2>&1
 ```
 
-**It watches two things, and the second is free.** `LAST POLL` is rewritten
+**It watches three things now.** The third is flagged ORDER ROWS: Pi 1 has no
+mailer — market-tracker's Gmail credentials live on Pi 2 only — so a row the
+engine marks 🔴 had no way to reach anyone. It sat on the sheet until someone
+happened to open it, which is exactly how a LITE submit that died at 13:30 on
+2026-10-06 went unnoticed until the evening.
+
+`read_order_problems()` reads the Orders tab from Pi 2 and treats any row whose
+Validation carries 🔴/⛔, or whose Status is BLOCKED/REJECTED/ERROR, as a reason
+to send. Same sheet-as-mailbox pattern as the token state, same `QUIET_HOURS`
+dedupe.
+
+**It watches two other things, and the second is free.** `LAST POLL` is rewritten
 every cycle, so a header that has stopped moving means **Pi 1 itself is down** —
 which is precisely the failure Pi 1 could never report.
 
