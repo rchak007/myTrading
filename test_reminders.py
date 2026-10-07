@@ -75,6 +75,29 @@ check("struck out still wins over a weekday",
       not R.due(row(weekday=R.WEEKDAY_NAME[TODAY.weekday()][:3],
                     done="x", last_sent="")))
 
+print("\n── escalating: fire on the day, then daily until delivered ──")
+# "send this every Sunday. and then till i confirm pasting here everyday. But
+# once i send set this to be sent on Sunday again."
+from datetime import date as _date                        # noqa: E402
+SUN = R.last_occurrence(6)
+esc = lambda **kw: row(weekday="Sun", escalate="Y", **kw)
+check("never delivered → due, whatever day it is",
+      R.due(esc(last_sent="", last_done="")))
+check("...but only once a day",
+      not R.due(esc(last_sent=TODAY.isoformat(), last_done="")))
+check("delivered since the last Sunday → quiet",
+      not R.due(esc(last_sent="", last_done=SUN.isoformat())))
+check("delivered BEFORE the last Sunday → due again",
+      R.due(esc(last_sent="", last_done=(SUN - timedelta(days=1)).isoformat())))
+# last_sent must NOT satisfy it — that is the whole point.
+check("being SENT does not satisfy it, only being DELIVERED",
+      R.due(esc(last_sent=ago(1), last_done="")))
+check("struck out still wins",
+      not R.due(esc(last_sent="", last_done="", done="x")))
+check("without escalate it is Sunday-only",
+      R.due(row(weekday=R.WEEKDAY_NAME[TODAY.weekday()][:3], last_sent=""))
+      and not R.due(row(weekday="Sun", last_sent="")) or TODAY.weekday() == 6)
+
 print("\n── parsing what a human might type ──")
 for raw, want in (("Mon", 0), ("mon", 0), ("MONDAY", 0), ("friday", 4),
                   ("Sun", 6), ("0", 0), ("3", 3), ("", None),
@@ -96,9 +119,13 @@ ids = {r["id"] for r in R.read_rows()}
 check("the Monday screenshot reminder exists", "chitra-screenshots" in ids,
       str(sorted(ids)))
 screenshot = next(r for r in R.read_rows() if r["id"] == "chitra-screenshots")
-check("...and it is pinned to Monday", R.weekday_of(screenshot) == 0)
-check("...and the email will say 'every Monday', not 'every 2 day(s)'",
-      "every Monday" in R.compose([screenshot])[1],
+check("...and it is pinned to Sunday", R.weekday_of(screenshot) == 6,
+      str(R.weekday_of(screenshot)))
+check("...and it escalates",
+      str(screenshot.get("escalate", "")).upper().startswith("Y"),
+      repr(screenshot.get("escalate")))
+check("...and the email says so, not 'every 2 day(s)'",
+      "every Sunday, then DAILY until you send it" in R.compose([screenshot])[1],
       R.compose([screenshot])[1].split("\n")[3])
 
 print("\n── Pi-1 poll staleness is measured against the SCHEDULE ──")

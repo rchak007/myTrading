@@ -39,20 +39,26 @@ import argparse
 import csv
 import os
 import sys
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
-COLS = ["id", "added", "every_days", "weekday", "last_sent", "done", "title",
-        "url", "note"]
+COLS = ["id", "added", "every_days", "weekday", "escalate", "last_sent",
+        "last_done", "done", "title", "url", "note"]
 # Mon=0, matching date.weekday(). Accepts "Mon", "monday", or the number.
 WEEKDAYS = {n: i for i, n in enumerate(
     ["mon", "tue", "wed", "thu", "fri", "sat", "sun"])}
 WEEKDAY_NAME = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
                 "Saturday", "Sunday"]
+
+
+def last_occurrence(weekday: int, today: date | None = None) -> date:
+    """The most recent date on or before today falling on `weekday`."""
+    today = today or date.today()
+    return today - timedelta(days=(today.weekday() - weekday) % 7)
 
 
 def weekday_of(row) -> int | None:
@@ -192,6 +198,22 @@ def due(row: dict) -> bool:
     # that day, once.
     wd = weekday_of(row)
     if wd is not None:
+        # ESCALATING: fire on the day, then keep firing EVERY day until the
+        # thing is actually delivered. Chakravarti's ask, verbatim: "send this
+        # every Sunday. and then till i confirm pasting here everyday. But
+        # once i send set this to be sent on Sunday again."
+        #
+        # `last_done` is what stops it — NOT last_sent. A reminder that
+        # silences itself by being sent is a reminder that never gets
+        # anything done.
+        if str(row.get("escalate", "")).strip().upper().startswith("Y"):
+            if days_since(row.get("last_sent", "")) == 0:
+                return False                     # already nagged today
+            done_on = days_since(row.get("last_done", ""))
+            if done_on is None:
+                return True                      # never delivered
+            delivered = date.today() - timedelta(days=int(done_on))
+            return delivered < last_occurrence(wd)
         if date.today().weekday() != wd:
             return False
         return days_since(row.get("last_sent", "")) != 0
@@ -223,8 +245,11 @@ def compose(rows: list[dict]) -> tuple[str, str]:
         if r.get("note"):
             body.append(f"    {r['note']}")
         wd = weekday_of(r)
+        esc = str(r.get("escalate", "")).strip().upper().startswith("Y")
         cadence = ("" if CHANNEL["market_hours"]
-                   else f" · every {WEEKDAY_NAME[wd]}" if wd is not None
+                   else (f" · every {WEEKDAY_NAME[wd]}"
+                         + (", then DAILY until you send it" if esc else ""))
+                   if wd is not None
                    else f" · every {r.get('every_days','2')} day(s)")
         body.append(f"    added {r.get('added','?')}"
                     + (f", {age} day(s) ago" if age is not None else "")
@@ -249,6 +274,9 @@ def main() -> int:
     ap.add_argument("--list", action="store_true", help="show state, send nothing")
     ap.add_argument("--dry-run", action="store_true", help="print the email")
     ap.add_argument("--done", metavar="ID", help="strike one out")
+    ap.add_argument("--delivered", metavar="ID",
+                    help="mark an escalating row satisfied — it drops back to "
+                         "its weekday until the next one comes round")
     ap.add_argument("--force", action="store_true", help="send even if not due")
     ap.add_argument("--channel", default="open-items", choices=sorted(CHANNELS),
                     help="which list (default: open-items)")
@@ -269,6 +297,18 @@ def main() -> int:
         hit[0]["done"] = date.today().isoformat()
         write_rows(rows)
         print(f"struck out {args.done} — {hit[0].get('title','')}")
+        return 0
+
+    if args.delivered:
+        hit = [r for r in rows if r["id"] == args.delivered]
+        if not hit:
+            print(f"no reminder with id {args.delivered!r}")
+            return 1
+        hit[0]["last_done"] = date.today().isoformat()
+        write_rows(rows)
+        wd = weekday_of(hit[0])
+        print(f"{args.delivered} marked delivered — quiet until "
+              + (WEEKDAY_NAME[wd] if wd is not None else "its next turn"))
         return 0
 
     if args.list:

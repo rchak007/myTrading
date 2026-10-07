@@ -96,6 +96,20 @@ Validation carries 🔴/⛔, or whose Status is BLOCKED/REJECTED/ERROR, as a rea
 to send. Same sheet-as-mailbox pattern as the token state, same `QUIET_HOURS`
 dedupe.
 
+**And a fourth: header alarms.** `read_header_alarms()` watches the Orders
+header block for conditions that cost money while they stand:
+
+| marker | why it matters |
+|---|---|
+| `OVER-FENCED` | more is reserved to tickers than the account holds in cash. A buy that looks funded is not |
+| `⛔ DISABLED` | the kill switch is present — nothing will be placed, **including a triggered stop** |
+| `SYSTEM STATUS` ≠ OK | anything Pi 1 has decided is not normal |
+
+**Deliberately NOT every alert.** "35 holding(s) with no protective stop" is
+true every single day, and a warning that is always on is one nobody reads.
+Account 171 was over-fenced by $6,288 on 2026-10-07 and the only place it
+appeared was a header cell.
+
 **It watches two other things, and the second is free.** `LAST POLL` is rewritten
 every cycle, so a header that has stopped moving means **Pi 1 itself is down** —
 which is precisely the failure Pi 1 could never report.

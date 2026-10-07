@@ -15,6 +15,6 @@
 # Separate from reminders.csv on purpose. That list is "come back to this
 # sometime"; this one is "the market is open RIGHT NOW and this is the window".
 # Mixing them would drag the whole open-items list into a three-a-day cadence.
-id,added,every_days,weekday,last_sent,done,title,url,note
-covered-calls-at-top,2026-09-30,0,,2026-10-07,,Sell covered calls at the top,,"On assets I actually want to hold. Collect premium when stretched; risk is shares called away, so size strikes to keep the core bag. Check Rec_Trim on the Dashboard for where stretched actually is"
-cash-secured-puts-at-bottom,2026-09-30,0,,2026-10-07,,Sell cash-secured puts at the bottom,,"Only on assets I genuinely want to own at that strike — assignment means buying them, so the strike has to be a price I would pay. Rec_Dip is the level worth bidding"
+id,added,every_days,weekday,escalate,last_sent,last_done,done,title,url,note
+covered-calls-at-top,2026-09-30,0,,,2026-10-07,,,Sell covered calls at the top,,"On assets I actually want to hold. Collect premium when stretched; risk is shares called away, so size strikes to keep the core bag. Check Rec_Trim on the Dashboard for where stretched actually is"
+cash-secured-puts-at-bottom,2026-09-30,0,,,2026-10-07,,,Sell cash-secured puts at the bottom,,"Only on assets I genuinely want to own at that strike — assignment means buying them, so the strike has to be a price I would pay. Rec_Dip is the level worth bidding"

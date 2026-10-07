@@ -957,6 +957,20 @@ exists to remove.
 Cheap: an idle poll is one sheet read, and `flock -n` means an overlapping run
 skips rather than piling up.
 
+### Escalating reminders
+Added 2026-10-07 for `chitra-screenshots`, in his words: *"send this every
+Sunday. and then till i confirm pasting here everyday. But once i send set
+this to be sent on Sunday again."*
+
+`escalate=Y` on a weekday row: it fires on the day, then **every day** until
+the thing is actually delivered, then goes quiet until that weekday comes
+round again.
+
+**Cleared by `--delivered <id>`, never by being sent.** That distinction is
+the whole mechanism — a reminder that silences itself by arriving is one that
+never gets anything done. `last_done` is the state; `last_sent` only stops it
+nagging twice in one day.
+
 ### Pinning a reminder to a weekday
 Added 2026-10-02 for `chitra-screenshots` — "send this every Monday or so".
 

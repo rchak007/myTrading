@@ -6,6 +6,11 @@
 #               the reminders — "done", "x", a date, a note. Nothing is
 #               deleted: a struck item stays as a record that it was finished.
 #   every_days  how often to nag.
+#   escalate    Y = after the weekday fires, nag EVERY day until the thing
+#               is delivered. Cleared with `--delivered <id>`, NOT by being
+#               sent: a reminder that silences itself by arriving is one
+#               that never gets anything done.
+#   last_done   when it was last actually delivered. Only `escalate` uses it.
 #   weekday     pin to one day instead: Mon/Tue/... or 0-6 (Mon=0).
 #               Set this and every_days is ignored — a day counter
 #               drifts off the weekday the first time a send slips.
@@ -14,8 +19,8 @@
 # In the repo rather than machine-local state on purpose: it is visible in git,
 # editable from either Pi, and a reminder that quietly vanished with an SD card
 # would be worse than no reminder at all.
-id,added,every_days,weekday,last_sent,done,title,url,note
-study-8k-45k,2026-09-30,2,,2026-09-30,2026-10-02,How to Turn $8K Into $45K Without Killing Your Core Bag,https://www.youtube.com/live/mZIwo0EBIkI,Chakravarti asked to be nagged every 2 days until studied
-streamline-chitra,2026-09-30,2,,2026-09-30,2026-10-02,Streamline Chitra's stocks,,"CHITRA_TICKERS in app.py — 12 symbols incl. CBRS, which returns no data"
-chitra-merrill-orders,2026-10-02,2,,2026-10-07,,Get Chitra's open orders from Merrill Lynch,,"IRA-Edge 272-98230. Holdings come from a statement; open orders are not in chitra_holdings.csv at all, so her Dashboard rows show no stops or trims whether or not any exist"
-chitra-screenshots,2026-10-02,,Mon,2026-10-07,,Send Chitra's Merrill screenshots,,"Positions AND open orders. Her tab is only as current as the last one — qty, cost basis, resting orders and the sweep balance all come from them, and nothing here can see a fill"
+id,added,every_days,weekday,escalate,last_sent,last_done,done,title,url,note
+study-8k-45k,2026-09-30,2,,,2026-09-30,,2026-10-02,How to Turn $8K Into $45K Without Killing Your Core Bag,https://www.youtube.com/live/mZIwo0EBIkI,Chakravarti asked to be nagged every 2 days until studied
+streamline-chitra,2026-09-30,2,,,2026-09-30,,2026-10-02,Streamline Chitra's stocks,,"CHITRA_TICKERS in app.py — 12 symbols incl. CBRS, which returns no data"
+chitra-merrill-orders,2026-10-02,2,,,2026-10-07,,2026-10-07,Get Chitra's open orders from Merrill Lynch,,"IRA-Edge 272-98230. Holdings come from a statement; open orders are not in chitra_holdings.csv at all, so her Dashboard rows show no stops or trims whether or not any exist"
+chitra-screenshots,2026-10-02,,Sun,Y,2026-10-07,,,Send Chitra's Merrill screenshots,,"Positions AND open orders. Every Sunday, then DAILY until you actually send them — her tab is only as current as the last pair, and nothing here can see a fill"

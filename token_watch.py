@@ -376,6 +376,33 @@ PROBLEM_MARKS = ("🔴", "⛔")
 PROBLEM_STATES = ("BLOCKED", "REJECTED", "ERROR")
 
 
+# Conditions in the Orders header worth an email. NOT every alert: "35
+# holding(s) with no protective stop" is true every single day, and a warning
+# that is always on is one nobody reads. These are the ones that are
+# exceptional and that cost money while they stand.
+HEADER_ALARMS = (
+    ("OVER-FENCED", "More is reserved to tickers than the account actually "
+                    "holds in cash. A buy that looks funded is not."),
+    ("⛔ DISABLED", "The kill switch file is present — NOTHING will be "
+                    "placed, including a triggered stop."),
+)
+
+
+def read_header_alarms(rows: dict) -> list[tuple[str, str]]:
+    """(marker, what it means) for each alarm present in the header block.
+
+    Pi 1 already computes these into the ALERTS line every cycle; it simply
+    has no way to tell anyone. 171 was over-fenced by $6,288 and the only
+    place that appeared was a cell nobody was looking at.
+    """
+    text = " ".join(str(v) for v in rows.values())
+    out = [(m, why) for m, why in HEADER_ALARMS if m in text]
+    status = str(rows.get("SYSTEM STATUS", "")).strip()
+    if status and status.upper() not in ("OK", ""):
+        out.append(("SYSTEM STATUS", status))
+    return out
+
+
 def read_order_problems(log=print) -> list[dict]:
     """Orders-tab rows that need a human. [] on anything unexpected.
 
@@ -465,6 +492,7 @@ def read_from_sheet(log=print) -> tuple[dict, str | None, float | None]:
         when = datetime.strptime(poll[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=pt)
         age = (datetime.now(pt) - when).total_seconds() / 3600
         st["_last_poll"] = when
+        st["_header"] = rows
     except Exception:
         pass
     return st, None, age
@@ -522,12 +550,13 @@ def main() -> int:
     # mid-call sat on the sheet until Chakravarti happened to open it, which
     # is how the LITE row went unnoticed from 13:30 to the evening.
     problems = read_order_problems(log=print) if args.from_sheet else []
-    due = (args.force or stale or problems
+    alarms = read_header_alarms((st or {}).get("_header", {}) or {})
+    due = (args.force or stale or problems or alarms
            or state in ("EXPIRED", "MISSING", "UNKNOWN", "RENEW_NOW")
            or (days is not None and days <= args.days))
     if not due:
         print(f"nothing to do — more than {args.days} day(s) left, "
-              f"no flagged order rows")
+              f"no flagged order rows, no header alarms")
         return 0
 
     if not args.force and not args.dry_run and recently_sent():
@@ -543,6 +572,14 @@ def main() -> int:
             print(f"could not build authorize url: {type(e).__name__}: {e}")
 
     subject, body = compose(st, auth_url)
+    if alarms:
+        subject = f"⚠️ {alarms[0][0]} — {subject}"
+        head = [f"{len(alarms)} condition(s) flagged in the Orders header:", ""]
+        for m, why in alarms:
+            head += [f"  ⚠️  {m}", f"      {why}"]
+        head += ["", f"  ALERTS: {str((st or {}).get('_header', {}).get('ALERTS',''))[:400]}",
+                 "", "─" * 60, ""]
+        body = "\n".join(head) + body
     if problems:
         n = len(problems)
         subject = f"🔴 {n} order row(s) need you — {subject}"
