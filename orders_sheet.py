@@ -749,7 +749,29 @@ def _earnings_tickers(signals_df, held: set) -> list:
         return []
 
 
-def _rec_rows(ticker, price, signals_df, is_fenced, pos_width):
+def _rec_for(ticker, price, signals_df, is_fenced):
+    """(Rec, signals row) for one ticker, or (None, None).
+
+    Computed BEFORE the position rows are written, because the yellow N
+    highlight now depends on whether a level exists: flagging Has_Breakout on
+    61 of 65 rows when the model recommends one on six of them is not a
+    warning, it is wallpaper.
+    """
+    if signals_df is None or getattr(signals_df, "empty", True):
+        return None, None
+    try:
+        from core.recommend import recommend_row
+    except Exception:
+        return None, None
+    m = signals_df[signals_df["Ticker"].astype(str).str.upper() == ticker]
+    if m.empty:
+        return None, None
+    row0 = m.iloc[0]
+    return recommend_row(row0, fenced=is_fenced, price=price), row0
+
+
+def _rec_rows(ticker, price, signals_df, is_fenced, pos_width,
+              rec=None, row0=None):
     """The two RECOMMENDED lines for one block: headers, then levels.
 
     Returns [] when there is nothing honest to say — no signals row, no ATR,
@@ -760,18 +782,15 @@ def _rec_rows(ticker, price, signals_df, is_fenced, pos_width):
     rather than one per account — unlike the coverage flags beside them, which
     are per (ticker, account) because an order exists in exactly one account.
     """
-    if signals_df is None or getattr(signals_df, "empty", True):
-        return []
     try:
-        from core.recommend import (recommend_row, earnings_soon,
-                                    TIER1, TIER2, TIER3, ALL_LEVELS)
+        from core.recommend import (earnings_soon, TIER1, TIER2, TIER3,
+                                    ALL_LEVELS)
     except Exception:
         return []
-    m = signals_df[signals_df["Ticker"].astype(str).str.upper() == ticker]
-    if m.empty:
+    if rec is None:
+        rec, row0 = _rec_for(ticker, price, signals_df, is_fenced)
+    if rec is None or row0 is None:
         return []
-    row0 = m.iloc[0]
-    rec = recommend_row(row0, fenced=is_fenced, price=price)
     if all(getattr(rec, f) is None for f in ALL_LEVELS):
         return []
 
@@ -895,6 +914,9 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
             if entry:
                 px, pct = _extract_price(entry)
 
+        is_fenced = any(t == ticker for _acct, t in fenced)
+        rec, rec_row0 = _rec_for(ticker, px, signals_df, is_fenced)
+
         marks["ticker"].append(add([ticker, "POSITIONS"]))
         marks["header"].append(add([""] + POS_HDR))
         for _, r in grp.iterrows():
@@ -908,8 +930,18 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
             # Flag only real (ticker, account) rows. A TOTAL row carries BLANK
             # rather than N — coverage has no honest aggregate — so it is
             # skipped here without needing a special case.
+            # Has_Stop and Has_Trim are DISCIPLINE: you hold it, it should be
+            # managed, and N is a gap whatever the model thinks. Has_Dip and
+            # Has_Breakout are OPTIONAL — not bidding is a choice — so they
+            # flag only where a level actually exists to act on. Measured
+            # 2026-10-06: flagging all four painted 217 of 260 cells.
             for field in ("Has_Stop", "Has_Trim"):
                 if str(r.get(field, "")).strip().upper() == NO:   # P is arranged
+                    marks["warn"].append(f"{col_of(field)}{len(rows)}")
+            for field, lvl in (("Has_Dip", "Rec_Dip"),
+                               ("Has_Breakout", "Rec_Breakout")):
+                if (str(r.get(field, "")).strip().upper() == NO
+                        and rec is not None and getattr(rec, lvl) is not None):
                     marks["warn"].append(f"{col_of(field)}{len(rows)}")
 
         # CHITRA sits with the holdings but outside them: injected at RENDER
@@ -928,8 +960,8 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         # Fenced if ANY account fences this ticker. Fencing is per (ticker,
         # account) but these levels are a property of the stock, and a holding
         # fenced anywhere is one being held as core somewhere.
-        is_fenced = any(t == ticker for _acct, t in fenced)
-        rec_lines = _rec_rows(ticker, px, signals_df, is_fenced, DASH_WIDTH)
+        rec_lines = _rec_rows(ticker, px, signals_df, is_fenced, DASH_WIDTH,
+                              rec=rec, row0=rec_row0)
         if rec_lines:
             first = add(rec_lines[0])
             for extra in rec_lines[1:]:

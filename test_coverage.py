@@ -210,5 +210,44 @@ bare, _ = build_dashboard(pos, None, {"BE": {"quote": {"lastPrice": 283.29}}},
 check("...but it still says so when there is genuinely nothing",
       any("no open orders" in " ".join(str(c) for c in r) for r in bare))
 
+print("\n── the yellow N flags what is ACTIONABLE ──")
+# Has_Stop/Has_Trim are discipline: you hold it, N is a gap whatever the model
+# says. Has_Dip/Has_Breakout are optional, and flagging every N painted 217 of
+# 260 cells on the real sheet — a background colour, not a warning.
+from orders_sheet import build_dashboard, POS_HDR                 # noqa: E402
+import pandas as _pd                                              # noqa: E402
+
+sig = _pd.DataFrame([
+    # has every level
+    {"Ticker": "AAA", "Current Price": 100.0, "Last Close": 100.0, "ATR": 2.0,
+     "Supertrend": 94.0, "Supertrend Signal": "BUY", "Nearest_Support": 95.0,
+     "Nearest_Resistance": 104.0, "MRC_Zone": "Above_Mean", "MRC_R1": 112.0,
+     "MRC_R2": 130.0, "MRC_Mean": 90.0, "MRC_S1": 80.0, "MRC_S2": 60.0,
+     "ATH": 120.0, "Score_Weighted": 80, "Structure": "BULLISH", "Regime": "BULL"},
+    # downtrend → no Rec_Breakout
+    {"Ticker": "BBB", "Current Price": 100.0, "Last Close": 100.0, "ATR": 2.0,
+     "Supertrend": 110.0, "Supertrend Signal": "SELL", "Nearest_Support": 95.0,
+     "Nearest_Resistance": 104.0, "MRC_Zone": "Above_Mean", "MRC_R1": 112.0,
+     "MRC_R2": 130.0, "MRC_Mean": 90.0, "MRC_S1": 80.0, "MRC_S2": 60.0,
+     "ATH": 120.0, "Score_Weighted": 10, "Structure": "MIXED", "Regime": "BULL"}])
+pos = _pd.DataFrame([{"Ticker": t, "Acct": "431", "Qty": 1, "Avg_Cost": 1,
+                      "Market_Value": 1, "Unrealized_PL": 0, "Has_Stop": "N",
+                      "Has_Trim": "N", "Has_Dip": "N", "Has_Breakout": "N",
+                      "Seed_Reserved": ""} for t in ("AAA", "BBB")])
+q = {t: {"quote": {"lastPrice": 100.0, "netPercentChange": 0.0}}
+     for t in ("AAA", "BBB")}
+_rows, _marks = build_dashboard(pos, None, q, set(), sig)
+letter = {f: chr(ord("B") + POS_HDR.index(f))
+          for f in ("Has_Stop", "Has_Trim", "Has_Dip", "Has_Breakout")}
+cols = [("".join(ch for ch in w if ch.isalpha())) for w in _marks["warn"]]
+check("Has_Stop N is always flagged",
+      cols.count(letter["Has_Stop"]) == 2, str(cols))
+check("Has_Trim N is always flagged",
+      cols.count(letter["Has_Trim"]) == 2, str(cols))
+check("Has_Dip N flagged on both — both have a Rec_Dip",
+      cols.count(letter["Has_Dip"]) == 2, str(cols))
+check("Has_Breakout N flagged ONCE — only one has a Rec_Breakout",
+      cols.count(letter["Has_Breakout"]) == 1, str(cols))
+
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 raise SystemExit(1 if FAILED else 0)

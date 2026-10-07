@@ -106,7 +106,20 @@ trim (profit target above) actually exist.
 |---|---|
 | **Y** | a live order resting at Schwab. Fires the moment price touches it, and works with every machine here switched off |
 | **P** | an intent in the Orders tab. Fires only on a completed daily **close**, and only if Pi 1 is alive |
-| **N** | nothing. Painted **yellow**, because an unprotected holding should be impossible to scroll past |
+| **N** | nothing. Painted **yellow** — see below |
+
+**The yellow flags what is ACTIONABLE, not every N.** `Has_Stop` and
+`Has_Trim` go yellow on every `N`: you hold the thing, so an unmanaged
+position is a gap whatever the model thinks. `Has_Dip` and `Has_Breakout` go
+yellow **only where a `Rec_` level exists** — not bidding is a choice, not an
+omission.
+
+Measured 2026-10-06: flagging every `N` in all four columns painted **217 of
+260 cells**. At 83% it stops being a highlight and becomes the background.
+`Has_Breakout` alone was `N` on 94% of rows, because the model only
+recommends one on about 5% of names — so you would be flagging things nothing
+suggests doing. The conditional version lights 152, and every yellow cell has
+a number three rows below it to act on.
 
 **The distinction between Y and P matters.** A `P` stop does not protect against
 an intraday collapse — that is the trade you accept by saying "closes below"
