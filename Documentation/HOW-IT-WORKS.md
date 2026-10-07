@@ -263,12 +263,17 @@ the `Chitra` tab is not a report, it is the whole working surface: three
 sections, and one of them is yours to type in.
 
 ```
-POSITIONS            ← from her statement, priced live, with the same
-                       Has_Stop / Has_Trim / Has_Dip / Has_Breakout flags
-BROKERAGE ORDERS     ← what is actually resting at Merrill, from your
-                       screenshots
-MY CONDITIONS        ← YOU TYPE HERE. Columns A–F are yours.
+rows  3-18   POSITIONS          from her statement, priced live, with the same
+                                Has_Stop / Has_Trim / Has_Dip / Has_Breakout
+rows 20-31   BROKERAGE ORDERS   what is actually resting at Merrill, from
+                                your screenshots
+rows 33-94   MY CONDITIONS      YOU TYPE HERE. Columns A–F are yours.
 ```
+
+**The rows are fixed so your typed conditions never shift**, but the caps are
+sized to roughly double what she holds — not to an imagined maximum. The first
+version reserved 30 rows for 7 holdings and pushed the orders to row 37 behind
+24 blank ones, where they could not be found.
 
 **A condition goes green when it fires.** Type `TSLA · SELL · BELOW · 500`
 and Pi 1 fills in the live price, the last close, and the status every cycle.

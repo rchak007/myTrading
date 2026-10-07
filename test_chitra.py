@@ -164,6 +164,17 @@ check("orders cannot reach the conditions label",
       f"{chitra.ORD_START + chitra.ORD_MAX} vs {chitra.CON_LABEL_ROW}")
 check("the human columns come before the machine ones",
       chitra.CON_COLS[:chitra.CON_HUMAN_N] == chitra.CON_HUMAN)
+# SIZED FOR HER ACCOUNT. The first layout reserved 30 rows for 7 holdings and
+# buried the orders at row 37 behind blank space, which is how Chakravarti
+# came to report that orders he had just supplied were missing.
+held = len([r for r in rows])
+check(f"the positions cap ({chitra.POS_MAX}) is room to grow, not a canyon",
+      held <= chitra.POS_MAX <= held * 2 + 2,
+      f"{held} held, cap {chitra.POS_MAX}")
+check("the orders section is visible without scrolling",
+      chitra.ORD_LABEL_ROW <= 22, str(chitra.ORD_LABEL_ROW))
+check("every section still fits on one screen",
+      chitra.CON_START <= 40, str(chitra.CON_START))
 
 print("\n── status for the sheet ──")
 st = chitra.build_condition_status(

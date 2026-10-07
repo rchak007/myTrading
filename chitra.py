@@ -57,20 +57,26 @@ TAB = "Chitra"
 # ── the fixed layout ────────────────────────────────────────────────────────
 # Row numbers are 1-based, as the sheet counts them. Caps are generous; a
 # section that overflows is logged rather than silently truncated.
+# SIZED FOR THIS ACCOUNT, not for a generic one. The first version reserved
+# 30 rows for positions against her 7 holdings, which pushed the orders
+# section to row 37 behind 24 blank rows — Chakravarti could not find the
+# orders he had just given me. Caps still exist so his typed conditions never
+# shift, but they are sized to roughly double what she holds, not to an
+# imagined maximum.
 POS_LABEL_ROW = 3
 POS_HDR_ROW = 4
 POS_START = 5
-POS_MAX = 30                       # rows 5..34
+POS_MAX = 14                       # rows 5..18
 
-ORD_LABEL_ROW = 37
-ORD_HDR_ROW = 38
-ORD_START = 39
-ORD_MAX = 15                       # rows 39..53
+ORD_LABEL_ROW = 20
+ORD_HDR_ROW = 21
+ORD_START = 22
+ORD_MAX = 10                       # rows 22..31
 
-CON_LABEL_ROW = 56
-CON_HDR_ROW = 57
-CON_START = 58
-CON_MAX = 60                       # rows 58..117
+CON_LABEL_ROW = 33
+CON_HDR_ROW = 34
+CON_START = 35
+CON_MAX = 60                       # rows 35..94
 
 POS_COLS = ["Ticker", "Qty", "Avg_Cost", "Live_Price", "Day_%", "Market_Value",
             "Cost_Basis", "Unrealized_PL", "Unrealized_%",
@@ -432,11 +438,19 @@ def write_tab(book, quotes, extract, signals_df=None, log=print) -> int:
     # condition he has typed, which is the whole reason this is not one write.
     pad = lambda r, n=WIDTH: list(r) + [""] * (n - len(r))
     try:
-        ws.batch_clear([f"A1:{LAST_COL}{POS_START + POS_MAX - 1}",
-                        f"A{ORD_LABEL_ROW}:{LAST_COL}{ORD_START + ORD_MAX - 1}",
-                        f"A{CON_LABEL_ROW}:{LAST_COL}{CON_HDR_ROW}",
-                        f"{_col(CON_HUMAN_N + 1)}{CON_START}:"
-                        f"{LAST_COL}{CON_START + CON_MAX - 1}"])
+        clears = [f"A1:{LAST_COL}{POS_START + POS_MAX - 1}",
+                  f"A{ORD_LABEL_ROW}:{LAST_COL}{ORD_START + ORD_MAX - 1}",
+                  f"A{CON_LABEL_ROW}:{LAST_COL}{CON_HDR_ROW}",
+                  f"{_col(CON_HUMAN_N + 1)}{CON_START}:"
+                  f"{LAST_COL}{CON_START + CON_MAX - 1}"]
+        if not conditions:
+            # Nothing typed, so nothing to lose — wipe everything below. This
+            # is what makes a LAYOUT CHANGE safe: a previous arrangement's
+            # labels and rows would otherwise sit there forever, since the
+            # human columns are never otherwise cleared. With conditions
+            # present we leave them strictly alone.
+            clears.append(f"A{CON_START}:{LAST_COL}1000")
+        ws.batch_clear(clears)
 
         ws.update(values=[pad(h, 2) for h in head], range_name="A1:B2")
         ws.update(values=[["POSITIONS"], pad(POS_COLS)],
