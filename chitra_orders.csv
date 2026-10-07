@@ -5,13 +5,11 @@
 # his own accounts. There is no API here, so the chain is: he screenshots the
 # Merrill order-status page, Pi 2 types the rows in, Pi 1 renders them.
 #
-# AS OF 2026-10-02 THERE ARE NONE. The Merrill order-status page read "No
-# orders found", which is why this file has a header and nothing else. That is
-# a FACT worth recording, not an empty file — an empty list and an unknown
-# list look identical otherwise, and on her account the difference matters:
-# her coverage flags are only honest if this is current.
+# An empty list and an unknown list look identical otherwise, and on her
+# account the difference matters: her coverage flags are only honest if this
+# is current. (2026-10-02 read "No orders found" — a fact worth recording.)
 #
-#   As_Of     2026-10-02
+#   As_Of     2026-10-06
 #
 # COLUMNS — match the ORDERS block on his Dashboard so both read alike
 #   Ticker        symbol
@@ -30,3 +28,5 @@
 # order carries no direction field and which side of price it sits on is the
 # only information there is.
 Ticker,Side,Type,Qty,Limit_Price,Stop_Price,Duration,Entered,Order_ID,Note
+TSLA,SELL,LIMIT,1,412.00,,GTC,2026-10-06,,Exp 2027-04-02 · trim — above the market
+TSLA,BUY,LIMIT,1,360.00,,GTC,2026-10-06,,Exp 2027-04-02 · dip bid — $360 of the sweep committed

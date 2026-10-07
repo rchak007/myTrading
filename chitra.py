@@ -173,12 +173,30 @@ def load_reserves(log=print) -> dict:
     return out
 
 
-def cash_position(rows, reserves) -> tuple:
-    """(cash, seeded, free) for the sweep. `free` goes negative when
-    over-committed, which is the number worth seeing."""
+def cash_position(rows, reserves, orders=None) -> tuple:
+    """(cash, seeded, in_open_buys, free) for the sweep.
+
+    An open BUY limit commits cash the moment it rests, exactly as it does on
+    his Schwab accounts where the Cash tab carries Cash_In_Open_Orders. Her
+    $360 TSLA bid is $360 she cannot spend twice, and showing the sweep as
+    fully free would be the same overstatement the covered-call collateral
+    was.
+
+    `free` goes negative when over-committed, which is the number worth
+    seeing — nothing here can refuse a trade, so visibility is the only
+    protection.
+    """
     cash = sum(r["Cost_Basis"] for r in rows if r.get("Asset") == "CASH")
     seeded = sum(v["seed"] for v in reserves.values())
-    return cash, seeded, cash - seeded
+    open_buys = 0.0
+    for o in (orders or []):
+        if str(o.get("Side", "")).upper() != "BUY":
+            continue
+        px = _num(o.get("Limit_Price")) or _num(o.get("Stop_Price"))
+        qty = _num(o.get("Qty"))
+        if px and qty:
+            open_buys += px * qty
+    return cash, seeded, open_buys, cash - seeded - open_buys
 
 
 def load_orders(log=print) -> list[dict]:
@@ -396,13 +414,14 @@ def write_tab(book, quotes, extract, signals_df=None, log=print) -> int:
             del block[cap:]
 
     m, mo = meta(), meta(ORDERS_FILE)
-    cash, seeded, free = cash_position(rows, reserves)
+    cash, seeded, open_buys, free = cash_position(rows, reserves, orders)
     # Seeded against the sweep, on the face of the tab. Over-committing is
     # visible rather than discovered — nothing here can refuse a trade, so
     # seeing it is the only protection there is.
-    money = (f"sweep ${cash:,.2f} · seeded ${seeded:,.2f} · "
-             + (f"free ${free:,.2f}" if free >= 0
-                else f"⚠️ OVER-SEEDED by ${-free:,.2f}"))
+    money = (f"sweep ${cash:,.2f} · seeded ${seeded:,.2f}"
+             + (f" · ${open_buys:,.2f} in open buys" if open_buys else "")
+             + " · " + (f"free ${free:,.2f}" if free >= 0
+                        else f"⚠️ OVER-COMMITTED by ${-free:,.2f}"))
     head = [[f"CHITRA — {m.get('Account', 'account')}",
              f"positions as of {m.get('As_Of', '?')} · orders as of "
              f"{mo.get('As_Of', '?')} · prices live · managed by Chakravarti"],
@@ -452,8 +471,9 @@ def write_tab(book, quotes, extract, signals_df=None, log=print) -> int:
     log(f"Chitra tab: {len(rows)} position(s), {len(orders)} resting order(s), "
         f"{len(conditions)} condition(s)" + (f", {met} MET 🟢" if met else ""))
     if free < 0:
-        log(f"⚠️  Chitra: OVER-SEEDED by ${-free:,.2f} against a "
-            f"${cash:,.2f} sweep")
+        log(f"⚠️  Chitra: OVER-COMMITTED by ${-free:,.2f} — ${seeded:,.2f} "
+            f"seeded + ${open_buys:,.2f} in open buys against a ${cash:,.2f} "
+            f"sweep")
     return len(rows)
 
 

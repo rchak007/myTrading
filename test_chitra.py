@@ -108,7 +108,7 @@ res = chitra.load_reserves(log=lambda *_: None)
 check("all six holdings are fenced",
       {t for t, v in res.items() if v["fenced"]}
       == {"MU", "MRVL", "TSLA", "MSFT", "IBIT", "GOOG"}, str(sorted(res)))
-cash, seeded, free = chitra.cash_position(rows, res)
+cash, seeded, open_buys, free = chitra.cash_position(rows, res)
 check("the sweep is read from the CASH row, not guessed",
       abs(cash - 6764.23) < 0.01, f"{cash}")
 check("fencing alone seeds nothing", seeded == 0.0, str(seeded))
@@ -117,7 +117,7 @@ check("free cash is the whole sweep while nothing is seeded",
 # Over-commitment has to be VISIBLE, because nothing here can refuse a trade.
 over = {"MU": {"seed": 5000.0, "fenced": True, "note": ""},
         "TSLA": {"seed": 3000.0, "fenced": True, "note": ""}}
-_, s_over, f_over = chitra.cash_position(rows, over)
+_, s_over, _b, f_over = chitra.cash_position(rows, over)
 check("seeding past the sweep makes free go NEGATIVE",
       s_over == 8000.0 and f_over < 0, f"seeded {s_over} free {f_over}")
 fenced_pos = chitra.build_positions(rows, Q, EX, [], [], res)
@@ -130,6 +130,22 @@ seeded_pos = chitra.build_positions(
     rows, Q, EX, [], [], {"MU": {"seed": 2000.0, "fenced": True, "note": ""}})
 check("a seeded ticker shows its dollars",
       {r[0]: r for r in seeded_pos}["MU"][14] == 2000.0)
+
+# An open BUY commits cash the moment it rests — the same overstatement the
+# covered-call collateral was, in the other pocket.
+live = chitra.load_orders(log=lambda *_: None)
+_c, _s, buys, free_after = chitra.cash_position(rows, res, live)
+check("an open BUY limit commits cash", buys == 360.0, str(buys))
+check("...and comes out of free", abs(free_after - (cash - 360.0)) < 0.01,
+      f"{free_after} vs {cash - 360.0}")
+check("a SELL commits no cash",
+      chitra.cash_position(rows, res,
+                           [{"Side": "SELL", "Limit_Price": "412", "Qty": "1"}]
+                           )[2] == 0.0)
+check("an order with no price commits nothing rather than crashing",
+      chitra.cash_position(rows, res,
+                           [{"Side": "BUY", "Limit_Price": "", "Qty": "1"}]
+                           )[2] == 0.0)
 
 print("\n── the orders block ──")
 empty = chitra.build_orders([])
