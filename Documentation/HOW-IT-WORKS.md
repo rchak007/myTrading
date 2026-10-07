@@ -95,6 +95,34 @@ result back. `git_pull`, `token_status`, `seed`, `fence`, `reserves`,
 It is an allowlist, not a shell: the sheet supplies a **verb name**, never a
 command. See [remoteOpsGuide](remoteOpsGuide-9-7-26.md).
 
+### Reading the Validation column
+
+It says two different things depending on the time of day, because the engine
+does two different jobs:
+
+```
+any time        ⏳ ARMED — SELL 23 sh of BE in 171 when the DAILY CLOSE is
+                   BELOW $282.00  ·  the close is checked after 13:15 PT
+after 13:15 PT  ⏳ waiting — close 295.78, needs below 282.00
+```
+
+The first is **validation** — the row is well-formed and would execute. It
+runs all day so a mistyped row says so within minutes of being typed. The
+second is the **trigger check**, which needs a finished daily bar and so only
+runs after the close.
+
+**Both are ⏳, deliberately.** This used to show a green ✅ for the validation
+pass, which read as *"this fired"* when nothing had. Nothing has happened
+until something has. `✅` is now reserved for a row that actually submitted.
+
+| marker | means |
+|---|---|
+| ⏳ `ARMED` | valid, waiting for the close to be checked |
+| ⏳ `waiting` | close checked, condition not met |
+| ⛔ | the row cannot execute — fix it in place, it re-validates |
+| ⏹ | already submitted. A Row_ID is used once |
+| 🔴 | **a run died mid-submit.** Check the account before re-arming |
+
 ### The `History` tab — what actually happened
 
 Every **executed** trade, newest at the top, older pushed down. Both sources,

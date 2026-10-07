@@ -1103,7 +1103,14 @@ def main() -> int:
             note_only(f"⛔ {problem}")
             _log(f"   {rid:<26} WOULD BLOCK  {problem}")
             continue
-        msg = f"✅ {oc.describe(rec)}"
+        # ⏳ NOT ✅. This is the price-INDEPENDENT validation, written all day;
+        # the trigger is only evaluated after 13:15 PT, when it is replaced by
+        # "⏳ waiting — close X, needs below Y". A green tick read as "this
+        # fired" — Chakravarti asked why rows had gone green when the
+        # conditions plainly had not met. Nothing has happened until something
+        # has, so both pre-close and post-close states say so.
+        msg = (f"⏳ ARMED — {oc.describe(rec)}"
+               f"  ·  the close is checked after 13:15 PT")
         if not n["Limit_Price"] and n["Side"] == "BUY" and cfg.WARN_MARKET_BUY:
             # Not an error, but the one place a blank limit usually is a
             # mistake: an entry has no urgency, so chasing a gap up is all
