@@ -833,7 +833,30 @@ that looks enforced and is not.
 `chitra-merrill-orders` stays on the 2-day email until there are orders to
 transcribe. Send a screenshot whenever they change.
 
-### 🐞 OPEN — the History tab is created and never written
+### ✅ BUILT 2026-10-06 — the History tab records what EXECUTED
+Chakravarti: *"I need all pi places order but also all orders executed in
+schwab manually. and it should populate newest at top and keep pushing older
+lower."*
+
+Built as a FILL log, not as the Orders archive the original design imagined.
+Schwab makes no distinction between an engine-placed order and a hand-placed
+one — a fill is a fill — so `trade_history.py` records everything from
+`fetch_fills()` and attributes it afterwards by matching the fill's order id
+against the engine's ledger: `PI` (with the Row_ID), `MANUAL`, or `?` when
+Schwab returned no order id. An unattributable fill is NOT called manual;
+that would be a claim rather than an observation.
+
+`fetch_fills()` gained an `Order_ID` column to make the match possible. It is
+the only link between the two worlds.
+
+The file is append-only and deduped on Schwab's activity id — the fills window
+is re-fetched every 35 minutes, so without that the same trade would be
+recorded forever. The tab is rebuilt from the file each cycle, newest first,
+showing the most recent 400.
+
+<details><summary>The original design, which this replaced</summary>
+
+### 🐞 WAS OPEN — the History tab is created and never written
 `orders_sheet_init.py` builds it with `Orders` columns plus `Completed_At` and
 `Outcome`. **Nothing writes to it** — zero code references outside the
 creation call. The design intent was that a finished row (FILLED, CANCELLED,
@@ -844,8 +867,12 @@ now 11 rows, two of them spent, and the clutter is the thing History was meant
 to prevent.
 
 **Not done because the move is destructive** — it deletes from one tab and
-appends to another, and a half-completed move loses the row. Wants the same
-care the rest of the sheet writes get, and probably a dry-run mode.
+appends to another, and a half-completed move loses the row.
+
+Superseded: recording FILLS needs no destructive move at all, and answers the
+question better. Archiving spent Orders rows is still worth doing one day,
+purely to keep that tab short.
+</details>
 
 ### 💡 OPEN — two refinements deferred from the 2026-10-01 build
 

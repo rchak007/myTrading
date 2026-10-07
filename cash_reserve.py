@@ -828,7 +828,11 @@ def fetch_fills(client_wrapper, *, days_back=7, log=print) -> pd.DataFrame:
     months of P&L history.
     """
     cols = ["Ref", "Account", "Ticker", "Side", "Fill_QTY", "Fill_Price",
-            "Net_Amount", "Asset_Type", "Fill_Time"]
+            "Net_Amount", "Asset_Type", "Fill_Time",
+            # Carried for trade_history.py, which matches it against the order
+            # engine's ledger to tell a Pi-placed fill from a hand-placed one.
+            # Schwab makes no such distinction; this is the only link.
+            "Order_ID"]
     if client_wrapper is None:
         log("⚠️  No Schwab client supplied — skipping fills")
         return pd.DataFrame(columns=cols)
@@ -906,6 +910,7 @@ def fetch_fills(client_wrapper, *, days_back=7, log=print) -> pd.DataFrame:
                     "Net_Amount": net,
                     "Asset_Type": atype,
                     "Fill_Time": when,
+                    "Order_ID": str(t.get("orderId") or ""),
                 })
 
     df = pd.DataFrame(rows, columns=cols)

@@ -75,6 +75,7 @@ that produced the file.
 | `orders_sheet_prices.py` | `Live_Price` and `Day_%` only, every 5 min. Sheet-only: no files, no git |
 | `remote_ops.py` | the ops-sheet poller. Allowlisted verbs, top-scan row model |
 | `gsheet_notes.py` | reads notes from a sheet; degrades silently if gspread is absent |
+| `trade_history.py` | the History tab: every EXECUTED trade, newest first, attributed PI / MANUAL / `?` by matching the fill's order id against the engine's ledger |
 | `chitra.py` | Chitra's account. Her tab is the whole management surface — positions, Merrill orders, and HUMAN-TYPED conditions that go green when the close crosses them. Fixed row layout; each section clears only its own range, never `ws.clear()`. Also the lavender `CHITRA` row on his Dashboard, which cannot reach his totals |
 
 ### Orders
@@ -111,6 +112,7 @@ that produced the file.
 | `test_market_calendar.py` | the derived calendar against the published NYSE one, including the years the observance rules surprise you |
 | `test_chitra.py` | her tab: close-not-live triggers, and that an unjudgeable row claims no protection |
 | `test_reminders.py` | the cadence logic. Too eager is noise he ignores; too quiet loses the item |
+| `test_trade_history.py` | the replay guard and the PI/MANUAL attribution |
 
 ### Probes
 
@@ -133,6 +135,7 @@ failure. **Measure before writing against an endpoint.**
 | `~/.local/state/myTrading/reserve_ledger.csv` | reserve history | **append-only.** Never rewritten or sorted; corrections are new rows |
 | `~/.local/state/myTrading/reserves_config.csv` | which pairs are fenced | declarative intent, safe to rewrite |
 | `~/.local/state/myTrading/order_ledger.csv` | every order decision | append-only, write-ahead before submit |
+| `~/.local/state/myTrading/trade_history.csv` | every executed fill | **append-only**, deduped on Schwab's activity id. The History tab is a view of it |
 | `~/.local/state/myTrading/remote_ops_audit.log` | ops verbs | JSON per line, never rotated |
 | `schwabAPI/data/transactions/` | transaction cache | per account, with a `.state.json` watermark |
 | `~/github/jobMyTrading/` | published output | the only thing `gitpush.py` commits |

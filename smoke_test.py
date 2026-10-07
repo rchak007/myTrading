@@ -27,6 +27,8 @@ EXPECTED = {
                   "use_channel", "CHANNELS", "weekday_of", "WEEKDAY_NAME"],
     "market_calendar": ["is_open", "is_trading_day", "holidays", "early_closes",
                         "close_time", "easter", "describe"],
+    "trade_history": ["read", "record", "write_tab", "newest_first",
+                      "ledger_order_ids", "COLS"],
     "chitra": ["load", "load_orders", "load_reserves", "cash_position", "meta", "write_tab", "dashboard_row",
                "read_conditions", "evaluate", "coverage", "build_positions",
                "build_orders", "build_condition_status",

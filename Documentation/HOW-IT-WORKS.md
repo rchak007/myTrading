@@ -79,7 +79,7 @@ silent. Either one gets an email.
 | **Orders** | where you type intents. Pi 1 reads them and writes back what it made of each |
 | **Positions** | the same holdings as a flat table |
 | **Cash** | cash per account, less money reserved for specific tickers |
-| **History** | completed rows |
+| **History** | **every trade that actually executed**, newest first — see below |
 | **Chitra** | your sister's account, which you manage. Read-only, rendered from `chitra_holdings.csv` in the repo — see §5b |
 
 The **header block** at the top of `Orders` is rewritten every cycle. Its own
@@ -94,6 +94,29 @@ result back. `git_pull`, `token_status`, `seed`, `fence`, `reserves`,
 
 It is an allowlist, not a shell: the sheet supplies a **verb name**, never a
 command. See [remoteOpsGuide](remoteOpsGuide-9-7-26.md).
+
+### The `History` tab — what actually happened
+
+Every **executed** trade, newest at the top, older pushed down. Both sources,
+because **Schwab makes no distinction**: a fill is a fill whether the Pi's
+engine placed the order or you tapped it in on your phone. So it records
+everything and then says which was which:
+
+| `Source` | meaning |
+|---|---|
+| `PI` | the fill's order id appears in the engine's ledger — and the `Row_ID` that caused it is shown |
+| `MANUAL` | it does not. Placed by hand at Schwab |
+| `?` | Schwab returned no order id, so it cannot be told. Not guessed at |
+
+**This is not the Orders tab's archive.** That tab holds *intents* — things
+that might happen. This holds what did. An intent that never triggered leaves
+no trace here, and correctly so.
+
+**The file is the record, the tab is a view.** Rows live in
+`~/.local/state/myTrading/trade_history.csv`, append-only and deduped on
+Schwab's activity id, and the tab is rebuilt from it every cycle. So nothing
+is lost if someone edits the sheet, and "newest at the top" costs nothing to
+maintain. The tab shows the most recent 400; the file keeps everything.
 
 ---
 

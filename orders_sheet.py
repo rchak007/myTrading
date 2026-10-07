@@ -1228,6 +1228,19 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     except Exception as e:
         log(f"⚠️  Chitra tab skipped (everything else is fine): {e}")
 
+    # HISTORY — every executed trade, from BOTH sources. Fetched here rather
+    # than reusing the reserve step's fills because that runs after this one,
+    # and a history that is always one cycle stale is a history you stop
+    # trusting. One extra transactions call per cycle.
+    try:
+        import trade_history
+        from cash_reserve import fetch_fills
+        trade_history.record(fetch_fills(client_wrapper, days_back=7,
+                                         log=lambda *a: None), log=log)
+        trade_history.write_tab(book, log=log)
+    except Exception as e:
+        log(f"⚠️  History tab skipped (everything else is fine): {e}")
+
     n_dash = write_dashboard(book, positions, orders_df, quotes, fenced,
                              log=log, signals_df=signals_df,
                              chitra_rows=chitra_rows, intents_df=intents,
