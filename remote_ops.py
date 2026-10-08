@@ -154,6 +154,12 @@ PY_VERBS = {
     "auth_code":    (True,  True),
     "seed":         (True,  False),
     "fence":        (True,  False),
+    # The RELEASE side of seeding. Without these the ops sheet could only
+    # ever add reserves, never undo one — so an over-fenced account could not
+    # be fixed without SSH, which is the thing this channel exists to avoid.
+    # Both only REDUCE a reserve: neither moves money nor places an order.
+    "withdraw":     (True,  False),
+    "close":        (True,  False),
     "apply_fills":  (False, False),
     "reserves":     (False, False),
 }
@@ -259,6 +265,35 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
 
     if verb == "seed":
         return _run_seed(arg)
+
+    if verb in ("withdraw", "close"):
+        import cash_reserve
+        parts = arg.split()
+        need = 3 if verb == "withdraw" else 2
+        if len(parts) < need:
+            return 2, (f"need ACCT TICKER{' AMOUNT' if need == 3 else ''}\n"
+                       f"  e.g.  {verb}  171 GOOG"
+                       + (" 5000" if need == 3 else "") + "\n\n"
+                       + ("Releases fenced cash back to the account's free "
+                          "pool. The position is untouched."
+                          if verb == "withdraw" else
+                          "Zeroes the reserve and deactivates the row. "
+                          "History is kept."))
+        acct, ticker = parts[0], parts[1]
+        out = []
+        if verb == "withdraw":
+            try:
+                amount = float(parts[2].replace(",", "").lstrip("$"))
+            except ValueError:
+                return 2, f"{parts[2]!r} is not an amount"
+            bal = cash_reserve.withdraw(acct, ticker, amount,
+                                        source="ops_sheet", log=out.append)
+        else:
+            bal = cash_reserve.close(acct, ticker, source="ops_sheet",
+                                     log=out.append)
+        out.append(f"\nreserve balance for {acct}/{ticker.upper()} "
+                   f"is now ${bal:,.2f}")
+        return 0, "\n".join(out)
 
     if verb == "fence":
         import cash_reserve

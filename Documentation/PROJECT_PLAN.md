@@ -957,6 +957,21 @@ exists to remove.
 Cheap: an idle poll is one sheet read, and `flock -n` means an overlapping run
 skips rather than piling up.
 
+### ✅ RESOLVED 2026-10-08 — the ops sheet could only add reserves, never release one
+`withdraw` and `close` existed in `cash_reserve.py`'s CLI from the start and
+were never added to `remote_ops`' allowlist. So an over-fenced account could
+only be fixed by logging into Pi 1 — the one thing the ops channel exists to
+avoid, and something Chakravarti has been explicit about ("bloody hell whole
+reason i created this is i dont login to pi1").
+
+Found when 171 went to **−$6,288 free to deploy**: $36,136 reserved against
+$29,848 of cash. `withdraw 171 GOOG 5000` came back `'withdraw' is not in the
+allowlist`.
+
+Both verbs only REDUCE a reserve — neither moves money nor places an order —
+so adding them does not widen what the sheet can do in any dangerous
+direction.
+
 ### Escalating reminders
 Added 2026-10-07 for `chitra-screenshots`, in his words: *"send this every
 Sunday. and then till i confirm pasting here everyday. But once i send set

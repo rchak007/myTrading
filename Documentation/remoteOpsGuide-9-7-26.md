@@ -222,6 +222,30 @@ when everything else is failing too.
 It also calls `load_dotenv()` itself, so running `remote_ops.py` by hand
 without sourcing `.env` first still works.
 
+#### `withdraw` / `close` — releasing a reserve
+
+```
+withdraw  ACCT TICKER AMOUNT      e.g.  withdraw  171 GOOG 5000
+close     ACCT TICKER             e.g.  close     171 SPY
+```
+
+`withdraw` returns that much fenced cash to the account's free pool.
+`close` zeroes the reserve entirely and deactivates the config row; the ledger
+history is kept either way, because corrections are new rows and nothing is
+ever rewritten.
+
+**The position is untouched by both.** These move the *earmark*, not the
+shares.
+
+**Added 2026-10-08 because the channel could only ever ADD.** Account 171 was
+over-fenced by $6,288 — $36,136 reserved against $29,848 of cash — and there
+was no way to release any of it without SSH, which is exactly what the ops
+sheet exists to avoid. `withdraw` was in `cash_reserve.py`'s CLI the whole
+time and had simply never been exposed.
+
+Both only ever REDUCE a reserve. Neither moves money between accounts, and
+neither can place an order.
+
 #### `seed` — fencing cash without SSH
 
 ```
