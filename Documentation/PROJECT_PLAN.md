@@ -1061,6 +1061,72 @@ shape, boundary and state — testable on Pi 2 with no Schwab, like
 `core/recommend.py`. Then a `Close_Is` value the engine recognises and the
 state written back each cycle. Bars and write-back both already exist.
 
+#### ⛔ BACKTESTED 2026-10-09 — THE P RULE DOES NOT WORK. DO NOT BUILD IT.
+
+Chakravarti's call before committing to it: *"ok that sounds like good idea to
+first test and see which are marked at what stage?"* Right call. Built
+`core/structure.py` (the detector) and `backtest_structure.py` (the harness),
+pulled 2 years of daily bars for all 135 `STOCK_TICKERS`, and walked every
+day using only bars available up to that day. Entry at the NEXT session's
+open, because a close-triggered signal cannot be filled at that close.
+
+**62,615 ticker-days, 2024-10-23 → 2026-10-08. 148 P breakouts.**
+
+| what broke out | n | 5d | 10d | 20d | win 20d |
+|---|---|---|---|---|---|
+| **P — the proposed rule** | 148 | **−1.56%** | +0.74% | **+2.67%** | 53% |
+| b — leg DOWN into balance | 122 | +0.59% | +3.48% | **+6.55%** | 57% |
+| D — no leg into balance | 1,231 | +0.68% | +2.28% | +5.45% | 54% |
+| buying on any random day | 62,480 | +1.22% | +2.73% | +5.63% | 55% |
+
+**The P is the worst of the four, and it loses to doing nothing in
+particular.** It is not an outlier artifact (medians agree: P 20d +1.51% vs
++1.74% baseline), not a single bad year (P is last in 2024, 2025 AND 2026),
+and not a clustering artifact — collapsing each firing day to one trade
+leaves P at **+0.12%** over 20 days against b at +8.03% and D at +6.65%.
+
+The 5-day number being reliably NEGATIVE is the most robust part, and it makes
+mechanical sense: buying a 5-day high after a 2 ATR rip into a tight range is
+buying short-term exhaustion. The range breaks and the thing immediately mean-
+reverts.
+
+**The threshold sweep is the clincher — the parameter surface is noise:**
+
+| balance bars | 20d | win |
+|---|---|---|
+| 4 | +8.70% | 65% |
+| **5 (specified)** | **+2.67%** | **53%** |
+| 7 | +8.91% | 68% |
+
+±1 bar swings the result by 6 points, non-monotonically. A real edge does not
+do that. Picking bars=4 or bars=7 because they look good here is curve-fitting
+to 22–243 observations.
+
+**And JOBY — the name this was designed for — never fired once in two years.**
+Its 5-bar range is a median 2.23 ATR, so it clears the 1.5 ATR balance test on
+only 50 of 491 days, and never with a +2 ATR leg into it. The feature would
+have sat there doing nothing on the one ticker it was for, while $500 stayed
+reserved.
+
+**What survives, and is worth building anyway:**
+
+- the `AMT` column and the dollar→whole-shares conversion — any conditional
+  buy needs it, and `shares_for()` is written and tested
+- the **`available_to_buy` reserve gate**, which still appears ZERO times in
+  `order_engine.py`. That is a real hole independent of this feature.
+- `core/structure.py` itself — kept, because it is the honest P/b/D detector
+  and the thing that disproved the rule. Not wired to any order path.
+
+**What to test if structure-based entry comes back.** The b shape — balance
+after a leg DOWN — is the only one that beat the tape here, and it is exactly
+Chakravarti's own "BUY CHEAP !" card. But n=122 over 81 independent days on
+one extraordinary momentum tape is not enough to trade either, and it
+contradicts the P premise rather than confirming it. Test it properly before
+believing it; do not swap one untested rule for its mirror image.
+
+Re-run any time: `.venv/bin/python backtest_structure.py --fetch` then
+`--sweep`, or `--ticker JOBY` for one chart bar by bar.
+
 ### 💡 OPEN — nothing trades off HHLL yet
 Raised 2026-10-09. `hhll.py` computes BOS-confirmed pivots, active
 support/resistance, `Structure`, `Last_Label` and `Bars_Since_Flip` every
