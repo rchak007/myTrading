@@ -912,15 +912,35 @@ the balance's upper edge turns out to be.
 #### The row — the SEED is the budget
 
 ```
-seed  171 JOBY 500          ← earmark it first
+seed  171 JOBY 500          ← earmark the money
 
-Ticker  Side  Close_Is      Trigger_Price  Qty       Acct
-JOBY    BUY   P_BREAKOUT    (blank)        (blank)   171
+Ticker  Side  Close_Is      Trigger_Price  Qty     Acct
+JOBY    BUY   P_BREAKOUT    (blank)        $500    171
 ```
 
-`Trigger_Price` stays blank — that is the point. And **`Qty` blank means
-"spend the reserve"**: the engine asks `available_to_buy(acct, ticker)` and
-floors to whole shares.
+`Trigger_Price` stays blank — that is the point. **`Qty` carries the dollar
+budget and is REQUIRED**, not inferred from the reserve.
+
+An earlier draft had blank meaning "spend the whole reserve". Chakravarti
+corrected it, and he is right: one reserve may serve several rows, and a row
+that does not say what it will spend forces a cross-reference to the Cash tab
+to know. Explicit also gives the validation line something to check against.
+
+**The budget may not exceed the reserve.** Checked twice, and the two checks
+catch different mistakes:
+
+| when | catches |
+|---|---|
+| every cycle, as the row sits | a budget typed larger than what was seeded — says so within minutes |
+| at fire, weeks later | a reserve that has since been spent or withdrawn |
+
+Failures are specific, never a bare refusal:
+
+```
+⛔ BUDGET_EXCEEDS_RESERVE: $500 but only $300 is reserved for JOBY in 171
+⛔ NO_RESERVE: nothing is seeded for JOBY in 171 — seed it first
+⛔ BUDGET_TOO_SMALL: $500 buys 0 whole shares at $612.40
+```
 
 **Chakravarti's idea, and better than the `$500`-in-a-cell version it
 replaced.** The budget already has a home:
