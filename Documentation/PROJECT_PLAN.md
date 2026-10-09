@@ -874,6 +874,66 @@ question better. Archiving spent Orders rows is still worth doing one day,
 purely to keep that tab short.
 </details>
 
+### 💡 OPEN — the retest step: `Close_Is` with a two-bar memory
+Raised 2026-10-09 while comparing PbD against what the engine already does.
+
+**The engine acts on the FIRST close through a level.** PbD asks for two
+events: a close outside the range, *then* a retest where the boundary holds.
+Chakravarti's own summary of where he stands: *"at least I added the trade
+after close. So 1 step better."* Correct — a wick cannot fire a
+close-triggered row, which is the part most people skip — but it is one step,
+not the whole rule.
+
+**Shape of the change:** a `Close_Is` variant — `BELOW_2` / `ABOVE_2`, or a
+separate `Confirm_Bars` column — meaning *N consecutive closes past the
+trigger*. The engine already reads the completed daily bar and already
+refuses to act intrabar, so this is a one-bar memory on `triggered()`, not
+new plumbing.
+
+**The trade-off is real and should be stated on the row:** waiting a second
+bar means a worse price when the break is genuine. It buys out of false
+breakouts and pays for it in slippage on the true ones. Worth measuring
+before defaulting anything to it.
+
+**Note what is deliberately NOT changing:** `Rec_Stop_Hard` stays a TOUCH
+stop. It is the disaster stop, where being out beats being right, and a
+two-close confirmation on a crash is how you ride it down.
+
+### 💡 OPEN — nothing trades off HHLL yet
+Raised 2026-10-09. `hhll.py` computes BOS-confirmed pivots, active
+support/resistance, `Structure`, `Last_Label` and `Bars_Since_Flip` every
+cycle, and **the only consumer is `core/recommend.py`**, which uses
+`Nearest_Support` / `Nearest_Resistance` as price anchors. No order condition
+references structure at all.
+
+**What it already gives, for free:**
+
+| | |
+|---|---|
+| BOS confirmation on a **close**, not a wick | the "and holds" discipline, already built |
+| `broken_bar` | a level that has been closed through stops being a level |
+| `Structure` | BULLISH / BEARISH / MIXED from the last two labels |
+| `Bars_Since_Flip` | how long the current structure has held |
+
+**Candidate conditions** worth considering, in rough order of how defensible
+they are:
+
+- **`BREAKS Nearest_Resistance`** — a close through an active level, which is
+  what BOS already detects. Today he has to type the number by hand and it
+  goes stale the moment the pivot moves.
+- **`Structure flips to BEARISH`** — an exit on structure breaking rather
+  than on a price he guessed.
+- **A PbD-ish `Structure_Shape` column** — `P` / `b` / `D` derived from
+  `Last_Label`, where price sits between support and resistance, and whether
+  the range is tight relative to `ATR`. Then the sheet could say *"AVGO is a
+  P, balancing 9 bars, upper boundary 312"* instead of him reading it off a
+  chart. **No new data needed** — every input is already on the signals frame.
+
+**Why this is worth more than it looks:** a level typed into the Orders tab is
+a number frozen at the moment of typing. A structure-based condition tracks
+the pivot as it moves, which is the difference between a rule and a snapshot
+of one.
+
 ### 💡 OPEN — two refinements deferred from the 2026-10-01 build
 
 **Size from the stop.** The biggest remaining gap. A stop level without a size
