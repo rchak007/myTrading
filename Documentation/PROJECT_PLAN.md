@@ -909,21 +909,41 @@ memory. This has memory: "form a P, then take off" is two events separated by
 time, and the buy level is not known when the row is typed. It is whatever
 the balance's upper edge turns out to be.
 
-#### The row
+#### The row — the SEED is the budget
 
 ```
-Ticker  Side  Close_Is      Trigger_Price  Qty     Acct
-JOBY    BUY   P_BREAKOUT    (blank)        $500    171
+seed  171 JOBY 500          ← earmark it first
+
+Ticker  Side  Close_Is      Trigger_Price  Qty       Acct
+JOBY    BUY   P_BREAKOUT    (blank)        (blank)   171
 ```
 
-`Trigger_Price` stays **blank** — that is the point. `Qty` takes either
-shares (`100`) or a **dollar budget** (`$500`), his idea and a good one: a
-budget is price-independent, so he commits to an AMOUNT rather than to a
-price he cannot know yet.
+`Trigger_Price` stays blank — that is the point. And **`Qty` blank means
+"spend the reserve"**: the engine asks `available_to_buy(acct, ticker)` and
+floors to whole shares.
 
-Dollars convert at fire time: `floor(budget / limit_price)`, **whole shares
-only**. A budget too small for one share BLOCKS rather than rounding to zero
-and looking like it worked.
+**Chakravarti's idea, and better than the `$500`-in-a-cell version it
+replaced.** The budget already has a home:
+
+- the money shows as `Seed_Reserved` instead of looking spendable
+- ONE source of truth — no dollar figure in a cell that can drift
+- the fill debits it automatically; `apply_fills` already does that
+- it wires in the reserve gate rather than adding a second budget mechanism
+  beside it
+- fenced as well, a later sale returns the proceeds to that ticker and the
+  whole LILO loop closes on one row
+
+`Qty` may still be given explicitly — shares (`100`) or a dollar budget
+(`$300`) — to spend only part of a reserve. Dollars convert at fire time:
+`floor(budget / limit_price)`, **whole shares only**. Too small for one share
+BLOCKS rather than rounding to zero and looking like it worked.
+
+**Dead reserves are accepted, not solved.** A setup that never forms ties up
+cash indefinitely, and 171 was −$6,288 on 2026-10-07 largely from reserves
+pointing at positions that did not exist. Chakravarti's call (2026-10-09):
+*"dont worry about dead reserves.. i will monitor orders tab so its ok."*
+So `Expires_On` voids the row and the seed is left for him to release. Worth
+revisiting only if the Orders tab stops being read.
 
 #### The state machine
 
@@ -963,12 +983,13 @@ it happens."* Correct and important — a setup can take weeks, and the money
 may be gone by then. Blocks rather than shrinking the order: he asked for the
 budget or nothing.
 
-**This exposes a real gap.** `available_to_buy` appears ZERO times in
-`order_engine.py` — the engine checks free cash from `cash.csv` but has never
-consulted the per-ticker reserve. For a fenced ticker the honest question is
-not "is there cash in 171" but "is there cash EARMARKED FOR JOBY in 171", and
-right now nothing asks it. That gate should be wired in regardless of whether
-this feature is built.
+**This is where the reserve gate finally gets wired in.** `available_to_buy`
+appears ZERO times in `order_engine.py` today — the engine checks free cash
+from `cash.csv` and has never consulted the per-ticker reserve. Seeding the
+budget makes that gate the mechanism rather than an extra check: the question
+becomes "is there cash earmarked for JOBY in 171", which is the honest one.
+
+Worth wiring in for ordinary rows too, independent of this feature.
 
 #### What the sheet shows while waiting
 
