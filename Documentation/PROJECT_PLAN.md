@@ -899,6 +899,103 @@ before defaulting anything to it.
 stop. It is the disaster stop, where being out beats being right, and a
 two-close confirmation on a crash is how you ride it down.
 
+### 💡 OPEN — `P_BREAKOUT`: buy the setup, not a price
+Designed with Chakravarti 2026-10-09, against JOBY. His framing: *"all i want
+to say is follow this stock and once it form PBD then buy."*
+
+**Why this does not fit the current row shape.** Every Orders row today is
+STATELESS — *is today's close below 282?* One number, one comparison, no
+memory. This has memory: "form a P, then take off" is two events separated by
+time, and the buy level is not known when the row is typed. It is whatever
+the balance's upper edge turns out to be.
+
+#### The row
+
+```
+Ticker  Side  Close_Is      Trigger_Price  Qty     Acct
+JOBY    BUY   P_BREAKOUT    (blank)        $500    171
+```
+
+`Trigger_Price` stays **blank** — that is the point. `Qty` takes either
+shares (`100`) or a **dollar budget** (`$500`), his idea and a good one: a
+budget is price-independent, so he commits to an AMOUNT rather than to a
+price he cannot know yet.
+
+Dollars convert at fire time: `floor(budget / limit_price)`, **whole shares
+only**. A budget too small for one share BLOCKS rather than rounding to zero
+and looking like it worked.
+
+#### The state machine
+
+```
+WATCHING    no balance yet
+   ↓        a strong leg, then N bars inside a tight range
+P_FORMED    boundary known, written back into the sheet
+   ↓        a CLOSE above the boundary
+TRIGGERED   submit next session
+   ↘        a close below the balance low → back to WATCHING
+```
+
+That last arrow is not optional. A P that fails has to expire, or a stale
+boundary gets carried for weeks and fires on something unrelated.
+
+#### Detection — all in ATR, so it works on JOBY at $5.75 and AVGO at $360
+
+```
+BALANCE_BARS  5     how long sideways counts as balance
+BALANCE_MAX   1.5   range over those bars, in ATR
+LEG_MIN       2.0   the move INTO the balance, in ATR
+
+balance  = (high[-5:].max() - low[-5:].min()) <= 1.5 × ATR
+leg      = close[-5] - close[-10]
+P / b / D by the sign and size of `leg`
+boundary = high[-5:].max()
+fire     = close > boundary
+```
+
+**No new API call.** `daily_close()` already fetches a MONTH of daily bars
+and discards all but the last one.
+
+#### Cash is checked when it FIRES, not when it is typed
+
+His requirement: *"you can only buy if that still exists in the account when
+it happens."* Correct and important — a setup can take weeks, and the money
+may be gone by then. Blocks rather than shrinking the order: he asked for the
+budget or nothing.
+
+**This exposes a real gap.** `available_to_buy` appears ZERO times in
+`order_engine.py` — the engine checks free cash from `cash.csv` but has never
+consulted the per-ticker reserve. For a fenced ticker the honest question is
+not "is there cash in 171" but "is there cash EARMARKED FOR JOBY in 171", and
+right now nothing asks it. That gate should be wired in regardless of whether
+this feature is built.
+
+#### What the sheet shows while waiting
+
+```
+⏳ WATCHING — no balance yet (last 5 bars span 2.3 ATR)
+⏳ P FORMED — balance 6.25–6.45 for 6 bars. Buys on a close above 6.45,
+   ~86 sh for $500
+🎯 TRIGGERED — closed 6.51 above 6.45
+```
+
+The setup becoming visible BEFORE it fires is most of the value — it lets him
+disagree with what the machine is calling a P while there is still time to.
+
+#### Open questions
+
+- **A `Max_Price` cap.** Without one, a gap up means buying at any price.
+- **The retest.** See the item above; this is where it would matter most.
+- **Shrink or block on insufficient cash?** Blocking is specified; partial
+  fill to the available budget is arguable for a dollar order.
+
+#### Cost
+
+Contained. `core/structure.py` with a pure `classify(bars, atr)` returning
+shape, boundary and state — testable on Pi 2 with no Schwab, like
+`core/recommend.py`. Then a `Close_Is` value the engine recognises and the
+state written back each cycle. Bars and write-back both already exist.
+
 ### 💡 OPEN — nothing trades off HHLL yet
 Raised 2026-10-09. `hhll.py` computes BOS-confirmed pivots, active
 support/resistance, `Structure`, `Last_Label` and `Bars_Since_Flip` every
