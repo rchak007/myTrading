@@ -38,6 +38,16 @@ def intent(side, close_is, trig, status="VALID", qty=1.0, ticker="TSLA",
                           "Qty": qty, "Row_ID": "r", "Status": status}])
 
 
+def _missing():
+    """True when a missing column raises instead of silently resolving."""
+    import orders_columns as _o
+    try:
+        _o.Columns(["Row_ID", "Ticker"])["Status"]
+        return False
+    except KeyError:
+        return True
+
+
 def slot_of(cov, mark):
     hit = [k for k, v in cov.items() if v == mark]
     return hit[0] if hit else None
@@ -248,6 +258,33 @@ check("Has_Dip N flagged on both — both have a Rec_Dip",
       cols.count(letter["Has_Dip"]) == 2, str(cols))
 check("Has_Breakout N flagged ONCE — only one has a Rec_Breakout",
       cols.count(letter["Has_Breakout"]) == 1, str(cols))
+
+print("\n── columns are found BY NAME, so a new one breaks nothing ──")
+# The letters used to be constants (COL_STATUS = "L"). Insert one column and
+# every write lands in the wrong cell — silently, because a sheet write does
+# not fail for being in the wrong place.
+import orders_columns as oco                              # noqa: E402
+TODAY = oco.HUMAN + oco.ENGINE
+WITH_AMT = oco.HUMAN[:9] + ["AMT"] + oco.HUMAN[9:] + oco.ENGINE
+now, later = oco.Columns(TODAY), oco.Columns(WITH_AMT)
+
+check("today's layout still resolves to the old hardcoded letters",
+      [now.col(n) for n in ("Status", "Status_Date", "Validation",
+                            "Engine_Note", "Last_Checked")]
+      == ["L", "M", "N", "T", "U"],
+      str([now.col(n) for n in ("Status", "Validation", "Last_Checked")]))
+check("inserting AMT shifts every engine column",
+      [later.col(n) for n in ("Status", "Status_Date", "Validation",
+                              "Engine_Note", "Last_Checked")]
+      == ["M", "N", "O", "U", "V"],
+      str([later.col(n) for n in ("Status", "Validation", "Last_Checked")]))
+check("...and AMT lands where it was inserted", later.col("AMT") == "J")
+check("a short row reads past its end without crashing",
+      now.get(["r1", "", "171", "JOBY", "BUY"], "Validation") == "")
+check("a missing column RAISES rather than guessing an offset",
+      (lambda: [False for _ in [1]][0] if False else _missing())())
+check("the letter helper survives past Z", oco.letter(26) == "AA"
+      and oco.letter(0) == "A" and oco.letter(25) == "Z")
 
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 raise SystemExit(1 if FAILED else 0)

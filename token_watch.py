@@ -421,16 +421,28 @@ def read_order_problems(log=print) -> list[dict]:
         c = Credentials.from_service_account_file(
             creds, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
         ws = gspread.authorize(c).open_by_key(sid).worksheet("Orders")
-        grid = ws.get("A9:N500")
+        grid = ws.get("A1:U500")
     except Exception as e:
         log(f"could not read the Orders tab for problems: {e}")
         return []
 
+    # BY NAME. These were r[11] and r[13] — right until a column moves, and
+    # then the alarm reads whatever now sits there.
+    import orders_columns as oco
+    try:
+        layout = oco.Columns(grid[oco.HEADER_ROW - 1])
+        if layout.missing(["Ticker", "Side", "Status", "Validation"]):
+            log("Orders header is missing columns — not scanning for problems")
+            return []
+    except Exception as e:
+        log(f"could not read the Orders header: {e}")
+        return []
+
     out = []
-    for raw in grid or []:
-        r = list(raw) + [""] * 14
-        rid, ticker, side = str(r[0]).strip(), str(r[3]).strip(), str(r[4]).strip()
-        status, valid = str(r[11]).strip(), str(r[13]).strip()
+    for raw in (grid or [])[oco.DATA_START_ROW - 1:]:
+        rid = layout.get(raw, "Row_ID")
+        ticker, side = layout.get(raw, "Ticker"), layout.get(raw, "Side")
+        status, valid = layout.get(raw, "Status"), layout.get(raw, "Validation")
         if not rid and not ticker:
             continue
         hit = (any(m in valid for m in PROBLEM_MARKS)

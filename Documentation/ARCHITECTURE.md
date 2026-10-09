@@ -75,6 +75,7 @@ that produced the file.
 | `orders_sheet_prices.py` | `Live_Price` and `Day_%` only, every 5 min. Sheet-only: no files, no git |
 | `remote_ops.py` | the ops-sheet poller. Allowlisted verbs, top-scan row model |
 | `gsheet_notes.py` | reads notes from a sheet; degrades silently if gspread is absent |
+| `orders_columns.py` | **where each Orders column actually is**, read from the header row. Nothing hardcodes a letter any more |
 | `trade_history.py` | the History tab: every EXECUTED trade, newest first, attributed PI / MANUAL / `?` by matching the fill's order id against the engine's ledger |
 | `chitra.py` | Chitra's account. Her tab is the whole management surface — positions, Merrill orders, and HUMAN-TYPED conditions that go green when the close crosses them. Fixed row layout; each section clears only its own range, never `ws.clear()`. Also the lavender `CHITRA` row on his Dashboard, which cannot reach his totals |
 
@@ -189,6 +190,18 @@ aggregate; a roll-up would assert something about accounts it cannot see.
 
 **The sheet is a mailbox, not a database.** Pi 1's local files are the truth.
 Pi 1 writes *to* the sheet and never reads its own writes back as fact.
+
+**Orders-tab columns are found by NAME, never by position.** The letters used
+to be constants — `COL_STATUS = "L"`, `COL_VALIDATION = "N"` — in one file,
+with matching integer indices in two others and the column list written out in
+three. Insert one column and every one of them points at the wrong cell, and
+the engine writes `Status` into what is now `Notes`. **Silently**: a sheet
+write does not fail for landing in the wrong place.
+
+`orders_columns.read(ws)` reads row 8 and resolves names to letters. A missing
+column raises rather than guessing an offset, and a write is one cell per
+entry rather than a span, because `L{r}:M{r}` with two values assumes
+adjacency that an inserted column destroys.
 
 **Regenerated tabs paint absolutely.** `ws.clear()` removes values but **not
 formatting**, so `_paint()` resets the range before colouring. Stale yellow once

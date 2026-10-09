@@ -31,6 +31,8 @@ EXPECTED = {
                         "close_time", "easter", "describe"],
     "trade_history": ["read", "record", "write_tab", "newest_first",
                       "ledger_order_ids", "COLS"],
+    "orders_columns": ["Columns", "read", "letter", "HUMAN", "ENGINE", "ALL",
+                       "HEADER_ROW", "DATA_START_ROW"],
     "chitra": ["load", "load_orders", "load_reserves", "cash_position", "meta", "write_tab", "dashboard_row",
                "read_conditions", "evaluate", "coverage", "build_positions",
                "build_orders", "build_condition_status",

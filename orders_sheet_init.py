@@ -60,7 +60,9 @@ ORDERS_ENGINE = [
 ]
 # No trailing Comments column — Notes (K) sits with the intent, where a
 # note about a row is actually readable beside it.
-ORDERS_COLS = ORDERS_HUMAN + ORDERS_ENGINE
+# One source of truth, shared with everything that reads the tab.
+import orders_columns as _oco
+ORDERS_COLS = _oco.ALL
 
 # Must stay in step with orders_sheet.POSITIONS_COLS — this file creates the
 # header, that one writes the rows beneath it.

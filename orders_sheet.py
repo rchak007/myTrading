@@ -565,12 +565,10 @@ def _extract_price(entry):
         return None, None
 
 
-# Orders tab: header block 1-6, banner 7, column headers 8, data from 9.
-ORDERS_DATA_START = 9
-INTENT_COLS = ["Row_ID", "Date", "Acct", "Ticker", "Side", "Close_Is",
-               "Trigger_Price", "Limit_Price", "Qty", "Expires_On", "Notes"]
-# Engine columns start here; a row whose Status is terminal is history.
-INTENT_STATUS_IDX = len(INTENT_COLS)
+import orders_columns as oco                            # noqa: E402
+
+ORDERS_DATA_START = oco.DATA_START_ROW
+INTENT_COLS = oco.HUMAN
 
 
 def read_intents(book, log=print) -> pd.DataFrame:
@@ -606,15 +604,30 @@ def read_intents(book, log=print) -> pd.DataFrame:
     # on 2026-09-29 and no longer exists.
     dead = {"FILLED", "CANCELLED", "EXPIRED", "VOID", "REJECTED", "BLOCKED",
             "SUBMITTED"}
+    # BY NAME, not by position. `Status` used to be read as cells[11] —
+    # correct until a column is inserted, and then it reads Notes and every
+    # spent row counts as live protection.
+    try:
+        layout = oco.Columns(values[oco.HEADER_ROW - 1]
+                             if len(values) >= oco.HEADER_ROW else [])
+        gone = layout.missing(["Ticker", "Side", "Status"])
+        if gone:
+            log(f"⚠️  Orders header is missing {', '.join(gone)} — sheet "
+                f"intents ignored rather than guessed at")
+            return pd.DataFrame(columns=cols)
+    except Exception as e:
+        log(f"⚠️  could not read the Orders header ({e}) — intents ignored")
+        return pd.DataFrame(columns=cols)
+
     rows = []
     for i, raw in enumerate(values, start=1):
         if i < ORDERS_DATA_START:
             continue
-        cells = list(raw) + [""] * (INTENT_STATUS_IDX + 2)
-        rec = {c: str(cells[j]).strip() for j, c in enumerate(INTENT_COLS)}
-        if not rec["Ticker"] or not rec["Side"]:
+        rec = {c: layout.get(raw, c) for c in INTENT_COLS if c in layout}
+        if not rec.get("Ticker") or not rec.get("Side"):
             continue
-        if str(cells[INTENT_STATUS_IDX]).strip().upper() in dead:
+        status = layout.get(raw, "Status").upper()
+        if status in dead:
             continue
         trig = _num(rec["Trigger_Price"])
         if not trig:
@@ -630,7 +643,7 @@ def read_intents(book, log=print) -> pd.DataFrame:
                      "Trigger_Price": trig,
                      "Qty": _num(rec["Qty"]),
                      "Row_ID": rec["Row_ID"],
-                     "Status": str(cells[INTENT_STATUS_IDX]).strip().upper()})
+                     "Status": status})
 
     df = pd.DataFrame(rows, columns=cols)
     if not df.empty:

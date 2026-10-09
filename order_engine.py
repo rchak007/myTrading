@@ -71,19 +71,16 @@ if str(HERE) not in sys.path:
 import order_intent as oc                            # noqa: E402
 import order_exec_config as cfg                         # noqa: E402
 
-DATA_START_ROW = 9          # Orders tab: header block 1-6, banner 7, cols 8
+import orders_columns as oco                            # noqa: E402
 
-# Engine-owned cells, by letter. Named rather than inlined: the columns shifted
-# named rather than inlined because a write-back aimed at the wrong column
-# silently overwrites a different field.
-COL_STATUS = "L"
-COL_STATUS_DATE = "M"
-COL_VALIDATION = "N"
-COL_ENGINE_NOTE = "T"
-COL_LAST_CHECKED = "U"
-SHEET_COLS = ["Row_ID", "Date", "Acct", "Ticker", "Side", "Close_Is",
-              "Trigger_Price", "Limit_Price", "Qty", "Expires_On", "Notes"]
-COL_ROW_ID = "A"
+DATA_START_ROW = oco.DATA_START_ROW
+
+# NO HARDCODED LETTERS. These were constants — COL_STATUS = "L" and so on —
+# which meant inserting one column anywhere sent every write to the wrong
+# cell, silently, because a sheet write does not fail for landing in the
+# wrong place. The layout is now READ from the header row each run, so adding
+# a column costs nothing.
+SHEET_COLS = oco.HUMAN
 
 LEDGER_COLS = ["ts", "row_id", "fingerprint", "state", "note", "acct", "ticker",
                "side", "close_is", "qty", "trigger_price", "limit_price",
@@ -935,6 +932,7 @@ def main() -> int:
 
     try:
         ws = open_orders_tab()
+        cols = oco.read(ws, log=_log)
         rows = read_rows(ws)
     except Exception as e:
         _log(f"⛔ cannot read the Orders tab: {type(e).__name__}: {e}")
@@ -947,7 +945,7 @@ def main() -> int:
         # on Row_ID, so a row without one in the sheet would be re-stamped and
         # re-evaluated as if it were new on the next cycle.
         try:
-            ws.batch_update([{"range": f"{COL_ROW_ID}{r['_sheet_row']}",
+            ws.batch_update([{"range": f"{cols.col('Row_ID')}{r['_sheet_row']}",
                               "values": [[r["Row_ID"]]]} for r in fresh],
                             value_input_option="RAW")
             _log(f"stamped {len(fresh)} new row(s) with a Row_ID")
@@ -1254,15 +1252,20 @@ def main() -> int:
                 _log(f"⚠️  {u['row_id']} vanished from the sheet mid-cycle; "
                      f"ledger is still correct")
                 continue
+            # ONE CELL PER ENTRY, never a span. "L{r}:M{r}" with two values
+            # assumes Status and Status_Date are adjacent — true today, and
+            # false the moment a column is inserted between them, at which
+            # point the range is three cells wide and the values land
+            # wherever they land.
+            cell = lambda name, val: payload.append(
+                {"range": f"{cols.col(name)}{r}", "values": [[val]]})
             if "validation" in u:
-                payload.append({"range": f"{COL_VALIDATION}{r}",
-                                "values": [[u["validation"][:400]]]})
+                cell("Validation", u["validation"][:400])
             if "state" in u:
-                payload.append({"range": f"{COL_STATUS}{r}:{COL_STATUS_DATE}{r}",
-                                "values": [[u["state"], stamp]]})
-                payload.append({"range": f"{COL_ENGINE_NOTE}{r}:{COL_LAST_CHECKED}{r}",
-                                "values": [[u["note"][:400], stamp]]})
-            payload.append({"range": f"{COL_LAST_CHECKED}{r}", "values": [[stamp]]})
+                cell("Status", u["state"])
+                cell("Status_Date", stamp)
+                cell("Engine_Note", u["note"][:400])
+            cell("Last_Checked", stamp)
         if payload:
             ws.batch_update(payload, value_input_option="RAW")
     except Exception as e:

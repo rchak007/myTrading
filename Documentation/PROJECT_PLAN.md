@@ -899,6 +899,30 @@ before defaulting anything to it.
 stop. It is the disaster stop, where being out beats being right, and a
 two-close confirmation on a crash is how you ride it down.
 
+### ✅ RESOLVED 2026-10-09 — the Orders tab can take a new column safely
+Prompted by wanting an `AMT` column for `P_BREAKOUT`: *"lets add a AMT column
+man and not use Qty like that.. i am sure pi1 can add a column or should i?"*
+
+Neither, yet — the answer was that **nothing could add a column safely**. Six
+hardcoded letters in `order_engine.py`, integer indices in `orders_sheet.py`
+and `token_watch.py`, and the column list written out in three files. Insert
+one column and every one points at the wrong cell, silently, because a sheet
+write does not fail for landing in the wrong place.
+
+`orders_columns.py` now reads the header row and resolves names to letters.
+Verified identical on today's layout (L/M/N/T/U, unchanged) and correct on a
+simulated insert (M/N/O/U/V). Two smaller fixes fell out of it:
+
+- **One cell per write, never a span.** `L{r}:M{r}` with two values assumes
+  `Status` and `Status_Date` are adjacent — true today, false the moment
+  something is inserted between them.
+- **Fails closed.** A header missing a needed column raises rather than
+  guessing an offset. Guessing is how a verdict ends up in somebody's Notes.
+
+`AMT` itself still waits for the feature — an empty column nothing reads is
+just something to wonder about later. Adding it is now: insert it in the
+sheet, add one name to `orders_columns.HUMAN`.
+
 ### 💡 OPEN — `P_BREAKOUT`: buy the setup, not a price
 Designed with Chakravarti 2026-10-09, against JOBY. His framing: *"all i want
 to say is follow this stock and once it form PBD then buy."*
