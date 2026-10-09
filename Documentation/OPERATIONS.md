@@ -35,8 +35,8 @@ All times Pacific. `flock` prevents two jobs writing the same files at once.
 | When | Job | Does |
 |---|---|---|
 | `08:30`, `18:30` | `token_watch.py --from-sheet` | Schwab token expiry + Pi 1 liveness |
-| `09:15` | `reminders.py` | nags about anything outstanding in `reminders.csv`, with `reminder_notes/` images inline at the end |
-| `09:30`, `11:00`, `12:30` Mon–Fri | `reminders.py --channel options` | the OPTIONS list, **only while the market is actually open** |
+| `09:15` | `reminders.py` | nags about anything outstanding in `reminders.csv` |
+| `09:30`, `11:00`, `12:30` Mon–Fri | `reminders.py --channel options` | **OPTIONS / PRINCIPLES** — only while the market is actually open. The first send of each trading day carries the `reminder_notes/` cards |
 
 **Not yet scheduled:** `health_check.py` (see §5).
 

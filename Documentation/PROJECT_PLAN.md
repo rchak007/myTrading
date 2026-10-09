@@ -1005,9 +1005,11 @@ Otherwise items added on different days drift onto separate schedules and
 arrive as separate mails — which is how a reminder becomes noise you learn to
 ignore.
 
-### 📎 INFO NOTES — `reminder_notes/`
-Every image in `reminder_notes/` is shown **inline at the end of every
-reminder email**. Added 2026-09-30 at Chakravarti's request: *"I'm going to
+### 📎 PRINCIPLES — `reminder_notes/`
+Every image in `reminder_notes/` is shown **inline at the end of the first
+OPTIONS email of each trading day** (moved there 2026-10-09 — the open-items
+email goes quiet the moment everything is struck out, and principles you only
+see while you happen to owe a task are principles you stop seeing). Added 2026-09-30 at Chakravarti's request: *"I'm going to
 look at it once in a while just as a more like a info notes."*
 
 These are **not to-dos** and are never struck out. They are the things worth

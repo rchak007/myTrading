@@ -92,20 +92,26 @@ CHANNELS = {
         "what": "still to look at",
         "subject": "{emoji} {n} thing{s} still to look at",
         "subject1": "{emoji} Still to look at: {first}",
+        # The cards moved to the OPTIONS channel: this one goes quiet the
+        # moment everything is struck out, and principles you only see while
+        # you happen to owe a task are principles you stop seeing.
         "intro": ["These are outstanding in reminders.csv. They will keep arriving",
                   "until struck out."],
-        "images": True,
+        "images": False,
         "market_hours": False,
     },
     "options": {
         "file": "options_reminders.csv",
         "emoji": "\U0001F3AF",
-        "what": "OPTIONS",
-        "subject": "{emoji} OPTIONS \u2014 {n} to act on while the market is open",
-        "subject1": "{emoji} OPTIONS \u2014 {first}",
+        "what": "OPTIONS / PRINCIPLES",
+        "subject": "{emoji} OPTIONS / PRINCIPLES \u2014 {n} to act on while the market is open",
+        "subject1": "{emoji} OPTIONS / PRINCIPLES \u2014 {first}",
         "intro": ["Sent at 09:30, 11:00 and 12:30 PT on trading days only.",
                   "These are the moves that need the market open to make."],
-        "images": False,
+        # "first" = the FIRST send of each trading day only. Three a day with
+        # 1.3 MB of cards attached is a mailbox problem, and the principles
+        # are for planning at the open, not for the 12:30 nudge.
+        "images": "first",
         "market_hours": True,
     },
 }
@@ -264,7 +270,8 @@ def compose(rows: list[dict]) -> tuple[str, str]:
              "  ids: " + ", ".join(r["id"] for r in rows),
              ""]
     if CHANNEL["images"] and notes_images():
-        body += ["INFO NOTES below — not to-dos. They stay in every email.", ""]
+        body += ["PRINCIPLES below — not to-dos. They are here to be re-read.",
+                 ""]
     body.append(f"— reminders.py ({CHANNEL_NAME}) on Pi 2")
     return subject, "\n".join(body)
 
@@ -346,13 +353,19 @@ def main() -> int:
             print(f"⚠️  market calendar unavailable ({e}) — sending anyway")
 
     subject, body = compose(pending)
-    pics = notes_images() if CHANNEL["images"] else []
+    mode = CHANNEL["images"]
+    first_today = not any(days_since(r.get("last_sent", "")) == 0
+                          for r in outstanding)
+    pics = (notes_images()
+            if mode is True or (mode == "first" and first_today) else [])
     if args.dry_run:
         print(f"Subject: {subject}\n\n{body}")
         for p in pics:
             print(f"[inline image: {p.name}, {p.stat().st_size/1024:.0f} KB]")
         if CHANNEL["images"] and not pics:
-            print(f"[no info-note images in {NOTES_DIR}]")
+            print(f"[cards held back — not the first send today]"
+                  if CHANNEL["images"] == "first"
+                  else f"[no info-note images in {NOTES_DIR}]")
         return 0
 
     from token_watch import send            # one mailer, one set of gotchas

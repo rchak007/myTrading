@@ -128,6 +128,25 @@ check("...and the email says so, not 'every 2 day(s)'",
       "every Sunday, then DAILY until you send it" in R.compose([screenshot])[1],
       R.compose([screenshot])[1].split("\n")[3])
 
+print("\n── the principle cards ride on OPTIONS, once a day ──")
+# Moved off the open-items email, which goes quiet the moment everything is
+# struck out — principles you only see while you happen to owe a task are
+# principles you stop seeing. But three a day with 1.3 MB attached is a
+# mailbox problem, so only the first send of each trading day carries them.
+check("open-items no longer carries cards",
+      R.CHANNELS["open-items"]["images"] is False)
+check("options carries them on the FIRST send only",
+      R.CHANNELS["options"]["images"] == "first")
+check("the options subject says OPTIONS / PRINCIPLES",
+      "OPTIONS / PRINCIPLES" in R.CHANNELS["options"]["subject"]
+      and "OPTIONS / PRINCIPLES" in R.CHANNELS["options"]["subject1"])
+R.use_channel("options")
+check("there are cards to send", len(R.notes_images()) == 4,
+      str([p.name for p in R.notes_images()]))
+check("...and they are ordered by their numeric prefix",
+      [p.name[:2] for p in R.notes_images()] == ["01", "02", "03", "04"])
+R.use_channel("open-items")
+
 print("\n── Pi-1 poll staleness is measured against the SCHEDULE ──")
 # THE FALSE ALARM, 2026-10-03. A flat "3 hours" threshold emailed
 # "🔴 Pi 1 has not polled in 16h" at 08:30 on a SATURDAY. Friday's last slot
