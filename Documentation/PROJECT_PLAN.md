@@ -1018,12 +1018,19 @@ re-reading periodically rather than doing once:
 | `01-ia-house-rules.png` | IA house rules — Always Rotate (trim into strength) · Always Hedge (defined-risk overlays) · Sell Premium (fund the next addition) · No Round-Trips (bank life-changing gains) |
 | `02-ia-process.png` | The IA process — 1 Build Core (accumulate mattress assets) · 2 Apply LILO (enlarge bag via trims) · 3 Turbocharge (deploy options machine) · 4 Protect (risk hedge) |
 | `03-pbd-structure.png` | P / b / D market structure (Tom Vorwald, via Patrick Nill) — strong move → balance → next opportunity — plus the breakout rule and the "and holds" caveat |
+| `04-buy-cheap.png` | **BUY CHEAP !** — wait for `Rec_Dip`. Carries the MU 2026 numbers, because this is the one discipline his own record says he breaks |
 
-**The third card is OURS, so it is generated from code.** The first two are
-screenshots of someone else's slides and can only be replaced. `03` comes
-from `reminder_notes/make_pbd_card.py` — edit a line, re-run it, commit the
-new PNG. The shapes are drawn rather than described, because the whole point
-of the method is the shape.
+**Cards 03 and 04 are OURS, so they are generated from code.** The first two
+are screenshots of someone else's slides and can only be replaced. These come
+from `reminder_notes/make_cards.py` — edit a line, re-run it, commit the new
+PNG.
+
+On `03`, the shapes are drawn rather than described, because the whole point
+of the method is the shape. On `04`, the MU numbers are on the card
+deliberately: a tile that only said "buy cheap" would be a slogan, and the
+reason it is there is that trimming at $379 and buying back at $1,038 cost
+$3,487 in a year the stock went 3.1x. The level was on the sheet the whole
+time.
 
 **The numeric prefix is the running order.** Filenames are sorted, so without
 one the sequence is alphabetical accident — `ia-house-rules` happened to land

@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-make_pbd_card.py
-================
-Regenerates 03-pbd-structure.png — the P / b / D market-structure card that
-rides at the end of every reminder email.
+make_cards.py
+=============
+Regenerates the info-note cards WE own, which ride at the end of every
+reminder email:
 
-    .venv/bin/python reminder_notes/make_pbd_card.py
+    03-pbd-structure.png   P / b / D market structure + the breakout rule
+    04-buy-cheap.png       the one discipline his own data says he breaks
+
+    .venv/bin/python reminder_notes/make_cards.py
 
 KEPT AS A SCRIPT, NOT JUST A PNG. The other two cards are screenshots of
 someone else's slides and cannot be edited. This one is ours, so the source
@@ -20,7 +23,9 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-OUT = Path(__file__).resolve().parent / "03-pbd-structure.png"
+HERE = Path(__file__).resolve().parent
+OUT = HERE / "03-pbd-structure.png"
+OUT_CHEAP = HERE / "04-buy-cheap.png"
 W, H = 1600, 1120
 
 BG = (13, 13, 16)
@@ -112,6 +117,38 @@ def main() -> Path:
     return OUT
 
 
+def buy_cheap() -> Path:
+    """A deliberately small tile. One instruction, one reason.
+
+    It earns its place because it is the discipline his OWN record says he
+    breaks: MU 2026 was trimmed at $379 and bought back at $444, $483, $990
+    and $1,038 — in a year the stock went 3.1x, the churn still cost $3,487
+    against simply holding. The level was always on the sheet.
+    """
+    w, h = 1600, 430
+    img = Image.new("RGB", (w, h), BG)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, 14, h], fill=GREEN)
+
+    d.text((78, 104), "BUY CHEAP !", font=font(96, True), fill=GREEN, anchor="lm")
+    d.text((78, 186), "Wait for Rec_Dip. The level is already on the sheet.",
+           font=font(36), fill=WHITE, anchor="lm")
+
+    d.line([(78, 244), (w - 78, 244)], fill=LINE, width=2)
+    d.text((78, 292),
+           "Chasing the re-entry is what costs you — not the trim.",
+           font=font(30, True), fill=(250, 204, 21), anchor="lm")
+    d.text((78, 344),
+           "MU 2026: trimmed at $379, bought back at $444 · $483 · $990 · $1,038.",
+           font=font(27), fill=MUTED, anchor="lm")
+    d.text((78, 386),
+           "The stock went 3.1x that year and the churn still cost $3,487.",
+           font=font(27), fill=MUTED, anchor="lm")
+
+    img.save(OUT_CHEAP, optimize=True)
+    return OUT_CHEAP
+
+
 if __name__ == "__main__":
-    p = main()
-    print(f"wrote {p}  ({p.stat().st_size/1024:.0f} KB)")
+    for p in (main(), buy_cheap()):
+        print(f"wrote {p.name:<24} ({p.stat().st_size/1024:.0f} KB)")
