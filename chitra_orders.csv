@@ -9,7 +9,24 @@
 # account the difference matters: her coverage flags are only honest if this
 # is current. (2026-10-02 read "No orders found" — a fact worth recording.)
 #
-#   As_Of     2026-10-06
+#   As_Of     2026-10-10 00:05 ET
+#
+# That screenshot showed 7 rows under "Viewing current orders"; 6 were Open
+# and are below. The 7th was cancelled — see the next block.
+#
+# DATES HERE ARE EASTERN, because Merrill's page is. The top two rows read
+# 10/10 12:0x AM ET, which is the evening of 10/09 Pacific — not a future
+# date, just a timezone. Worth knowing before "correcting" it.
+#
+# ── ONLY "Open" ORDERS BELONG BELOW ────────────────────────────────────────
+# NOT CARRIED OVER from the 2026-10-10 screenshot:
+#
+#   MSFT  SELL  Trailing stop quote, trail $12.00, 1 sh
+#         entered 10/09 11:49 PM ET — status CANCELED
+#
+# It is excluded because it is not resting, and this file means "resting".
+# But it is the only stop-type order her account has ever had, so losing it
+# matters: see the coverage note at the bottom.
 #
 # COLUMNS — match the ORDERS block on his Dashboard so both read alike
 #   Ticker        symbol
@@ -27,6 +44,26 @@
 # the same rule orders_sheet.py uses for his resting Schwab orders, because an
 # order carries no direction field and which side of price it sits on is the
 # only information there is.
+#
+# ── COVERAGE AS OF THIS SCREENSHOT: NO STOPS AT ALL ────────────────────────
+# Every SELL below is ABOVE the market, so every one is a trim. With the MSFT
+# trailing stop cancelled, NOT ONE position in the account has downside
+# protection, and the trims cover only a fraction of each holding:
+#
+#   held        trim           covers        stop
+#   MU     3    1 @ 1,171      1 of 3        none
+#   MRVL   9    3 @   323      3 of 9        none
+#   TSLA   4    1 @   412      1 of 4        none   (+ a 1 sh dip bid @ 360)
+#   MSFT   2    1 @   550      1 of 2        none   ← trailing stop cancelled
+#   GOOG   2    1 @   380      1 of 2        none
+#   IBIT  20    —              0 of 20       none   ← no orders at all
+#
+# Last prices on the screenshot: MSFT 535.07 · GOOG 347.86 · MRVL 275.28 ·
+# MU 1,029.00 · TSLA 382.70.
 Ticker,Side,Type,Qty,Limit_Price,Stop_Price,Duration,Entered,Order_ID,Note
-TSLA,SELL,LIMIT,1,412.00,,GTC,2026-10-06,,Exp 2027-04-02 · trim — above the market
-TSLA,BUY,LIMIT,1,360.00,,GTC,2026-10-06,,Exp 2027-04-02 · dip bid — $360 of the sweep committed
+MSFT,SELL,LIMIT,1,550.00,,GTC,2026-10-10,,Exp 2027-04-09 · trim — above the market (last 535.07)
+GOOG,SELL,LIMIT,1,380.00,,GTC,2026-10-10,,Exp 2027-04-09 · trim — above the market (last 347.86)
+MRVL,SELL,LIMIT,3,323.00,,GTC,2026-10-09,,Exp 2027-04-09 · trim — 3 of 9 held (last 275.28)
+MU,SELL,LIMIT,1,1171.00,,GTC,2026-10-07,,Exp 2027-04-06 · trim — 1 of 3 held (last 1029.00)
+TSLA,BUY,LIMIT,1,360.00,,GTC,2026-10-06,,Exp 2027-04-02 · dip bid — below the market (last 382.70)
+TSLA,SELL,LIMIT,1,412.00,,GTC,2026-10-06,,Exp 2027-04-02 · trim — 1 of 4 held (last 382.70)
