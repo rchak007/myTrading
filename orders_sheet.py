@@ -90,7 +90,8 @@ def _trading_state() -> str:
         return "⛔ DISABLED (kill switch file present)"
     if os.getenv("ORDER_ENGINE_LIVE", "0") == "1":
         return ("🔴 LIVE — close-triggered rows WILL be placed at Schwab "
-                "(GTC LIMIT, submitted the session after the trigger)")
+                "(GTC LIMIT + extended hours, submitted the session after "
+                "the trigger)")
     return ("DRY RUN — rows are validated and previewed, nothing is placed. "
             "Set ORDER_ENGINE_LIVE=1 in .env to arm.")
 

@@ -473,6 +473,40 @@ yet bind (see §2) would put money behind a number that is known to be wrong.
 A daemon that must stay alive to protect a position is a liability, which is
 why §7 of the sheet design requires `SELL-STOPLOSS` to always rest at Schwab.
 
+### ✅ RESOLVED 2026-10-09 — every order slept until the next morning
+Chakravarti, from the Schwab order ticket: *"When you submit this order you
+are doing GTC but i need you to do GTC + Extended hrs. this is why order stays
+unexecuted till next day in that case."* Correct, and it had been wrong since
+the engine went live.
+
+`build_order_json` sent `session: "NORMAL"` — regular hours only. But the
+engine triggers on a **completed daily close**, so submission always lands
+after 16:00 ET. Every close-triggered order therefore sat inert until the next
+open. The EOSE sell (`2026-10-09-EOSE-01`, 700 @ 2.65) submitted at 13:3x PDT
+and did nothing overnight.
+
+**The damage is the specific thing a close-triggered stop exists to prevent.**
+Close-confirmation buys wick immunity by accepting gap risk; sleeping through
+the extended session means you take the gap AND give up the hours in which you
+could have got out ahead of it.
+
+Now `cfg.ORDER_SESSION = "SEAMLESS"` (pre-market + regular + after-hours).
+
+My original reasoning in the docstring — *"no reason to reach into pre-market
+where spreads are worst"* — was wrong about the risk. A wide spread only costs
+you if you cross it, and **every order this engine places is a LIMIT**. A limit
+fills at the price asked or not at all, so the cost of a thin book is "no
+fill" — exactly the state NORMAL guaranteed anyway. The LIMIT-only rule also
+makes SEAMLESS legal: Schwab rejects market orders in extended hours.
+
+Typical of what goes wrong here: nothing errored, and the row read SUBMITTED
+because it *was* submitted. It just could not fill. `test_order_json.py` now
+pins the session, the duration, and the LIMIT-only rule that permits it.
+
+⚠️ **Orders already resting at Schwab are unaffected** — the session is fixed
+at placement. Anything placed before this change is still NORMAL-only until
+cancelled and re-placed.
+
 ### ✅ RESOLVED 2026-09-29 — conflict detection (`7940822`)
 Built, though not as originally framed. Rather than warning about duplicates,
 the engine now **cancels a resting sell that would starve a triggered exit**:

@@ -623,9 +623,11 @@ def build_order_json(n: dict, limit_price: float | None = None) -> dict:
                          the live book — see resolve_limit().
 
         orderType        LIMIT, always
-        session          NORMAL (regular hours; a close trigger submits the
-                         next session, so there is no reason to reach into
-                         pre-market where spreads are worst)
+        session          cfg.ORDER_SESSION — SEAMLESS, so the order works
+                         pre-market and after-hours too. A close trigger
+                         submits AFTER 16:00 ET, and under NORMAL it would
+                         sleep until the next morning and eat the overnight
+                         gap the stop existed to avoid. See the config note.
         duration         GOOD_TILL_CANCEL
         instruction      BUY | SELL
 
@@ -650,7 +652,7 @@ def build_order_json(n: dict, limit_price: float | None = None) -> dict:
 
     return {
         "orderStrategyType": "SINGLE",
-        "session": "NORMAL",
+        "session": cfg.ORDER_SESSION,
         "duration": "GOOD_TILL_CANCEL",
         "orderType": "LIMIT",
         "price": f"{px:.2f}",
@@ -1167,7 +1169,8 @@ def main() -> int:
             ok, pnote = preview(client, n, log=_log)
             finish("TRIGGERED" if ok else "BLOCKED",
                    f"DRY RUN at close {close:.2f} — would place GTC LIMIT "
-                   f"{px if px else '??'} ({why}). {pnote}. "
+                   f"{px if px else '??'} ({cfg.ORDER_SESSION}) ({why}). "
+                   f"{pnote}. "
                    f"Set ORDER_ENGINE_LIVE=1 to place for real.",
                    trigger_close=f"{close:.2f}", limit_price=px or "",
                    idem_key=idem)
@@ -1230,7 +1233,7 @@ def main() -> int:
             finish("BLOCKED", snote, trigger_close=f"{close:.2f}", idem_key=idem,
                    submit_cleared="1" if certain_not_placed else "")
             if certain_not_placed:
-                _log(f"   nothing reached Schwab — this row can trigger again")
+                _log("   nothing reached Schwab — this row can trigger again")
 
     # Mirror state back into the engine columns. Best effort: the ledger is the
     # record, the sheet is a view of it.

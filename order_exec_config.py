@@ -84,6 +84,32 @@ MAX_EXPIRY_DAYS = int(os.getenv("MAX_EXPIRY_DAYS", "180"))
 ALLOW_MARKET_ORDERS = False
 WARN_MARKET_BUY = False
 
+# Which trading sessions an order is allowed to work in. Schwab's enum:
+#
+#   NORMAL     regular hours only (9:30-16:00 ET)
+#   AM / PM    pre-market only / after-hours only
+#   SEAMLESS   pre-market + regular + after-hours  ← the UI's "+ extended hours"
+#
+# SEAMLESS since 2026-10-09, Chakravarti's call, and he is right. The engine
+# triggers on a DAILY CLOSE, so submission almost always lands after 16:00 ET.
+# Under NORMAL that order does nothing until the next morning — the EOSE sell
+# on 2026-10-09 submitted at 13:3x PDT and sat there overnight, which is
+# exactly the move the stop was supposed to get ahead of. An overnight gap
+# down is the specific risk a close-triggered stop exists to avoid, and NORMAL
+# guarantees you eat it.
+#
+# The earlier reasoning — "no reason to reach into pre-market where spreads are
+# worst" — was wrong about the risk. Wide spreads only cost you if you cross
+# them, and EVERY order this engine places is a LIMIT (see ALLOW_MARKET_ORDERS
+# above). A limit does not pay the spread; it fills at the price asked or not
+# at all. The cost of a thin book is therefore "no fill", which is precisely
+# the state NORMAL leaves you in anyway.
+#
+# This also happens to be required rather than optional: Schwab does not
+# accept market orders in extended hours. Since nothing here is a market
+# order, the constraint costs nothing.
+ORDER_SESSION = os.getenv("ORDER_SESSION", "SEAMLESS")
+
 # How far THROUGH the quote a derived limit is placed: buy above the ask, sell
 # below the bid. Enough that a tick of movement between building the order and
 # Schwab receiving it does not leave it resting, small enough to be noise on
