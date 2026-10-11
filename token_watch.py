@@ -149,6 +149,27 @@ MAIL_ENV_CANDIDATES = [
 ]
 SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587
 
+# Every subject this project sends starts with this. Chakravarti's call
+# 2026-10-10: *"for any and all email you send always in title prepend - from
+# myTradingPi - so that i know its from this project"*.
+#
+# It goes HERE, in send(), rather than at each call site, because "any and
+# all" has to include the next caller somebody writes — a convention that
+# depends on being remembered is one that gets dropped. The From name already
+# said "myTrading on Pi 1", but a phone's inbox list shows the subject and
+# truncates the sender, which is exactly when you need to know what sent it.
+SUBJECT_PREFIX = os.getenv("MAIL_SUBJECT_PREFIX", "[from myTradingPi]")
+
+
+def with_prefix(subject: str) -> str:
+    """The subject as it will actually be sent.
+
+    Idempotent: a subject that already carries the tag is left alone, so a
+    caller that adds it by hand does not produce it twice.
+    """
+    s = str(subject or "").strip()
+    return s if s.startswith(SUBJECT_PREFIX) else f"{SUBJECT_PREFIX} {s}".strip()
+
 
 def mail_env_path() -> Path | None:
     """First candidate that exists AND actually carries the credentials.
@@ -297,7 +318,7 @@ def send(subject: str, body: str, log=print, images=None) -> bool:
             if i:
                 time.sleep(2)          # pacing: a burst scores on Gmail's abuse heuristics
             msg = EmailMessage()
-            msg["Subject"] = subject
+            msg["Subject"] = with_prefix(subject)
             msg["From"] = formataddr(("myTrading on Pi 1", address))
             msg["To"] = addr
             msg.set_content(body)
@@ -615,7 +636,7 @@ def main() -> int:
 
     if args.dry_run:
         print("\n--- DRY RUN, nothing sent ---")
-        print(f"Subject: {subject}\n")
+        print(f"Subject: {with_prefix(subject)}\n")
         print(body)
         return 0
 

@@ -20,6 +20,7 @@ EXPECTED = {
                       "marketable_limit"],
     "remote_ops": ["run_verb", "run_pyverb", "safe_arg", "write_back"],
     "token_watch": ["send", "load_mail_env", "read_from_sheet", "compose",
+                    "with_prefix", "SUBJECT_PREFIX",
                     "mail_env_path", "recently_sent", "mark_sent",
                     "poll_is_stale", "expected_last_poll",
                     "read_order_problems", "PROBLEM_MARKS",

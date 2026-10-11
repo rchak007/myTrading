@@ -262,7 +262,7 @@ def compose(rows: list[dict]) -> tuple[str, str]:
                     + cadence)
         body.append("")
     body += ["TO STOP ONE",
-             f"  On Pi 2:  .venv/bin/python reminders.py"
+             "  On Pi 2:  .venv/bin/python reminders.py"
              + ("" if CHANNEL_NAME == "open-items" else f" --channel {CHANNEL_NAME}")
              + "  --done <id>",
              f"  Or put anything in the `done` column of {FILE.name}.",
@@ -359,11 +359,14 @@ def main() -> int:
     pics = (notes_images()
             if mode is True or (mode == "first" and first_today) else [])
     if args.dry_run:
-        print(f"Subject: {subject}\n\n{body}")
+        # Through the mailer's prefixer, so a dry run shows the subject that
+        # would actually arrive rather than the one compose() built.
+        from token_watch import with_prefix
+        print(f"Subject: {with_prefix(subject)}\n\n{body}")
         for p in pics:
             print(f"[inline image: {p.name}, {p.stat().st_size/1024:.0f} KB]")
         if CHANNEL["images"] and not pics:
-            print(f"[cards held back — not the first send today]"
+            print("[cards held back — not the first send today]"
                   if CHANNEL["images"] == "first"
                   else f"[no info-note images in {NOTES_DIR}]")
         return 0
