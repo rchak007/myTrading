@@ -1,17 +1,18 @@
 # HOW TO CATCH WINNING STOCK
 
-Transcribed from **"How To Catch WINNERS EARLY — Before The Crowd"** by
-[@InvestAnswers](https://www.youtube.com/@InvestAnswers) (31:14).
+## Sources — read this first
 
-Captured from slide screenshots on 2026-10-12. This is **IA's framework, in
-IA's words** — not this project's analysis and not my commentary. Where a
-slide is terse, it has been kept terse rather than smoothed out.
+| Section | Source |
+|---|---|
+| **Steps 1–16**, the examples, checklist, score card, mindset, conclusion | **InvestAnswers.** Transcribed from *"How To Catch WINNERS EARLY — Before The Crowd"* by [@InvestAnswers](https://www.youtube.com/@InvestAnswers) (31:14), captured from slide screenshots on 2026-10-12. IA's framework in IA's words; terse slides kept terse. Nothing added. |
+| **Step 17: Book-to-Bill** | **Chakravarti's own addition**, 2026-10-12. Not from the video. |
 
-Complete: all 16 steps, the checklist, the score card, mindset and conclusion.
+Everything above Step 17 is a transcription. Step 17 is a custom step added to
+the framework, and is marked as such wherever it appears below.
 
 ---
 
-## The sixteen steps, at a glance
+## The steps, at a glance
 
 | # | Step | The question it answers |
 |---|---|---|
@@ -31,6 +32,7 @@ Complete: all 16 steps, the checklist, the score card, mindset and conclusion.
 | 14 | Technical Analysis for When | When do I actually press the button? |
 | 15 | Why It Is / Is Not Moving | Do I know the driver? |
 | 16 | Entry, Size, Exit, Kill Switch | What's the plan, including being wrong? |
+| **17** | **Book-to-Bill** *(added — not IA)* | **Are orders outrunning what they can ship?** |
 
 The process, compressed to one line:
 
@@ -325,6 +327,115 @@ Example valuation panel from the slide:
 
 ---
 
+## Step 17: Book-to-Bill
+
+> ⚠️ **ADDED BY CHAKRAVARTI, 2026-10-12. NOT from the InvestAnswers video.**
+> Everything above this heading is IA's. This step is not.
+
+### What it is
+
+**Book-to-bill compares what a company has been ORDERED to make against what
+it actually SHIPPED and INVOICED, over the same period.**
+
+```
+                 Bookings  (orders RECEIVED in the period)
+Book-to-Bill  =  ────────────────────────────────────────
+                 Billings  (orders SHIPPED / INVOICED in the period)
+```
+
+| Reading | What it means |
+|---|---|
+| **> 1.0** | More coming in than going out. **Backlog is building** — demand is outrunning capacity. 1.2 means $1.20 ordered for every $1.00 shipped. |
+| **= 1.0** | Equilibrium. Shipping exactly what is being ordered. |
+| **< 1.0** | Shipping more than booking. **Backlog is draining** — the order book is thinning while revenue still looks fine. |
+
+### Why it is worth a step of its own
+
+**It leads revenue.** Revenue tells you what was shipped — the past. Bookings
+tell you what has been *promised* — the future. A company can post a record
+quarter on a shrinking order book, and the income statement will not say so
+for two or three more quarters. Book-to-bill says so now.
+
+That is the same job Step 3 asks of an S-curve: *is this still flat, or
+already vertical?* Book-to-bill is one of the few numbers that answers it from
+the company's own filings rather than from the chart.
+
+**It is also already in IA's framework, unnamed.** Step 9 ends:
+
+> *"Capex without demand = value destruction. **Follow the bookings.**"*
+
+Book-to-bill **is** following the bookings. Step 9 says to do it; this step
+says how.
+
+### Chakravarti's caveat is the right one
+
+**It only works for companies that MAKE something.** It needs a real order
+book and a real shipment — a lag between "you asked for it" and "we sent it."
+
+| Applies | Why |
+|---|---|
+| Semis & semicap | AMAT, LRCX, ASML, TER, MU, AVGO, MRVL, ALAB, CRDO, SITM, MTSI |
+| Optical / networking hardware | LITE, COHR, AAOI, CIEN, GLW |
+| Power & electrical equipment | **GEV, VRT** — the AI-capex names where backlog *is* the thesis |
+| Defense & aerospace | LMT, NOC, RTX, KTOS, AVAV, BWXT, RKLB |
+| Nuclear / SMR | SMR, OKLO, LEU — order book *is* the whole story pre-revenue |
+
+| Does NOT apply | Why |
+|---|---|
+| Software / services | GOOG, MSFT, META, PLTR, NET, CRWD, PANW — subscriptions are recognised, not shipped. Use RPO, billings, or net revenue retention instead. |
+| Financials & exchanges | HOOD, SOFI, COIN, CFG — no order book |
+| ETFs | SPY, GLD, IBIT, VUG, XLE — not a company |
+| Retail / consumer | Inventory turns, not bookings |
+
+The software equivalent is **RPO (remaining performance obligations)** or
+**cRPO** — same idea, contracted-but-not-yet-recognised revenue. Worth knowing
+so the question still gets asked on a name where book-to-bill is meaningless.
+
+### Where to find it
+
+1. **Stated directly** on the earnings call or in the deck. Fewer companies
+   publish it than used to; when they do, it is usually in the prepared
+   remarks rather than the tables.
+2. **Derived from backlog** when they report backlog but not the ratio. Since
+   `backlog_end = backlog_start + bookings − billings`:
+
+   ```
+   Book-to-Bill  ≈  1 + (change in backlog ÷ revenue)
+   ```
+
+   Backlog up $200M on $1,000M revenue → book-to-bill ≈ **1.20**.
+   This is the one to actually use, because backlog is disclosed far more
+   often than the ratio itself.
+3. **Industry aggregates** for sector-level reads — semicap associations
+   publish billings data, though the published book-to-bill series have come
+   and gone over the years. Check what is current before relying on one.
+
+### How it can lie to you — four ways
+
+1. **Double-ordering.** In a shortage, customers order the same part from
+   three suppliers, or inflate quantities to secure allocation. Book-to-bill
+   spikes on demand that does not exist. When the shortage ends, the phantom
+   orders cancel at once. This is the classic semiconductor whipsaw and it has
+   caught people out repeatedly.
+2. **Cancellations.** A booking is a promise, not cash. Check whether backlog
+   is cancellable and whether there are deposits or LTAs behind it — which is
+   exactly what IA's Step 9 means by *"customer prepayments / LTAs."*
+3. **Lumpiness.** One big order distorts a quarter on a name with few large
+   customers. **Read the trend over 3–4 quarters, never a single print** — and
+   note this is the same dependency risk as Step 6's *"customer
+   concentration: blessing and risk."*
+4. **It says nothing about price.** Book-to-bill above 1.0 on collapsing ASPs
+   is volume with no margin. Pair it with the Step 7 gross-margin trend.
+
+### The one line to take away
+
+> **Book-to-bill > 1.0 and rising, with backlog that is funded and
+> non-cancellable, is the earliest honest confirmation that a capex wave
+> (Step 4) is actually landing on this company (Step 5) — before it shows up
+> in revenue.**
+
+---
+
 ## The Full Checklist
 
 - [ ] Understand Who You Are
@@ -343,6 +454,8 @@ Example valuation panel from the slide:
 - [ ] Technical Analysis for When
 - [ ] Understand Why It Is or Is Not Moving
 - [ ] Entry, Size, Exit, Kill Switch
+- [ ] **Book-to-Bill** — *added, not on IA's slide. Skip for anything that
+      doesn't ship a physical product.*
 
 ---
 
