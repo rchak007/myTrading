@@ -464,9 +464,22 @@ def build_cash_rows(cash_df, reserves=None, log=print) -> pd.DataFrame:
     if cash_df is None or getattr(cash_df, "empty", True):
         return pd.DataFrame(columns=CASH_COLS)
 
+    # FLOOR EACH TICKER AT ZERO. A negative reserve is not negative reserved
+    # cash — there is no such thing. It means a buy overdrew what was set
+    # aside, and the ledger recorded the overdraft (Status BREACH).
+    #
+    # Summed raw, that overdraft SUBTRACTS from the account's reserved total
+    # and so ADDS to Free_To_Deploy — the cash was really spent at Schwab, and
+    # the phantom negative handed it straight back. 171 on 2026-10-13: SNDK
+    # -2,970.94, SKHY -921.17, CBRS -1,476.90 made Free_To_Deploy read
+    # $7,580.71 when the honest figure was $2,211.70.
+    #
+    # The per-ticker number stays negative wherever it is DISPLAYED. That is
+    # the breach, and hiding it would be the worse bug. It just must not be
+    # spendable.
     per_acct = {}
     for (a, _t), amt in (reserves or {}).items():
-        per_acct[a] = per_acct.get(a, 0.0) + (_num(amt, 0.0) or 0.0)
+        per_acct[a] = per_acct.get(a, 0.0) + max(_num(amt, 0.0) or 0.0, 0.0)
 
     stamp, out = _now(), []
     for _, r in cash_df.iterrows():

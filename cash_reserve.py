@@ -684,15 +684,39 @@ def apply_fills(fills_df, *, config: pd.DataFrame | None = None,
         key = (a, t)
         if key not in running:
             running[key] = balance_of(a, t, ledger_path=ledger_path)
-        signed = -amt if is_buy else amt
+
+        # A BUY CONSUMES ONLY WHAT IS ACTUALLY RESERVED. Anything beyond that
+        # was paid for with ordinary cash and is none of this ledger's
+        # business — debiting it invents a negative reserve, and a negative
+        # reserve then flows through build_cash_rows as EXTRA free cash.
+        #
+        # Fencing earmarks SELL PROCEEDS for a ticker ("later i might pick it
+        # up"). It does not mean every future purchase of that ticker is
+        # charged to a pot that holds nothing. Buying $2,970 of SNDK against a
+        # $0 SNDK reserve spends $2,970 of free cash — the reserve stays $0.
+        #
+        # Before 2026-10-13 the full amount was debited and the overdraft kept
+        # as "reality". It was not reality: the money came out of cash, which
+        # Schwab's own balance already reflects.
+        reason = f"fill {side}"
+        if is_buy:
+            avail = max(running[key], 0.0)
+            debit = min(amt, avail)
+            over = amt - debit
+            signed = -debit
+            if over > _EPS:
+                reason = (f"fill {side} — ${debit:,.2f} from the reserve, "
+                          f"${over:,.2f} from ordinary cash")
+                log(f"ℹ️  {a}/{t}: fill {ref} was ${amt:,.2f} but only "
+                    f"${avail:,.2f} was reserved. Debited ${debit:,.2f}; the "
+                    f"other ${over:,.2f} came from free cash and is not "
+                    f"ledgered here.")
+        else:
+            signed = amt
         running[key] += signed
 
-        if is_buy and running[key] < -_EPS:
-            log(f"⚠️  BREACH {a}/{t}: fill {ref} (${amt:,.2f}) drove the reserve to "
-                f"${running[key]:,.2f}. Ledgered as-is — the ledger records reality.")
-
         rows.append(_event_row(a, t, "BUY_FILL" if is_buy else "SELL_FILL", signed,
-                               ref=ref, reason=f"fill {side}", source="job",
+                               ref=ref, reason=reason, source="job",
                                balance_after=running[key]))
 
     out = pd.DataFrame(rows, columns=LEDGER_COLS)
