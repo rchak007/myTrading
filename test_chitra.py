@@ -109,8 +109,16 @@ check("all six holdings are fenced",
       {t for t, v in res.items() if v["fenced"]}
       == {"MU", "MRVL", "TSLA", "MSFT", "IBIT", "GOOG"}, str(sorted(res)))
 cash, seeded, open_buys, free = chitra.cash_position(rows, res)
+# Derived from the file, NOT pinned to a number. It was hard-coded to
+# 6764.23 and broke the moment the statement was refreshed — a test failing
+# because the data is newer is noise, and teaches you to ignore it. The
+# contract is "cash comes from the CASH-asset row", so assert that.
+_sweep = sum(r["Qty"] for r in rows if r.get("Asset") == "CASH")
 check("the sweep is read from the CASH row, not guessed",
-      abs(cash - 6764.23) < 0.01, f"{cash}")
+      abs(cash - _sweep) < 0.01 and _sweep > 0, f"{cash} vs {_sweep}")
+check("...and no equity row leaks into it",
+      abs(cash - sum(r["Qty"] for r in rows)) > 0.01
+      or not [r for r in rows if r.get("Asset") != "CASH"])
 check("fencing alone seeds nothing", seeded == 0.0, str(seeded))
 check("free cash is the whole sweep while nothing is seeded",
       abs(free - cash) < 0.01)
