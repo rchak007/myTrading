@@ -459,7 +459,8 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
 
 
 # ───────────────────────────────────────────────────────── cash table
-def build_cash_rows(cash_df, reserves=None, log=print) -> pd.DataFrame:
+def build_cash_rows(cash_df, reserves=None, log=print,
+                    open_buys=None) -> pd.DataFrame:
     """Free_To_Deploy = Cash_After_Open_Orders − seed reserved for that account."""
     if cash_df is None or getattr(cash_df, "empty", True):
         return pd.DataFrame(columns=CASH_COLS)
@@ -477,6 +478,27 @@ def build_cash_rows(cash_df, reserves=None, log=print) -> pd.DataFrame:
     # The per-ticker number stays negative wherever it is DISPLAYED. That is
     # the breach, and hiding it would be the worse bug. It just must not be
     # spendable.
+    # ...AND NET A RESTING BUY AGAINST THE SEED THAT FUNDS IT.
+    #
+    # Cash_In_Open_Orders already removes a resting buy from spendable cash.
+    # Subtracting the seed on top counts the same dollars twice: 171/PLTR was
+    # seeded $816 with a $815 buy resting against it — $1,631 of commitment
+    # for $816 of money. 922 read "over-fenced -$146.28" entirely from this;
+    # the honest figure was +$2,303.72.
+    #
+    # Per ticker the commitment is max(seed, open_buys), not the sum, which is
+    # seed + open - min(seed, open). `max` is also right when the buy EXCEEDS
+    # the seed: the excess genuinely comes from free cash and stays counted.
+    #
+    # Still debited on FILL, never on placement. Until it fills the money is
+    # yours and the order can be cancelled — the seed is spoken for, not gone.
+    overlap = {}
+    for (a, t), amt in (open_buys or {}).items():
+        seed_bal = max(_num((reserves or {}).get((a, t)), 0.0) or 0.0, 0.0)
+        if seed_bal > 0:
+            overlap[a] = overlap.get(a, 0.0) + min(seed_bal,
+                                                   _num(amt, 0.0) or 0.0)
+
     per_acct = {}
     for (a, _t), amt in (reserves or {}).items():
         per_acct[a] = per_acct.get(a, 0.0) + max(_num(amt, 0.0) or 0.0, 0.0)
@@ -495,7 +517,11 @@ def build_cash_rows(cash_df, reserves=None, log=print) -> pd.DataFrame:
             continue
         after = _num(r.get("Cash_After_Open_Orders"), 0.0) or 0.0
         seed = round(per_acct.get(a, 0.0), 2)
-        free = round(after - seed, 2)
+        dbl = round(overlap.get(a, 0.0), 2)
+        free = round(after - seed + dbl, 2)
+        if dbl:
+            log(f"   {a}: ${dbl:,.2f} of resting BUYs is funded by the seed — "
+                f"counted once, not twice")
         if free < 0:
             # Nothing validates a seed against real cash (PROJECT_PLAN §2), so
             # this is where over-fencing first becomes visible. Say it out loud
@@ -884,6 +910,14 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
              "warn": [], "rec": [], "warn_row": [], "chitra": [],
              "intent": [], "option": []}
 
+    # Which (acct, ticker) have a resting BUY — so a seed waiting to be spent
+    # by one can be painted yellow rather than looking freely available.
+    try:
+        from stocks_cash import open_buy_cash_by_ticker
+        open_buys = open_buy_cash_by_ticker(orders_df, log=lambda *_: None)
+    except Exception:
+        open_buys = {}                 # cosmetic only: never block the write
+
     def col_of(field: str) -> str:
         """Column letter for a POS_HDR field. Derived, because these shift:
         Live_Price, Day_% and Fenced have each been inserted since."""
@@ -902,7 +936,10 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     marks["title"].append(add(["DASHBOARD", f"updated {_now()}"]))
     add(["", f"{n_tickers} ticker(s) · read-only, regenerated every cycle · "
              f"ORDERS shows live Schwab orders AND the Orders-tab intents "
-             f"waiting on a close (Type 'CLOSE BELOW/ABOVE', Entered 'sheet')"])
+             f"waiting on a close (Type 'CLOSE BELOW/ABOVE', Entered 'sheet') · "
+             f"a YELLOW Seed_Reserved means a resting BUY is waiting to spend "
+             f"it — see that ticker's ORDERS block just below. Still reserved, "
+             f"not yet spent: it is debited when the order FILLS."])
 
     # EARNINGS, up top as well as per block. Buried in a block it is found
     # only by someone already scrolled to that ticker — and the whole point is
@@ -970,6 +1007,18 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                 if (str(r.get(field, "")).strip().upper() == NO
                         and rec is not None and getattr(rec, lvl) is not None):
                     marks["warn"].append(f"{col_of(field)}{len(rows)}")
+
+            # SEED SPOKEN FOR BY A RESTING ORDER. Yellow says the reserve is
+            # not freely available: a BUY is sitting at Schwab waiting to
+            # spend it, and it is listed in this ticker's own ORDERS block
+            # directly below. Chakravarti's ask, 2026-10-13.
+            #
+            # Not the same as "spent". It is debited on FILL, never on
+            # placement — until then the money is still his and the order can
+            # be cancelled.
+            if (_num(r.get("Seed_Reserved"), 0.0) or 0.0) > 0 and \
+                    open_buys.get((str(r["Acct"]).strip()[-3:], ticker)):
+                marks["warn"].append(f"{col_of('Seed_Reserved')}{len(rows)}")
 
         # CHITRA sits with the holdings but outside them: injected at RENDER
         # time, after the TOTAL row is already computed, so her shares can
@@ -1238,7 +1287,15 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     positions = build_positions_table(pos_raw, signals_df, orders_df, reserves,
                                       intents_df=intents, fenced=fenced, log=log,
                                       options=opts)
-    cash = build_cash_rows(cash_df, reserves, log=log)
+    # Resting BUYs keyed by (acct, ticker), on the same basis stocks_cash uses
+    # for Cash_In_Open_Orders — so the netting cancels exactly.
+    try:
+        from stocks_cash import open_buy_cash_by_ticker
+        open_buys = open_buy_cash_by_ticker(orders_df, log=log)
+    except Exception as e:
+        log(f"⚠️  could not key open BUYs by ticker ({e}) — seed netting skipped")
+        open_buys = {}
+    cash = build_cash_rows(cash_df, reserves, log=log, open_buys=open_buys)
 
     n_pos = _put(book.worksheet("Positions"), positions, POSITIONS_COLS, log)
     n_cash = _put(book.worksheet("Cash"), cash, CASH_COLS, log)

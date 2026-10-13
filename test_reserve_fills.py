@@ -150,5 +150,73 @@ check("an all-positive account is unaffected",
           cash, {("171", "A"): 1000.0, ("171", "B"): 2000.0},
           log=QUIET).iloc[0]["Free_To_Deploy"]) - 32197.86) < 0.005)
 
+print("\n── a resting BUY funded by the seed is counted ONCE ──")
+# 922 on 2026-10-13 read "over-fenced -$146.28" purely from this: a $2,450
+# TSLA buy was subtracted as an open order AND again as the TSLA seed.
+from stocks_cash import (open_buy_cash_by_account,                 # noqa: E402
+                         open_buy_cash_by_ticker)
+
+
+def order(acct, tkr, qty, px, side="BUY"):
+    return {"Account": f"...{acct}", "Ticker": tkr, "Side": side,
+            "Status": "WORKING", "Remaining_QTY": qty, "QTY": qty,
+            "Limit_Price": px, "Stop_Price": None, "Est_Value": qty * px,
+            "Asset_Type": "EQUITY"}
+
+
+od = pd.DataFrame([order("922", "TSLA", 7, 350.0),
+                   order("922", "META", 2, 629.47)])
+by_a = open_buy_cash_by_account(od, log=QUIET)
+by_t = open_buy_cash_by_ticker(od, log=QUIET)
+check("the per-account total still matches the sheet",
+      abs(by_a.get("922", 0) - 3708.94) < 0.005, str(by_a))
+# If the two were computed differently the netting would leave phantom
+# dollars behind every cycle.
+check("per-ticker sums to exactly the per-account figure",
+      abs(sum(by_t.values()) - sum(by_a.values())) < 0.005,
+      f"{sum(by_t.values())} vs {sum(by_a.values())}")
+
+cash922 = pd.DataFrame([{"Account": "922", "Nickname": "PCRA",
+                         "Cash": 12431.19, "Cash_In_Open_Orders": 3708.94,
+                         "Cash_After_Open_Orders": 8722.25}])
+res922 = {("922", "TSLA"): 3816.04, ("922", "SPY"): 1400.00,
+          ("922", "GOOG"): 2000.00, ("922", "BE"): 1652.49}
+row = build_cash_rows(cash922, res922, log=QUIET, open_buys=by_t).iloc[0]
+check("922 is NOT over-fenced once the overlap is netted",
+      abs(float(row["Free_To_Deploy"]) - 2303.72) < 0.005,
+      str(row["Free_To_Deploy"]))
+check("the reserved total itself is unchanged",
+      abs(float(row["Seed_Reserved"]) - 8868.53) < 0.005,
+      str(row["Seed_Reserved"]))
+
+print("\n── netting only applies where a seed actually funds the buy ──")
+check("an unseeded ticker's buy is NOT netted back",
+      abs(float(build_cash_rows(
+          cash922, {("922", "SPY"): 1400.0}, log=QUIET,
+          open_buys={("922", "META"): 1258.94}).iloc[0]["Free_To_Deploy"])
+          - (8722.25 - 1400.0)) < 0.005)
+# A buy larger than the seed: the excess genuinely comes from free cash, so
+# only the seeded part nets. max(seed, buy) == seed + buy - min(seed, buy).
+row = build_cash_rows(cash922, {("922", "TSLA"): 1000.0}, log=QUIET,
+                      open_buys={("922", "TSLA"): 2450.0}).iloc[0]
+check("a buy BIGGER than the seed nets only the seeded part",
+      abs(float(row["Free_To_Deploy"]) - (8722.25 - 1000.0 + 1000.0)) < 0.005,
+      str(row["Free_To_Deploy"]))
+check("no open orders at all changes nothing",
+      abs(float(build_cash_rows(cash922, res922, log=QUIET,
+                                open_buys={}).iloc[0]["Free_To_Deploy"])
+          + 146.28) < 0.005)
+check("a negative seed is never netted (it is floored first)",
+      abs(float(build_cash_rows(
+          cash922, {("922", "SNDK"): -2970.94}, log=QUIET,
+          open_buys={("922", "SNDK"): 1000.0}).iloc[0]["Free_To_Deploy"])
+          - 8722.25) < 0.005)
+
+print("\n── SELL orders never reserve cash ──")
+check("a resting SELL is not counted as a buy",
+      open_buy_cash_by_ticker(
+          pd.DataFrame([order("922", "TSLA", 7, 350.0, side="SELL")]),
+          log=QUIET) == {})
+
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 raise SystemExit(1 if FAILED else 0)

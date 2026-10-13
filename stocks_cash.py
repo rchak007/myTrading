@@ -180,20 +180,26 @@ def _row_from_balances(sa: dict, *, mask: bool = True) -> dict:
 # ─────────────────────────────────────────────────────────────────────
 # Open BUY orders → cash reserved per account
 # ─────────────────────────────────────────────────────────────────────
-def open_buy_cash_by_account(orders_df, log=print) -> dict[str, float]:
-    """
-    {last3: reserved_cash} from the orders table stocks_orders already built.
+def _open_buy_legs(orders_df, log=print):
+    """(DataFrame with Acct3/Ticker, Series of per-leg cost) — or (None, None).
 
-    Only BUY-side legs count — BUY, BUY_TO_OPEN and BUY_TO_COVER all reduce
-    spendable cash on fill. SELL legs are ignored on purpose.
+    ONE computation, two consumers. open_buy_cash_by_account() sums it per
+    account for Cash_In_Open_Orders; open_buy_cash_by_ticker() keys it by
+    (account, ticker) so build_cash_rows can net a resting buy against the
+    seed funding it.
+
+    They MUST share this. If the per-ticker figure were derived even slightly
+    differently — Est_Value here, qty x limit there — the netting would not
+    cancel exactly and would leave a few dollars of phantom commitment behind
+    every cycle.
     """
     if orders_df is None or getattr(orders_df, "empty", True):
-        return {}
+        return None, None
 
     df = orders_df.copy()
     if "Account" not in df.columns or "Side" not in df.columns:
         log("⚠️  Orders table missing Account/Side — cash reservation skipped")
-        return {}
+        return None, None
 
     # Defensive: the caller normally passes an already open-only table.
     if "Status" in df.columns:
@@ -203,7 +209,7 @@ def open_buy_cash_by_account(orders_df, log=print) -> dict[str, float]:
     side = df["Side"].astype(str).str.upper().str.strip()
     df = df[side.str.startswith("BUY")]
     if df.empty:
-        return {}
+        return None, None
 
     qty = pd.to_numeric(df.get("Remaining_QTY"), errors="coerce")
     qty = qty.where(qty.fillna(0) > 0, pd.to_numeric(df.get("QTY"), errors="coerce"))
@@ -222,10 +228,46 @@ def open_buy_cash_by_account(orders_df, log=print) -> dict[str, float]:
         val = val.fillna(pd.to_numeric(df["Est_Value"], errors="coerce"))
     val = val.fillna(0.0)
 
-    keys = df["Account"].map(lambda a: str(a).strip()[-3:])
-    out = {k: round(float(v), 2) for k, v in val.groupby(keys).sum().items()}
+    df = df.assign(_acct=df["Account"].map(lambda a: str(a).strip()[-3:]))
+    return df, val
+
+
+def open_buy_cash_by_account(orders_df, log=print) -> dict[str, float]:
+    """
+    {last3: reserved_cash} from the orders table stocks_orders already built.
+
+    Only BUY-side legs count — BUY, BUY_TO_OPEN and BUY_TO_COVER all reduce
+    spendable cash on fill. SELL legs are ignored on purpose.
+    """
+    df, val = _open_buy_legs(orders_df, log=log)
+    if df is None:
+        return {}
+    out = {k: round(float(v), 2) for k, v in val.groupby(df["_acct"]).sum().items()}
     log(f"Open BUY orders reserving cash in {len(out)} account(s): "
         f"${sum(out.values()):,.2f}")
+    return out
+
+
+def open_buy_cash_by_ticker(orders_df, log=print) -> dict[tuple[str, str], float]:
+    """{(last3, TICKER): resting BUY cost}, on the SAME basis as the per-account
+    total above.
+
+    Used to net a resting buy against the seed that funds it. Seeding $816 for
+    PLTR and then resting a $815 buy for PLTR is ONE commitment of $816, but
+    Free_To_Deploy subtracted the seed AND the open order — $1,631 of
+    commitment against $816 of real money. 922 read "over-fenced -$146.28" on
+    2026-10-13 purely from this; its honest figure was +$2,303.72.
+    """
+    df, val = _open_buy_legs(orders_df, log=lambda *_: None)
+    if df is None:
+        return {}
+    if "Ticker" not in df.columns:
+        log("⚠️  Orders table has no Ticker — seed/open-order netting skipped")
+        return {}
+    keys = list(zip(df["_acct"], df["Ticker"].astype(str).str.strip().str.upper()))
+    out: dict[tuple[str, str], float] = {}
+    for k, v in zip(keys, val):
+        out[k] = round(out.get(k, 0.0) + float(v), 2)
     return out
 
 
