@@ -739,8 +739,12 @@ def overcommit_warnings(reserves_df, cash_df) -> list[str]:
     out = []
     try:
         r = reserves_df[reserves_df["Account"].ne("TOTAL")]
+        # Floored at zero, for the same reason build_cash_rows floors it: a
+        # breached reserve is not a credit against the rest of the account.
+        # Summed raw it would MASK an overcommit — the thing this function
+        # exists to catch.
         per_acct = (pd.to_numeric(r["Reserved_Cash"], errors="coerce").fillna(0.0)
-                    .groupby(r["Account"]).sum())
+                    .clip(lower=0.0).groupby(r["Account"]).sum())
         c = cash_df[cash_df["Account"].astype(str).ne("TOTAL")].copy()
         c["_k"] = c["Account"].map(acct_key)
         col = "Cash_After_Open_Orders" if "Cash_After_Open_Orders" in c.columns else "Cash"
