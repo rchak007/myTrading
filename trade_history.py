@@ -283,11 +283,25 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.backfill:
-        from data.schwab.schwab_helper import create_schwab_client
+        # LOAD .env FIRST. Run from cron it is already sourced; run by hand it
+        # is not, and create_schwab_client() then dies on "Missing Schwab env
+        # vars" as though the file were broken rather than unread. schwab_auth
+        # already hit exactly this and already solved it — reuse that, do not
+        # write a third copy.
+        import schwab_auth
+        schwab_auth.creds()
+
+        # The ONE client factory, the same call order_engine makes every
+        # cycle: create_schwab_client(SCHWAB_USER_ID, TOKEN_PATHS,
+        # local_only=True). Its docstring calls itself the single source of
+        # truth for client creation, and it is — going around it is how you
+        # get a client configured differently from the one that works.
+        import jobStocksSignals as job
         from orders_sheet import _open_book
+
         print(f"Backfilling trade history from {args.backfill}. "
               f"Safe to re-run — duplicates are skipped.\n")
-        n = backfill(create_schwab_client(), args.backfill, args.until)
+        n = backfill(job.get_schwab_client(), args.backfill, args.until)
         if n:
             write_tab(_open_book())
         return 0

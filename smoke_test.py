@@ -52,7 +52,11 @@ SIGNATURES = {("token_watch", "send"): ["subject", "body", "images"],
               ("orders_sheet", "coverage_for"): ["held_qty", "options"],
               ("core.recommend", "recommend"): ["price", "atr", "fenced"],
               ("orders_sheet", "_classify"): ["side", "px", "price",
-                                              "direction"]}
+                                              "direction"],
+              # trade_history --backfill passes these. start/end were added
+              # 2026-10-12; losing them turns a year-long backfill back into
+              # a silent 7-day one.
+              ("cash_reserve", "fetch_fills"): ["days_back", "start", "end"]}
 
 bad = 0
 for mod, names in EXPECTED.items():
