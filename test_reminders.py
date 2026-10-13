@@ -78,7 +78,6 @@ check("struck out still wins over a weekday",
 print("\n── escalating: fire on the day, then daily until delivered ──")
 # "send this every Sunday. and then till i confirm pasting here everyday. But
 # once i send set this to be sent on Sunday again."
-from datetime import date as _date                        # noqa: E402
 SUN = R.last_occurrence(6)
 esc = lambda **kw: row(weekday="Sun", escalate="Y", **kw)
 check("never delivered → due, whatever day it is",
@@ -141,10 +140,19 @@ check("the options subject says OPTIONS / PRINCIPLES",
       "OPTIONS / PRINCIPLES" in R.CHANNELS["options"]["subject"]
       and "OPTIONS / PRINCIPLES" in R.CHANNELS["options"]["subject1"])
 R.use_channel("options")
-check("there are cards to send", len(R.notes_images()) == 4,
-      str([p.name for p in R.notes_images()]))
+# Count is NOT pinned. It was ["01".."04"], and adding a fifth card broke a
+# test that had nothing to do with the change. What matters is that cards
+# exist and arrive in prefix order — the ordering is the actual contract,
+# since that is how a card is placed at the end.
+_cards = R.notes_images()
+check("there are cards to send", len(_cards) >= 1,
+      str([p.name for p in _cards]))
 check("...and they are ordered by their numeric prefix",
-      [p.name[:2] for p in R.notes_images()] == ["01", "02", "03", "04"])
+      [p.name for p in _cards] == sorted(p.name for p in _cards),
+      str([p.name for p in _cards]))
+check("...each with a two-digit prefix, so new ones can be placed",
+      all(p.name[:2].isdigit() for p in _cards),
+      str([p.name for p in _cards if not p.name[:2].isdigit()]))
 R.use_channel("open-items")
 
 print("\n── Pi-1 poll staleness is measured against the SCHEDULE ──")

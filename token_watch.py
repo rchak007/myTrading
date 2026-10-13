@@ -64,6 +64,11 @@ SENT_MARKER = STATE_DIR / "token_watch_last_sent"
 # Don't re-send inside this window. One nag a day is a reminder; one every
 # cron tick is noise you learn to ignore, which defeats the purpose.
 QUIET_HOURS = float(os.getenv("TOKEN_WARN_QUIET_HOURS", "20"))
+# The throttle when it is actually urgent — expired, missing, or inside the
+# last day. 1h is below the cron interval, so in practice: every run.
+URGENT_QUIET_HOURS = float(os.getenv("TOKEN_WARN_URGENT_QUIET_HOURS", "1"))
+# days_left at or under this counts as urgent.
+URGENT_DAYS = float(os.getenv("TOKEN_WARN_URGENT_DAYS", "1"))
 
 # No safe-window rule any more: the auth_code verb takes the shared job lock
 # before swapping tokens, so it waits for any running job by itself. Kept as a
@@ -75,12 +80,24 @@ SAFE_WINDOWS = (
 )
 
 
-def recently_sent() -> bool:
+def recently_sent(urgent: bool = False) -> bool:
+    """Whether we warned recently enough to stay quiet.
+
+    `urgent` SHORTENS the silence instead of ending it. QUIET_HOURS is 20, so
+    an ordinary warning is one email a day however often the cron runs — right
+    for "expires in 3 days", wrong for "expires tonight".
+
+    That gap is not hypothetical. The token died 2026-10-12 21:16 and the
+    system was blind until the next afternoon. Warnings HAD been sent; at one
+    a day they were indistinguishable from everything else in the inbox.
+    Urgent ones now repeat every run.
+    """
     try:
         ts = datetime.fromisoformat(SENT_MARKER.read_text().strip())
     except Exception:
         return False
-    return datetime.now(timezone.utc) - ts < timedelta(hours=QUIET_HOURS)
+    hours = URGENT_QUIET_HOURS if urgent else QUIET_HOURS
+    return datetime.now(timezone.utc) - ts < timedelta(hours=hours)
 
 
 def mark_sent() -> None:
@@ -592,8 +609,15 @@ def main() -> int:
               f"no flagged order rows, no header alarms")
         return 0
 
-    if not args.force and not args.dry_run and recently_sent():
-        print(f"already warned within {QUIET_HOURS}h — staying quiet")
+    # URGENT = nothing is trading, or will not be by tomorrow. A token with
+    # three days left can wait for the daily digest; one expiring tonight
+    # cannot, and the 20h throttle is what let the last one slip through.
+    urgent = (state in ("EXPIRED", "MISSING")
+              or (days is not None and days <= URGENT_DAYS))
+    if not args.force and not args.dry_run and recently_sent(urgent):
+        print(f"already warned within "
+              f"{URGENT_QUIET_HOURS if urgent else QUIET_HOURS}h "
+              f"— staying quiet")
         return 0
 
     auth_url = None

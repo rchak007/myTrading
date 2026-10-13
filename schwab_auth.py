@@ -11,6 +11,13 @@
 #   can be generated on the Pi, opened on your phone, and the resulting
 #   code handed back minutes later through any channel you like.
 #
+# TWO MODES, AND THE DIFFERENCE MATTERS
+#   --url / --code   re-authorize from ANYWHERE. The point of the file.
+#   --login          one command, prompt already waiting, for when you
+#                    are at Pi 1. The authorization code expires in
+#                    SECONDS, and the gap between two commands has now
+#                    killed one twice (2026-10-05, 2026-10-13).
+#
 # THE 7-DAY CLOCK
 #   The refresh token dies exactly 7 days after ISSUANCE. Exchanging it
 #   for access tokens does not roll the window forward. But a fresh
@@ -391,12 +398,57 @@ def install(pasted: str) -> str:
 # ---------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------
+def login() -> str:
+    """Print the URL, then WAIT at a prompt and exchange the instant it is
+    pasted. For when you are already sitting at Pi 1.
+
+    WHY THIS EXISTS, given --url / --code already do the job.
+        Schwab's authorization code expires in seconds, not minutes. Split
+        across two commands you must run --url, work the browser, copy, switch
+        back, and type a second command — and on 2026-10-13 that gap cost a
+        code outright:
+
+            "Authorization code is invalid, expired or revoked"
+
+        It was the second time: 2026-10-05 lost one the same way, between an
+        11:21 paste and an 11:30 exchange. The paste was correct both times.
+        The CLOCK was the bug.
+
+        Here the prompt is already open when you approve, so the exchange
+        fires as fast as you can paste.
+
+    THE SPLIT STAYS. --url / --code is the mode that lets him re-authorize
+    from his phone without logging into Pi 1, which is the entire reason this
+    file exists. This is only the shortcut for when he is already there.
+
+    NOT schwabdev's prompt, which looks identical and is not. That one writes
+    whatever comes back; this still proves the new credentials against a live
+    endpoint before touching the working row, and still backs up the database.
+    """
+    print(f"\n  1. Open this and approve:\n\n{authorize_url()}\n")
+    print("  2. You land on a 127.0.0.1:8000 error page. That is correct —\n"
+          "     nothing is listening. Copy the WHOLE address bar.\n")
+    print("  3. Paste it below. The code dies in seconds, so be quick HERE —\n"
+          "     take as long as you like logging in, the code only exists\n"
+          "     after you approve.\n")
+    try:
+        pasted = input("  paste the redirect URL: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return "cancelled — nothing was changed"
+    if not pasted:
+        return "nothing pasted — nothing was changed"
+    return install(pasted)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Headless Schwab re-authorization")
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--status", action="store_true", help="how long the refresh token has left")
     g.add_argument("--url", action="store_true", help="print the authorization URL")
     g.add_argument("--code", metavar="PASTED", help="redirect URL or bare code to exchange")
+    g.add_argument("--login", action="store_true",
+                   help="print the URL and wait for the paste, in one go "
+                        "(use when you are AT Pi 1)")
     args = ap.parse_args()
 
     if args.status:
@@ -404,6 +456,13 @@ def main() -> int:
         return 0
     if args.url:
         print(authorize_url())
+        return 0
+    if args.login:
+        try:
+            print(login())
+        except Exception as e:
+            print(f"FAILED: {type(e).__name__}: {e}", file=sys.stderr)
+            return 1
         return 0
 
     try:
