@@ -45,9 +45,16 @@ TAB = "History"
 
 COLS = ["Filled_At", "Acct", "Ticker", "Side", "Qty", "Price", "Amount",
         "Asset", "Source", "Row_ID", "Order_ID", "Ref"]
-# How many rows the SHEET shows. The file keeps everything — this only bounds
-# the write, because a tab with five years of fills is slow and unreadable.
-SHEET_MAX = int(os.getenv("TRADE_HISTORY_ROWS", "400"))
+# How many rows the SHEET shows. 0 = EVERYTHING, which is the default since
+# 2026-10-12: *"let's not put only so many … I want to keep the history
+# continuous."*
+#
+# It used to cap at 400 on the theory that a long tab is slow and unreadable.
+# Wrong trade-off for this tab. It is a RECORD, and a record that silently
+# drops its oldest entries is not one — the whole value of "every trade, ever"
+# is that you can go back and check. Set TRADE_HISTORY_ROWS to a number to cap
+# it again if the tab ever gets genuinely unwieldy.
+SHEET_MAX = int(os.getenv("TRADE_HISTORY_ROWS", "0"))
 
 
 def _num(v, default=None):
@@ -154,6 +161,60 @@ def record(fills_df, log=print) -> int:
     return len(new)
 
 
+def backfill(client_wrapper, start, end=None, log=print) -> int:
+    """Pull a historical window from Schwab and record it. Returns new rows.
+
+    MUST RUN ON PI 1 — Pi 2 has no Schwab credentials, by design.
+
+    CHUNKED BY MONTH, for two reasons. Schwab's transactions endpoint is
+    unhappy with very long ranges, and more importantly a single failed window
+    then costs one month rather than the whole year: each chunk is recorded
+    before the next is fetched, so an interrupted run resumes instead of
+    starting over.
+
+    Safe to re-run. record() dedupes on Schwab's activityId, so overlapping
+    windows add nothing — the same guard that stops the 35-minute cycle
+    recording the same trade forever.
+    """
+    from datetime import date, datetime as _dt, timedelta as _td
+    import cash_reserve as cr
+
+    if isinstance(start, str):
+        start = _dt.strptime(start, "%Y-%m-%d").date()
+    if isinstance(end, str):
+        end = _dt.strptime(end, "%Y-%m-%d").date()
+    end = end or date.today()
+    if start > end:
+        log(f"⚠️  start {start} is after end {end} — nothing to do")
+        return 0
+
+    total, failures, cursor = 0, 0, start
+    while cursor <= end:
+        nxt = (cursor.replace(day=1) + _td(days=32)).replace(day=1)
+        stop = min(nxt - _td(days=1), end)
+        try:
+            df = cr.fetch_fills(
+                client_wrapper,
+                start=_dt.combine(cursor, _dt.min.time()),
+                end=_dt.combine(stop, _dt.max.time()), log=log)
+            n = record(df, log=log)
+            total += n
+            log(f"  {cursor:%Y-%m}  {len(df):>4} leg(s), {n:>4} new")
+        except Exception as e:
+            failures += 1
+            log(f"  {cursor:%Y-%m}  ⚠️  FAILED: {type(e).__name__}: {e}")
+        cursor = nxt
+
+    # Say it loudly. A backfill that silently skipped three months looks
+    # exactly like a backfill that worked, and the gap only shows up later as
+    # "why is there nothing from March".
+    if failures:
+        log(f"\n⚠️  {failures} month(s) FAILED — the history has gaps. "
+            f"Re-run to fill them; already-recorded trades are skipped.")
+    log(f"Backfill {start} → {end}: {total} new trade(s) recorded")
+    return total
+
+
 def newest_first(rows) -> list[dict]:
     """Sorted by fill time descending. Rows with no time sink to the bottom
     rather than being dropped — a fill with a missing timestamp is still a
@@ -168,11 +229,23 @@ def write_tab(book, log=print) -> int:
     if not rows:
         log("Trade history: nothing recorded yet")
         return 0
-    shown = rows[:SHEET_MAX]
+    shown = rows[:SHEET_MAX] if SHEET_MAX else rows
+    need = len(shown) + 20
     try:
         ws = book.worksheet(TAB)
     except Exception:
-        ws = book.add_worksheet(title=TAB, rows=SHEET_MAX + 20, cols=len(COLS) + 2)
+        ws = book.add_worksheet(title=TAB, rows=need, cols=len(COLS) + 2)
+
+    # GROW THE TAB IF IT IS TOO SHORT. A worksheet created for 420 rows
+    # silently refuses — or truncates — a 2,000-row write, and the tab would
+    # just look wrong with no error that says why. Only ever grows: shrinking
+    # would destroy rows on a bad read.
+    try:
+        if int(getattr(ws, "row_count", 0) or 0) < need:
+            ws.resize(rows=need)
+            log(f"History tab grown to {need} rows")
+    except Exception as e:
+        log(f"⚠️  could not resize the History tab: {e}")
 
     last = chr(ord("A") + len(COLS) - 1)
     head = [[f"HISTORY — every executed trade, newest first. "
@@ -187,7 +260,7 @@ def write_tab(book, log=print) -> int:
         # Clear generously: a shorter list than last time must not leave the
         # tail of a longer one behind, which is the stale-data failure this
         # sheet has had before.
-        ws.batch_clear([f"A1:{last}{max(len(body) + 2, SHEET_MAX + 2)}"])
+        ws.batch_clear([f"A1:{last}{max(len(body) + 2, SHEET_MAX + 2, need)}"])
         ws.update(values=head + body, range_name=f"A1:{last}{len(head) + len(body)}")
         ws.format(f"A1:{last}2", {"textFormat": {"bold": True}})
     except Exception as e:
@@ -203,7 +276,21 @@ def main() -> int:
     ap.add_argument("--list", action="store_true", help="print what is recorded")
     ap.add_argument("--rebuild", action="store_true",
                     help="re-render the History tab from the file")
+    ap.add_argument("--backfill", metavar="YYYY-MM-DD",
+                    help="pull history from this date forward (Pi 1 only)")
+    ap.add_argument("--until", metavar="YYYY-MM-DD",
+                    help="stop here instead of today")
     args = ap.parse_args()
+
+    if args.backfill:
+        from data.schwab.schwab_helper import create_schwab_client
+        from orders_sheet import _open_book
+        print(f"Backfilling trade history from {args.backfill}. "
+              f"Safe to re-run — duplicates are skipped.\n")
+        n = backfill(create_schwab_client(), args.backfill, args.until)
+        if n:
+            write_tab(_open_book())
+        return 0
 
     rows = read()
     if args.rebuild:

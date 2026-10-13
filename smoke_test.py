@@ -31,7 +31,7 @@ EXPECTED = {
     "market_calendar": ["is_open", "is_trading_day", "holidays", "early_closes",
                         "close_time", "easter", "describe"],
     "trade_history": ["read", "record", "write_tab", "newest_first",
-                      "ledger_order_ids", "COLS"],
+                      "ledger_order_ids", "backfill", "COLS"],
     "orders_columns": ["Columns", "read", "letter", "HUMAN", "ENGINE", "ALL",
                        "HEADER_ROW", "DATA_START_ROW"],
     "chitra": ["load", "load_orders", "load_reserves", "cash_position", "meta", "write_tab", "dashboard_row",

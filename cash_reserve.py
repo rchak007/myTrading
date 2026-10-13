@@ -812,9 +812,15 @@ def build_reserves_table(*, positions_df=None, cash_df=None,
     return df
 
 
-def fetch_fills(client_wrapper, *, days_back=7, log=print) -> pd.DataFrame:
+def fetch_fills(client_wrapper, *, days_back=7, start=None, end=None,
+                log=print) -> pd.DataFrame:
     """
     Executed trades from Schwab, shaped for apply_fills().
+
+    `start` / `end` are `date` or `datetime` objects and override days_back,
+    for backfilling a specific window. Added 2026-10-12 so trade_history can
+    rebuild a whole year; every existing caller uses days_back and is
+    unaffected.
 
     The signature is KNOWN, not probed (measured 2026-09-08 with
     probe_schwab_api.py and used daily by schwabAPI/txn_cache.py):
@@ -850,10 +856,15 @@ def fetch_fills(client_wrapper, *, days_back=7, log=print) -> pd.DataFrame:
         log("⚠️  this schwabdev exposes no transactions() — skipping fills")
         return pd.DataFrame(columns=cols)
 
-    end_dt = datetime.utcnow()
-    start_dt = end_dt - timedelta(days=int(days_back))
+    if start is not None or end is not None:
+        start_dt = start or (datetime.utcnow() - timedelta(days=int(days_back)))
+        end_dt = end or datetime.utcnow()
+    else:
+        end_dt = datetime.utcnow()
+        start_dt = end_dt - timedelta(days=int(days_back))
     start_s = start_dt.strftime("%Y-%m-%dT00:00:00.000Z")
     end_s = end_dt.strftime("%Y-%m-%dT23:59:59.999Z")
+    window = f"{start_s[:10]} → {end_s[:10]}"
 
     try:
         accts = inner.linked_accounts().json()
@@ -914,7 +925,7 @@ def fetch_fills(client_wrapper, *, days_back=7, log=print) -> pd.DataFrame:
                 })
 
     df = pd.DataFrame(rows, columns=cols)
-    log(f"Fills fetched: {len(df)} trade leg(s) over {days_back} day(s)")
+    log(f"Fills fetched: {len(df)} trade leg(s) over {window}")
     return df
 
 

@@ -94,6 +94,65 @@ check("a fill with no timestamp sinks but is NOT dropped",
       any(r["Ticker"] == "ZZZ" for r in rows)
       and rows[-1]["Ticker"] == "ZZZ", str([r["Ticker"] for r in rows]))
 
+print("\n── the backfill walks months without gaps ──")
+# A gap between windows loses every trade in it, silently — the tab would
+# just have nothing from that month and nothing would say why.
+import datetime as _d                                      # noqa: E402
+import cash_reserve as _cr                                 # noqa: E402
+
+_seen = []
+
+
+def _fake_fetch(cw, *, days_back=7, start=None, end=None, log=print):
+    _seen.append((start.date(), end.date()))
+    return pd.DataFrame()
+
+
+_cr.fetch_fills = _fake_fetch
+TH.backfill(object(), "2026-01-01", "2026-10-12", log=lambda *a: None)
+check("one window per month", len(_seen) == 10, str(len(_seen)))
+check("starts on the date asked for", _seen[0][0] == _d.date(2026, 1, 1),
+      str(_seen[0][0]))
+check("stops on the end date, not the month end",
+      _seen[-1][1] == _d.date(2026, 10, 12), str(_seen[-1][1]))
+check("NO GAPS between windows",
+      all(_seen[i][0] == _seen[i - 1][1] + _d.timedelta(days=1)
+          for i in range(1, len(_seen))),
+      str([(str(a), str(b)) for a, b in _seen]))
+check("every day in the range is covered exactly once",
+      sum((e - s).days + 1 for s, e in _seen)
+      == (_seen[-1][1] - _seen[0][0]).days + 1)
+_seen.clear()
+TH.backfill(object(), "2025-11-01", "2026-02-15", log=lambda *a: None)
+check("crosses a year boundary", len(_seen) == 4 and _seen[0][0].year == 2025
+      and _seen[-1][0].year == 2026, str(len(_seen)))
+_seen.clear()
+check("start after end does nothing rather than looping",
+      TH.backfill(object(), "2026-10-12", "2026-01-01",
+                  log=lambda *a: None) == 0 and not _seen)
+
+print("\n── a backfilled month is recorded, and re-running adds nothing ──")
+
+
+def _one_fill(cw, *, days_back=7, start=None, end=None, log=print):
+    return pd.DataFrame([fill(f"BF{start:%Y%m}", "MU",
+                              when=f"{start:%Y-%m}-15T10:00:00")])
+
+
+_cr.fetch_fills = _one_fill
+n1 = TH.backfill(object(), "2026-01-01", "2026-03-31", log=lambda *a: None)
+check("three months recorded three fills", n1 == 3, str(n1))
+check("re-running the same window adds nothing",
+      TH.backfill(object(), "2026-01-01", "2026-03-31",
+                  log=lambda *a: None) == 0)
+check("an overlapping window adds only what is new",
+      TH.backfill(object(), "2026-03-01", "2026-04-30",
+                  log=lambda *a: None) == 1)
+
+print("\n── the sheet is no longer capped ──")
+check("SHEET_MAX defaults to 0, meaning everything", TH.SHEET_MAX == 0,
+      str(TH.SHEET_MAX))
+
 print("\n── what it is not ──")
 check("every recorded row has a Ref", all(r.get("Ref") for r in TH.read()))
 check("the file keeps every column it promises",
