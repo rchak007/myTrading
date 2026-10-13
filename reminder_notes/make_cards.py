@@ -7,6 +7,7 @@ reminder email:
 
     03-pbd-structure.png   P / b / D market structure + the breakout rule
     04-buy-cheap.png       the one discipline his own data says he breaks
+    05-catch-winners.png   a pointer to the 17-step doc, so it is not lost
 
     .venv/bin/python reminder_notes/make_cards.py
 
@@ -26,6 +27,7 @@ from PIL import Image, ImageDraw, ImageFont
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "03-pbd-structure.png"
 OUT_CHEAP = HERE / "04-buy-cheap.png"
+OUT_WINNERS = HERE / "05-catch-winners.png"
 W, H = 1600, 1120
 
 BG = (13, 13, 16)
@@ -34,6 +36,8 @@ MUTED = (156, 163, 175)
 BLUE = (59, 130, 246)
 RED = (239, 68, 68)
 GREEN = (74, 222, 128)
+AMBER = (250, 204, 21)
+TEAL = (45, 212, 191)
 LINE = (55, 55, 62)
 
 F = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -149,6 +153,46 @@ def buy_cheap() -> Path:
     return OUT_CHEAP
 
 
+def catch_winners() -> Path:
+    """A POINTER, not a summary. Chakravarti's reason, 2026-10-12: *"so it
+    keeps me not losing track of it."*
+
+    A 17-step framework does not fit on a tile and should not be squeezed onto
+    one — the doc exists for that. So the tile carries three things: the name
+    of the file, where it lives, and the one line the whole framework
+    compresses to. Enough to recognise it and go read it.
+
+    It is last of the five on purpose. The cards above are things to DO while
+    the market is open; this is homework for before you buy a new name.
+    """
+    w, h = 1600, 470
+    img = Image.new("RGB", (w, h), BG)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, 14, h], fill=TEAL)
+
+    d.text((78, 96), "CATCH WINNERS EARLY", font=font(76, True), fill=TEAL,
+           anchor="lm")
+    d.text((78, 168), "See the doc before sizing into a NEW name.",
+           font=font(36), fill=WHITE, anchor="lm")
+
+    d.text((78, 232), "HOW-TO-CATCH-WINNING-STOCK.md", font=font(38, True),
+           fill=AMBER, anchor="lm")
+    d.text((78, 278), "in   myTrading / Documentation", font=font(27),
+           fill=MUTED, anchor="lm")
+
+    d.line([(78, 322), (w - 78, 322)], fill=LINE, width=2)
+    d.text((78, 368),
+           "space → leader → financials → moat → entry/exit",
+           font=font(34, True), fill=WHITE, anchor="lm")
+    d.text((78, 424),
+           "17 steps · InvestAnswers, + book-to-bill.   "
+           "Know the exit before the entry.",
+           font=font(26), fill=MUTED, anchor="lm")
+
+    img.save(OUT_WINNERS, optimize=True)
+    return OUT_WINNERS
+
+
 if __name__ == "__main__":
-    for p in (main(), buy_cheap()):
+    for p in (main(), buy_cheap(), catch_winners()):
         print(f"wrote {p.name:<24} ({p.stat().st_size/1024:.0f} KB)")
