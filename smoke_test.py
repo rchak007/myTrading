@@ -30,6 +30,8 @@ EXPECTED = {
                   "last_occurrence"],
     "market_calendar": ["is_open", "is_trading_day", "holidays", "early_closes",
                         "close_time", "easter", "describe"],
+    "bot_health": ["report", "heartbeats", "errors_on", "snapshot_time",
+                   "fetch", "CAUSES", "BOT_STALE_MIN", "MIRROR_STALE_MIN"],
     "trade_history": ["read", "record", "write_tab", "newest_first",
                       "ledger_order_ids", "backfill", "COLS"],
     "orders_columns": ["Columns", "read", "letter", "HUMAN", "ENGINE", "ALL",
