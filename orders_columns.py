@@ -36,7 +36,12 @@ DATA_START_ROW = 9
 # What the tab is expected to contain. Used to CREATE it and to sanity-check
 # what comes back — never to locate anything. Position is read, not assumed.
 HUMAN = ["Row_ID", "Date", "Acct", "Ticker", "Side", "Close_Is",
-         "Trigger_Price", "Limit_Price", "Qty", "Expires_On", "Notes"]
+         "Trigger_Price", "Limit_Price", "Qty", "Expires_On",
+         # Chaining: the Row_ID that must FILL before this row arms. Blank for
+         # an ordinary row, which is almost all of them. Listed here so a
+         # freshly created tab has it; position is still READ from the header,
+         # never assumed, so inserting it anywhere on the live tab is safe.
+         "After_Row_ID", "Notes"]
 ENGINE = ["Status", "Status_Date", "Validation", "Current_Price",
           "Schwab_Order_ID", "Filled_Qty", "Fill_Price", "Seed_Left",
           "Engine_Note", "Last_Checked"]

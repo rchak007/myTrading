@@ -57,6 +57,20 @@ SCAN_PERIOD = "420d"        # yfinance history window (matches 45_Signal convent
 # (jobStocksSignals.py / jobCryptoSignals.py). Order here is the display order.
 HHLL_MERGE_COLS = [
     "Regime", "Structure", "Last_Label", "Last_Label_Price",
+    # WHEN the last pivot happened, and when it became KNOWABLE. Added
+    # 2026-10-14 for the Orders tab's HH/HL/LL/LH triggers.
+    #
+    # Without these a row saying "buy the next HL" fires instantly on a pivot
+    # from three weeks ago, because Last_Label is simply whatever the label
+    # currently IS. "Next" needs a date to compare the row's own against.
+    #
+    # Two dates, not one, and the difference matters. A pivot is only
+    # confirmed once a later close breaks structure, so the low happens on
+    # Tuesday and is recognised as an HL on Friday. _Date is the low itself;
+    # _Confirmed is when it became information. Triggers must use _Confirmed —
+    # against _Date, a pivot that only became knowable today would be rejected
+    # as old.
+    "Last_Label_Date", "Last_Label_Confirmed",
     "Prev_Label", "Prev_Label_Price", "Nearest_Support", "Nearest_Resistance",
     "Bars_Since_Flip", "Active_Supports", "Active_Resistances",
 ]
@@ -252,6 +266,21 @@ def compute_hhll(df: pd.DataFrame, prd: int = DEFAULT_PERIOD,
     return res
 
 
+def _bar_date(df: pd.DataFrame, bar: int) -> str:
+    """YYYY-MM-DD for a bar index, or "" if it cannot be told.
+
+    Empty rather than a guess: a trigger that compares dates must be able to
+    tell "I do not know when this pivot was" apart from "it was today", and
+    the first of those has to mean DO NOT FIRE.
+    """
+    try:
+        if bar is None or bar < 0 or bar >= len(df):
+            return ""
+        return str(df.index[int(bar)])[:10]
+    except Exception:
+        return ""
+
+
 def summarize(df: pd.DataFrame, res: HHLLResult) -> dict:
     """One output row per ticker for the CSV."""
     n = len(df)
@@ -284,6 +313,8 @@ def summarize(df: pd.DataFrame, res: HHLLResult) -> dict:
         "Structure": struct,
         "Last_Label": last.label if last else "",
         "Last_Label_Price": round(last.price, 2) if last else np.nan,
+        "Last_Label_Date": _bar_date(df, last.bar) if last else "",
+        "Last_Label_Confirmed": _bar_date(df, last.confirmed_bar) if last else "",
         "Prev_Label": prev.label if prev else "",
         "Prev_Label_Price": round(prev.price, 2) if prev else np.nan,
         "Nearest_Support": round(sups[0], 2) if sups else np.nan,
