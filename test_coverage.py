@@ -268,16 +268,19 @@ TODAY = oco.HUMAN + oco.ENGINE
 WITH_AMT = oco.HUMAN[:9] + ["AMT"] + oco.HUMAN[9:] + oco.ENGINE
 now, later = oco.Columns(TODAY), oco.Columns(WITH_AMT)
 
-check("today's layout still resolves to the old hardcoded letters",
-      [now.col(n) for n in ("Status", "Status_Date", "Validation",
-                            "Engine_Note", "Last_Checked")]
-      == ["L", "M", "N", "T", "U"],
-      str([now.col(n) for n in ("Status", "Validation", "Last_Checked")]))
-check("inserting AMT shifts every engine column",
-      [later.col(n) for n in ("Status", "Status_Date", "Validation",
-                              "Engine_Note", "Last_Checked")]
-      == ["M", "N", "O", "U", "V"],
-      str([later.col(n) for n in ("Status", "Validation", "Last_Checked")]))
+# DERIVED, not pinned. These asserted the literal letters L/M/N/T/U, which
+# were correct until HUMAN legitimately gained After_Row_ID — and then a test
+# about resolution-by-name failed because a column was added, which is the
+# exact thing it exists to say is safe. The contract is that a name resolves
+# to wherever it actually sits, and that inserting shifts everything after it.
+ENG = ("Status", "Status_Date", "Validation", "Engine_Note", "Last_Checked")
+check("every engine column resolves to its real position",
+      [now.col(n) for n in ENG]
+      == [oco.letter(TODAY.index(n)) for n in ENG],
+      str([now.col(n) for n in ENG]))
+check("inserting AMT shifts every engine column by exactly one",
+      all(oco.letter(TODAY.index(n) + 1) == later.col(n) for n in ENG),
+      str([(now.col(n), later.col(n)) for n in ENG]))
 check("...and AMT lands where it was inserted", later.col("AMT") == "J")
 check("a short row reads past its end without crashing",
       now.get(["r1", "", "171", "JOBY", "BUY"], "Validation") == "")

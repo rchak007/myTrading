@@ -244,16 +244,26 @@ def open_orders_tab():
     return gc.open_by_key(sid).worksheet("Orders")
 
 
-def read_rows(ws) -> list[dict]:
-    """Intent rows from the sheet, with their 1-based sheet row number."""
+def read_rows(ws, cols=None) -> list[dict]:
+    """Intent rows from the sheet, with their 1-based sheet row number.
+
+    READ BY NAME when `cols` is given. This used to map cell POSITION to
+    SHEET_COLS — `enumerate(SHEET_COLS)` — which is exactly the hazard
+    orders_columns.py was written to remove: inserting any column shifted
+    every field by one and the engine would have read Qty out of Limit_Price.
+    The positional path survives only for a caller that has no layout.
+    """
     values = ws.get_all_values()
     out = []
     for i, raw in enumerate(values, start=1):
         if i < DATA_START_ROW:
             continue
-        cells = list(raw) + [""] * len(SHEET_COLS)
-        rec = {c: str(cells[j]).strip() for j, c in enumerate(SHEET_COLS)}
-        if not rec["Row_ID"] and not rec["Ticker"]:
+        if cols is not None:
+            rec = {c: cols.get(raw, c) for c in cols.names if c}
+        else:
+            cells = list(raw) + [""] * len(SHEET_COLS)
+            rec = {c: str(cells[j]).strip() for j, c in enumerate(SHEET_COLS)}
+        if not rec.get("Row_ID") and not rec.get("Ticker"):
             continue                                # blank spacer
         rec["_sheet_row"] = i
         out.append(rec)
@@ -449,11 +459,80 @@ def fp_of(rec: dict) -> str:
         return ""
 
 
-def triggered(close_is: str, close: float, trigger: float) -> bool:
-    """Strictly through the level. A close exactly ON the trigger does not
-    fire — "above 245" means above, and equality is the one case where doing
-    nothing is always defensible."""
-    return close > trigger if close_is == "ABOVE" else close < trigger
+def structure_of(ticker: str) -> tuple[str, str]:
+    """(Last_Label, Last_Label_Confirmed) for a ticker, or ("", "").
+
+    From the same stocks_signals.csv cross_check() already reads. Empty on
+    anything unexpected, and empty must mean DO NOT FIRE — a structure
+    trigger that cannot see the structure has to wait, not act.
+    """
+    csv_path = Path.home() / "github" / "jobMyTrading" / "stocks_signals.csv"
+    try:
+        import pandas as pd
+        df = pd.read_csv(csv_path)
+        row = df[df["Ticker"].astype(str).str.upper() == ticker.upper()]
+        if row.empty:
+            return "", ""
+        lab = str(row.iloc[0].get("Last_Label", "") or "").strip().upper()
+        when = str(row.iloc[0].get("Last_Label_Confirmed", "") or "").strip()[:10]
+        return lab, when
+    except Exception:
+        return "", ""
+
+
+def triggered(close_is: str, close: float, trigger: float | None, *,
+              side: str = "", label: str = "", confirmed: str = "",
+              since: str = "") -> tuple[bool, str]:
+    """(fired, why). `why` explains a NO so the sheet can say what it waits for.
+
+    PRICE conditions are strictly through the level. A close exactly ON the
+    trigger does not fire — "above 245" means above, and equality is the one
+    case where doing nothing is always defensible.
+
+    STRUCTURE conditions fire when a pivot with the wanted label was CONFIRMED
+    after the row was typed:
+
+        label == close_is   AND   confirmed > since
+
+    `since` is the row's own Date. Without it the row would fire on whatever
+    the label happens to be right now, which could be a pivot from three weeks
+    ago — "the next HL" has to mean new since you asked for it.
+
+    `confirmed`, not the pivot's own date: a pivot is only knowable once a
+    later close breaks structure, so the low can predate the row while the
+    INFORMATION does not. Comparing against the low's date would reject a
+    pivot that became knowable today.
+
+    `trigger` on a structure row is an optional BOUND in the direction that
+    favours the side: a BUY will not pay above it, a SELL will not sell below
+    it.
+    """
+    if close_is in oc.PRICE_DIRECTIONS:
+        if trigger is None:
+            return False, "no trigger price"
+        hit = close > trigger if close_is == "ABOVE" else close < trigger
+        return hit, ("" if hit else
+                     f"close {close:.2f} is not {close_is.lower()} "
+                     f"{trigger:.2f}")
+
+    if not label or not confirmed:
+        return False, ("no structure data yet for this ticker — "
+                       "waiting rather than guessing")
+    if label != close_is:
+        return False, f"last pivot is {label}, waiting for {close_is}"
+    if not since:
+        return False, "the row has no Date to measure 'next' from"
+    if confirmed <= since:
+        return False, (f"the {label} confirmed {confirmed} is not newer than "
+                       f"this row ({since}) — waiting for the NEXT one")
+    if trigger:
+        if side == "BUY" and close >= trigger:
+            return False, (f"{label} confirmed {confirmed}, but close "
+                           f"{close:.2f} is not under the {trigger:.2f} bound")
+        if side == "SELL" and close <= trigger:
+            return False, (f"{label} confirmed {confirmed}, but close "
+                           f"{close:.2f} is not above the {trigger:.2f} bound")
+    return True, f"{label} confirmed {confirmed}"
 
 
 # ─────────────────────────────────────────────────────────── guards
@@ -935,12 +1014,19 @@ def main() -> int:
     try:
         ws = open_orders_tab()
         cols = oco.read(ws, log=_log)
-        rows = read_rows(ws)
+        rows = read_rows(ws, cols)
     except Exception as e:
         _log(f"⛔ cannot read the Orders tab: {type(e).__name__}: {e}")
         return 1
 
     rows = stamp_row_ids(rows, used=set(states))
+    # Chain faults are properties of the GRAPH, not of any single row, so they
+    # are computed once over the whole tab before anything is evaluated.
+    chain_bad = oc.chain_problems(rows)
+    by_row_id = {r["Row_ID"]: r for r in rows if r.get("Row_ID")}
+    if chain_bad:
+        _log(f"⚠️  {len(chain_bad)} row(s) with an unusable "
+             f"{oc.CHAIN_FIELD} chain")
     fresh = [r for r in rows if r.get("_new_id")]
     if fresh:
         # Write the ids back FIRST and separately. Everything downstream keys
@@ -1077,6 +1163,59 @@ def main() -> int:
             finish("VOID", f"MALFORMED: {e}")
             continue
 
+        # 1b. CHAINING. A row with After_Row_ID does not arm until the row it
+        #     names has FILLED. Everything here is decided from the ledger,
+        #     which is the only record of what actually happened.
+        parent_id = n.get(oc.CHAIN_FIELD, "")
+        if parent_id:
+            bad = chain_bad.get(rec["Row_ID"])
+            if bad:
+                # Graph-level faults (missing parent, loop, too deep) cannot be
+                # judged from one row, so they are computed across the tab and
+                # VOID here. Chakravarti asked for over-deep chains to be
+                # VISIBLE rather than silently inert, so they are flagged red
+                # on the Dashboard as well.
+                finish("VOID", bad)
+                continue
+            pstate = states.get(parent_id, {})
+            pname = pstate.get("state", "")
+            if not pname:
+                _log(f"   {rid:<26} WAITING    on {parent_id} (not acted on yet)")
+                note_only(f"⏸ WAITING on {parent_id} — arms when that row FILLS")
+                continue
+            if pname != "FILLED":
+                if pname in cfg.TERMINAL_STATES:
+                    # Cascade. The parent can no longer fill, so this row can
+                    # never arm; leaving it "waiting" would be a dead row that
+                    # looks alive, which is this sheet's recurring failure.
+                    finish("VOID", f"PARENT_{pname}: {parent_id} ended as "
+                                   f"{pname} without filling, so this row can "
+                                   f"never arm")
+                else:
+                    _log(f"   {rid:<26} WAITING    on {parent_id} ({pname})")
+                    note_only(f"⏸ WAITING on {parent_id} — it is {pname}, "
+                              f"arms when it FILLS")
+                continue
+            # Parent FILLED. Qty blank means inherit what it ACTUALLY filled,
+            # which on a partial fill is the whole point: 31 of 50 bought means
+            # 31 to sell, with no hand-editing of a live row.
+            if not n["Qty"]:
+                # FROM THE SHEET, not the ledger: LEDGER_COLS records the
+                # quantity ORDERED, never the quantity filled. Filled_Qty is
+                # an engine column that reconcile writes back, and on a
+                # partial fill it is the only place the real number exists.
+                prow = by_row_id.get(parent_id, {})
+                got = _num_or_none(prow.get("Filled_Qty"))
+                if not got or got <= 0:
+                    finish("VOID", f"PARENT_FILL_UNKNOWN: {parent_id} is "
+                                   f"FILLED but its Filled_Qty cell is empty, "
+                                   f"and this row has no Qty of its own to "
+                                   f"fall back on")
+                    continue
+                n["Qty"] = f"{got:.2f}"
+                note_only(f"▶ armed by {parent_id} — Qty {got:g} inherited "
+                          f"from its fill")
+
         fp = oc.fingerprint(rec)
 
         # 2. Has a row we already acted on since been EDITED? Without a
@@ -1136,11 +1275,16 @@ def main() -> int:
             _log(f"   {rid:<26} ARMED      {dis}")
             continue
 
-        if not triggered(n["Close_Is"], close, float(n["Trigger_Price"])):
-            _log(f"   {rid:<26} ARMED      close {close:.2f} is not "
-                 f"{n['Close_Is'].lower()} {float(n['Trigger_Price']):.2f}")
-            note_only(f"⏳ waiting — close {close:.2f}, needs "
-                      f"{n['Close_Is'].lower()} {float(n['Trigger_Price']):.2f}")
+        trig = float(n["Trigger_Price"]) if n["Trigger_Price"] else None
+        lab, conf = ("", "")
+        if n["Close_Is"] in oc.STRUCTURE_DIRECTIONS:
+            lab, conf = structure_of(n["Ticker"])
+        fired, why = triggered(n["Close_Is"], close, trig, side=n["Side"],
+                               label=lab, confirmed=conf,
+                               since=str(rec.get("Date", "")).strip()[:10])
+        if not fired:
+            _log(f"   {rid:<26} ARMED      {why}")
+            note_only(f"⏳ waiting — {why}")
             continue
 
         # 6. Triggered. Every guard again, now with the close.
@@ -1271,6 +1415,36 @@ def main() -> int:
             cell("Last_Checked", stamp)
         if payload:
             ws.batch_update(payload, value_input_option="RAW")
+
+        # RED FOR A BROKEN CHAIN. Chakravarti's ask, 2026-10-14: *"if its past
+        # that can you highlight that order in RED. so i can pivot and do
+        # something else."* A chain that is too deep, looped, or points at a
+        # row that does not exist can NEVER fire, and the one thing worse than
+        # it not firing is it looking like it might.
+        #
+        # Painted ABSOLUTELY, both ways — rows move and get deleted, so a cell
+        # that is no longer broken must be actively cleared or last run's red
+        # stays on an unrelated row. Same lesson the Dashboard learned.
+        try:
+            red = {"backgroundColor": {"red": 1.0, "green": 0.80, "blue": 0.80}}
+            clear = {"backgroundColor": {"red": 1.0, "green": 1.0, "blue": 1.0}}
+            bad_rows, ok_rows = [], []
+            for rec in rows:
+                r = rec.get("_sheet_row")
+                if not r:
+                    continue
+                span = f"{cols.col('Row_ID')}{r}:{cols.col('After_Row_ID')}{r}" \
+                    if "After_Row_ID" in cols else f"{cols.col('Row_ID')}{r}"
+                (bad_rows if chain_bad.get(rec.get("Row_ID")) else ok_rows).append(span)
+            if ok_rows:
+                ws.format(ok_rows, clear)
+            if bad_rows:
+                ws.format(bad_rows, red)
+                _log(f"   {len(bad_rows)} row(s) flagged RED — unusable "
+                     f"{oc.CHAIN_FIELD} chain")
+        except Exception as e:
+            # Cosmetic. Never let a colour stop the run.
+            _log(f"⚠️  could not paint the chain warnings: {e}")
     except Exception as e:
         _log(f"⚠️  sheet write-back failed (ledger is still correct): {e}")
 
