@@ -50,6 +50,21 @@ ENGINE = ["Status", "Status_Date", "Validation", "Current_Price",
           "Engine_Note", "Last_Checked"]
 ALL = HUMAN + ENGINE
 
+# OPTIONAL columns enable a feature; they are not part of the contract every
+# row depends on. Their absence must NOT stop the engine.
+#
+# Found the hard way 2026-10-14: adding Trigger_ID / After_Trigger_ID to HUMAN
+# made read() raise on the live tab, which would have HALTED THE WHOLE ORDER
+# ENGINE on the first run after a pull — the sheet cannot grow a column until
+# Pi 1 runs, and Pi 1 would not run until the sheet had the column. A deploy
+# that bricks trading to enable an optional feature is not a trade worth
+# making.
+#
+# A row with no chain columns is simply unchained, which is what almost every
+# row is.
+OPTIONAL = ("Trigger_ID", "After_Trigger_ID")
+REQUIRED = [c for c in HUMAN if c not in OPTIONAL]
+
 
 def letter(idx0: int) -> str:
     """0-based column index to a spreadsheet letter. A..Z, then AA.."""
@@ -114,12 +129,19 @@ def read(ws, log=print) -> Columns:
         raise RuntimeError(f"could not read the Orders header row "
                            f"{HEADER_ROW}: {e}") from e
     cols = Columns(row)
-    gone = cols.missing(HUMAN)
+    gone = cols.missing(REQUIRED)
     if gone:
         raise RuntimeError(
             f"the Orders tab is missing {', '.join(gone)} in row {HEADER_ROW}. "
             f"Refusing to read or write it — guessing a position is how a "
             f"verdict ends up in somebody's Notes.")
+    absent = cols.missing(OPTIONAL)
+    if absent:
+        # Said once, not raised. The engine runs fine without these; rows
+        # simply cannot chain until the columns exist.
+        log(f"note: optional column(s) not on the tab yet: "
+            f"{', '.join(absent)} — chaining is unavailable until added "
+            f"(orders_add_columns.py --apply)")
     return cols
 
 
