@@ -58,6 +58,24 @@ PRICE_DIRECTIONS = {"ABOVE", "BELOW"}
 STRUCTURE_DIRECTIONS = {"HH", "HL", "LL", "LH"}
 DIRECTIONS = PRICE_DIRECTIONS | STRUCTURE_DIRECTIONS
 
+# SEVERAL LABELS ON ONE ROW. Chakravarti, 2026-10-14, reading an SPCX chart:
+# *"i should be able to say BUY HL or HH ... so not just BUY HL"*. Right — in
+# an uptrend the pullback low AND the breakout high are both entries, and
+# which arrives first is not knowable when the row is typed.
+#
+#   Close_Is: HL HH      fires on whichever is confirmed first
+#
+# Separated by space, slash or comma. Stored SORTED so "HL HH" and "HH HL" are
+# the same row — otherwise re-typing it in the other order changes the
+# fingerprint and the engine VOIDs it as INTENT_CHANGED for no real change.
+#
+# NOT offered: H / L, hhll's labels for the first pivot of each kind. They
+# occur exactly ONCE per ticker ever (measured across SPCX, JOBY, NVDA over a
+# year: one each), because after the first there is always a previous
+# same-kind pivot to compare against. A trigger on them would never fire
+# again.
+_SPLIT = re.compile(r"[\s/,]+")
+
 FIELDS = ["Row_ID", "Acct", "Ticker", "Side", "Close_Is", "Trigger_Price",
           "Limit_Price", "Qty", "Expires_On"]
 
@@ -146,14 +164,28 @@ def normalize(intent: dict) -> dict:
         raise IntentError(f"Side {side!r} must be BUY or SELL")
     out["Side"] = side
 
-    dirn = _s(intent.get("Close_Is"))
-    if dirn not in DIRECTIONS:
+    raw = _s(intent.get("Close_Is"))
+    parts = [p for p in _SPLIT.split(raw) if p]
+    unknown = [p for p in parts if p not in DIRECTIONS]
+    if not parts or unknown:
         raise IntentError(
-            f"Close_Is {dirn!r} must be ABOVE or BELOW (act when the daily "
-            f"close is through Trigger_Price) or "
-            f"{' / '.join(sorted(STRUCTURE_DIRECTIONS))} (act when the next "
-            f"pivot with that label is confirmed)")
-    out["Close_Is"] = dirn
+            f"Close_Is {raw!r} must be ABOVE or BELOW (act when the daily "
+            f"close is through Trigger_Price), or one or more of "
+            f"{' '.join(sorted(STRUCTURE_DIRECTIONS))} (act when the next "
+            f"pivot with any of those labels is confirmed, e.g. 'HL HH')")
+    if any(p in PRICE_DIRECTIONS for p in parts):
+        if len(parts) > 1:
+            raise IntentError(
+                f"Close_Is {raw!r} mixes a price condition with something "
+                f"else. ABOVE and BELOW stand alone; only the structure "
+                f"labels can be combined.")
+        out["Close_Is"] = parts[0]
+    else:
+        # Sorted and de-duplicated: order is not meaning, and leaving it free
+        # would make "HL HH" and "HH HL" different fingerprints on the same
+        # intent.
+        out["Close_Is"] = "/".join(sorted(set(parts)))
+    dirn = out["Close_Is"]
 
     # TRIGGER_PRICE IS REQUIRED FOR A PRICE CONDITION AND OPTIONAL FOR A
     # STRUCTURE ONE. On a structure row it is a BOUND, not the trigger:
@@ -218,6 +250,18 @@ def normalize(intent: dict) -> dict:
     out["Expires_On"] = exp
 
     return out
+
+
+def wanted_labels(close_is: str) -> set:
+    """The structure labels a Close_Is accepts. Empty for a price condition.
+
+    One place to split, so the engine never has to know that several labels
+    are stored slash-joined.
+    """
+    s = _s(close_is)
+    if s in PRICE_DIRECTIONS:
+        return set()
+    return {p for p in _SPLIT.split(s) if p in STRUCTURE_DIRECTIONS}
 
 
 def chain_problems(rows: list[dict], done_ids=frozenset(),

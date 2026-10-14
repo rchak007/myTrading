@@ -196,5 +196,47 @@ check("an unchained row has no parent", "2026-10-14-JOBY-01"
 check("a dangling label resolves to nothing",
       not oc.parent_of([R("X", "", "NOPE")]))
 
+print("\n── several labels on one row ──")
+# Reading an SPCX chart: "i should be able to say BUY HL or HH". In an
+# uptrend the pullback low and the breakout high are both entries, and which
+# comes first is not knowable when the row is typed.
+multi = dict(base, Close_Is="HL HH")
+check("space-separated parses", oc.normalize(multi)["Close_Is"] == "HH/HL")
+check("slash and comma work too",
+      oc.normalize(dict(base, Close_Is="HL/HH"))["Close_Is"] == "HH/HL"
+      and oc.normalize(dict(base, Close_Is="HL,HH"))["Close_Is"] == "HH/HL")
+check("order does not matter",
+      oc.normalize(dict(base, Close_Is="HH HL"))["Close_Is"] == "HH/HL")
+# Re-typing the same intent in the other order must not VOID the row.
+check("...so re-typing it reversed keeps the same fingerprint",
+      oc.fingerprint(dict(base, Close_Is="HL HH"))
+      == oc.fingerprint(dict(base, Close_Is="HH HL")))
+check("duplicates collapse",
+      oc.normalize(dict(base, Close_Is="HL HL HH"))["Close_Is"] == "HH/HL")
+check("wanted_labels unpacks it",
+      oc.wanted_labels("HH/HL") == {"HH", "HL"})
+check("a price condition has no labels", oc.wanted_labels("ABOVE") == set())
+check("mixing a price condition with a label is refused",
+      not _ok(lambda: oc.normalize(dict(base, Close_Is="ABOVE HL",
+                                        Trigger_Price="150"))))
+check("two price directions are refused",
+      not _ok(lambda: oc.normalize(dict(base, Close_Is="ABOVE BELOW",
+                                        Trigger_Price="150"))))
+check("H and L are NOT accepted — they fire once per ticker, ever",
+      not _ok(lambda: oc.normalize(dict(base, Close_Is="H"))))
+
+M = dict(side="BUY", confirmed="2026-10-14", since="2026-10-01")
+check("fires on the first of the two to confirm (HL)",
+      fired("HH/HL", 152.0, None, label="HL", **M))
+check("...and equally on the other (HH)",
+      fired("HH/HL", 152.0, None, label="HH", **M))
+check("a label not in the set does not fire",
+      not fired("HH/HL", 152.0, None, label="LL", **M))
+check("...and names both it is waiting for",
+      "HH or HL" in why("HH/HL", 152.0, None, label="LL", **M))
+check("staleness still applies to a multi-label row",
+      not fired("HH/HL", 152.0, None, side="BUY", label="HL",
+                confirmed="2026-09-01", since="2026-10-01"))
+
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 raise SystemExit(1 if FAILED else 0)

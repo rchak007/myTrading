@@ -507,7 +507,8 @@ def triggered(close_is: str, close: float, trigger: float | None, *,
     favours the side: a BUY will not pay above it, a SELL will not sell below
     it.
     """
-    if close_is in oc.PRICE_DIRECTIONS:
+    want = oc.wanted_labels(close_is)
+    if not want:
         if trigger is None:
             return False, "no trigger price"
         hit = close > trigger if close_is == "ABOVE" else close < trigger
@@ -518,8 +519,9 @@ def triggered(close_is: str, close: float, trigger: float | None, *,
     if not label or not confirmed:
         return False, ("no structure data yet for this ticker — "
                        "waiting rather than guessing")
-    if label != close_is:
-        return False, f"last pivot is {label}, waiting for {close_is}"
+    if label not in want:
+        return False, (f"last pivot is {label}, waiting for "
+                       f"{' or '.join(sorted(want))}")
     if not since:
         return False, "the row has no Date to measure 'next' from"
     if confirmed <= since:
@@ -1286,7 +1288,7 @@ def main() -> int:
 
         trig = float(n["Trigger_Price"]) if n["Trigger_Price"] else None
         lab, conf = ("", "")
-        if n["Close_Is"] in oc.STRUCTURE_DIRECTIONS:
+        if oc.wanted_labels(n["Close_Is"]):
             lab, conf = structure_of(n["Ticker"])
         fired, why = triggered(n["Close_Is"], close, trig, side=n["Side"],
                                label=lab, confirmed=conf,
