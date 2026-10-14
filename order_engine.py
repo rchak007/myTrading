@@ -1022,7 +1022,12 @@ def main() -> int:
     rows = stamp_row_ids(rows, used=set(states))
     # Chain faults are properties of the GRAPH, not of any single row, so they
     # are computed once over the whole tab before anything is evaluated.
-    chain_bad = oc.chain_problems(rows)
+    # A Trigger_ID belonging to a finished row is free to reuse, so the graph
+    # checks need to know which rows are done.
+    done_ids = {rid for rid, s in states.items()
+                if s.get("state") in cfg.TERMINAL_STATES}
+    chain_bad = oc.chain_problems(rows, done_ids=done_ids)
+    chain_parent = oc.parent_of(rows, done_ids=done_ids)
     by_row_id = {r["Row_ID"]: r for r in rows if r.get("Row_ID")}
     if chain_bad:
         _log(f"⚠️  {len(chain_bad)} row(s) with an unusable "
@@ -1163,11 +1168,12 @@ def main() -> int:
             finish("VOID", f"MALFORMED: {e}")
             continue
 
-        # 1b. CHAINING. A row with After_Row_ID does not arm until the row it
+        # 1b. CHAINING. A row with After_Trigger_ID does not arm until the row
         #     names has FILLED. Everything here is decided from the ledger,
         #     which is the only record of what actually happened.
-        parent_id = n.get(oc.CHAIN_FIELD, "")
-        if parent_id:
+        wants = n.get(oc.CHAIN_FIELD, "")
+        parent_id = chain_parent.get(rec["Row_ID"], "")
+        if wants or chain_bad.get(rec["Row_ID"]):
             bad = chain_bad.get(rec["Row_ID"])
             if bad:
                 # Graph-level faults (missing parent, loop, too deep) cannot be
@@ -1179,21 +1185,24 @@ def main() -> int:
                 continue
             pstate = states.get(parent_id, {})
             pname = pstate.get("state", "")
+            # Shown by LABEL, which is what he typed and what he will look
+            # for; the Row_ID is noise to him.
+            lbl = f"{oc.TRIGGER_FIELD} {wants}"
             if not pname:
-                _log(f"   {rid:<26} WAITING    on {parent_id} (not acted on yet)")
-                note_only(f"⏸ WAITING on {parent_id} — arms when that row FILLS")
+                _log(f"   {rid:<26} WAITING    on {lbl} ({parent_id})")
+                note_only(f"⏸ WAITING on {lbl} — arms when that row FILLS")
                 continue
             if pname != "FILLED":
                 if pname in cfg.TERMINAL_STATES:
                     # Cascade. The parent can no longer fill, so this row can
                     # never arm; leaving it "waiting" would be a dead row that
                     # looks alive, which is this sheet's recurring failure.
-                    finish("VOID", f"PARENT_{pname}: {parent_id} ended as "
-                                   f"{pname} without filling, so this row can "
-                                   f"never arm")
+                    finish("VOID", f"PARENT_{pname}: the row with {lbl} "
+                                   f"({parent_id}) ended as {pname} without "
+                                   f"filling, so this row can never arm")
                 else:
-                    _log(f"   {rid:<26} WAITING    on {parent_id} ({pname})")
-                    note_only(f"⏸ WAITING on {parent_id} — it is {pname}, "
+                    _log(f"   {rid:<26} WAITING    on {lbl} ({pname})")
+                    note_only(f"⏸ WAITING on {lbl} — it is {pname}, "
                               f"arms when it FILLS")
                 continue
             # Parent FILLED. Qty blank means inherit what it ACTUALLY filled,
@@ -1207,13 +1216,13 @@ def main() -> int:
                 prow = by_row_id.get(parent_id, {})
                 got = _num_or_none(prow.get("Filled_Qty"))
                 if not got or got <= 0:
-                    finish("VOID", f"PARENT_FILL_UNKNOWN: {parent_id} is "
-                                   f"FILLED but its Filled_Qty cell is empty, "
-                                   f"and this row has no Qty of its own to "
-                                   f"fall back on")
+                    finish("VOID", f"PARENT_FILL_UNKNOWN: the row with "
+                                   f"{lbl} ({parent_id}) is FILLED but its "
+                                   f"Filled_Qty cell is empty, and this row "
+                                   f"has no Qty of its own to fall back on")
                     continue
                 n["Qty"] = f"{got:.2f}"
-                note_only(f"▶ armed by {parent_id} — Qty {got:g} inherited "
+                note_only(f"▶ armed by {lbl} — Qty {got:g} inherited "
                           f"from its fill")
 
         fp = oc.fingerprint(rec)
@@ -1433,8 +1442,10 @@ def main() -> int:
                 r = rec.get("_sheet_row")
                 if not r:
                     continue
-                span = f"{cols.col('Row_ID')}{r}:{cols.col('After_Row_ID')}{r}" \
-                    if "After_Row_ID" in cols else f"{cols.col('Row_ID')}{r}"
+                span = (f"{cols.col('Row_ID')}{r}:"
+                        f"{cols.col(oc.CHAIN_FIELD)}{r}"
+                        if oc.CHAIN_FIELD in cols
+                        else f"{cols.col('Row_ID')}{r}")
                 (bad_rows if chain_bad.get(rec.get("Row_ID")) else ok_rows).append(span)
             if ok_rows:
                 ws.format(ok_rows, clear)

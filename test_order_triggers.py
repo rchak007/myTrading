@@ -126,44 +126,75 @@ print("\n── Qty may only be blank when chained ──")
 check("blank Qty with no parent is refused",
       not _ok(lambda: oc.normalize(dict(base, Qty=""))))
 check("blank Qty WITH a parent is allowed",
-      oc.normalize(dict(base, Qty="", After_Row_ID="2026-10-14-JOBY-00"))["Qty"]
-      == "")
-check("a row cannot wait for itself",
-      not _ok(lambda: oc.normalize(dict(base, After_Row_ID=base["Row_ID"]))))
+      oc.normalize(dict(base, Qty="", After_Trigger_ID="1"))["Qty"] == "")
+check("a row cannot wait for its own Trigger_ID",
+      not _ok(lambda: oc.normalize(dict(base, Trigger_ID="1",
+                                        After_Trigger_ID="1"))))
+check("a label he types is kept verbatim",
+      oc.normalize(dict(base, Trigger_ID="joby-entry"))["Trigger_ID"]
+      == "joby-entry")
 
 print("\n── the fingerprint does not move for existing rows ──")
-# Adding After_Row_ID to FIELDS would have VOIDed every live row on deploy
-# with INTENT_CHANGED. This is the assertion that it did not.
+# Adding the chain columns to FIELDS would have VOIDed every live row on
+# deploy with INTENT_CHANGED. This is the assertion that it did not.
 priced = dict(base, Close_Is="BELOW", Trigger_Price="6.00")
-check("an unchained row hashes identically with the field absent or blank",
+check("an unchained row hashes identically with the fields absent or blank",
       oc.fingerprint(priced)
-      == oc.fingerprint(dict(priced, After_Row_ID="")), "")
+      == oc.fingerprint(dict(priced, Trigger_ID="", After_Trigger_ID="")))
 check("a chained row hashes differently",
       oc.fingerprint(priced)
-      != oc.fingerprint(dict(priced, After_Row_ID="2026-10-14-JOBY-00")))
-check("changing the parent changes the fingerprint",
-      oc.fingerprint(dict(priced, After_Row_ID="2026-10-14-JOBY-00"))
-      != oc.fingerprint(dict(priced, After_Row_ID="2026-10-14-JOBY-09")))
+      != oc.fingerprint(dict(priced, After_Trigger_ID="1")))
+check("changing the label it waits for changes the fingerprint",
+      oc.fingerprint(dict(priced, After_Trigger_ID="1"))
+      != oc.fingerprint(dict(priced, After_Trigger_ID="2")))
+check("publishing a label changes it too",
+      oc.fingerprint(priced) != oc.fingerprint(dict(priced, Trigger_ID="1")))
 
 print("\n── chain faults are graph-level ──")
 
 
-def R(i, a=""):
-    return {"Row_ID": i, "After_Row_ID": a}
+def R(rid, mine="", after=""):
+    """A sheet row: its Pi-stamped Row_ID, the label it publishes, the one it
+    waits for."""
+    return {"Row_ID": rid, "Trigger_ID": mine, "After_Trigger_ID": after}
 
 
 check("no chains at all is clean", not oc.chain_problems([R("A"), R("B")]))
 check("a 3-row chain is allowed",
-      not oc.chain_problems([R("A"), R("B", "A"), R("C", "B")]))
-four = oc.chain_problems([R("A"), R("B", "A"), R("C", "B"), R("D", "C")])
+      not oc.chain_problems([R("A", "1"), R("B", "2", "1"), R("C", "", "2")]))
+four = oc.chain_problems([R("A", "1"), R("B", "2", "1"),
+                          R("C", "3", "2"), R("D", "", "3")])
 check("a 4th row is too deep", "CHAIN_TOO_DEEP" in four.get("D", ""), str(four))
 check("depth counts ROWS, not links", "D" in four and "C" not in four, str(four))
-gone = oc.chain_problems([R("B", "GHOST")])
-check("a parent not on the tab is caught",
+gone = oc.chain_problems([R("B", "", "GHOST")])
+check("waiting on a label nobody publishes is caught",
       "CHAIN_BROKEN" in gone.get("B", ""), str(gone))
-loop = oc.chain_problems([R("A", "C"), R("B", "A"), R("C", "B")])
+loop = oc.chain_problems([R("A", "1", "3"), R("B", "2", "1"), R("C", "3", "2")])
 check("a loop is caught, on every row in it",
       all("CHAIN_LOOP" in loop.get(k, "") for k in "ABC"), str(loop))
+
+print("\n── a Trigger_ID may not be reused while still live ──")
+dup = oc.chain_problems([R("A", "1"), R("B", "1"), R("C", "", "1")])
+check("two live rows publishing the same label is an error",
+      any("TRIGGER_ID_IN_USE" in v for v in dup.values()), str(dup))
+check("...and it names the offending label",
+      any("'1'" in v for v in dup.values()), str(dup))
+# His rule: free again once the first one has finished.
+reuse = oc.chain_problems([R("A", "1"), R("B", "1"), R("C", "", "1")],
+                          done_ids={"A"})
+check("reusing a label whose row is DONE is fine", not reuse, str(reuse))
+check("...and the live row is the one that now owns it",
+      oc.parent_of([R("A", "1"), R("B", "1"), R("C", "", "1")],
+                   done_ids={"A"}).get("C") == "B")
+
+print("\n── labels resolve to real rows ──")
+rows = [R("2026-10-14-JOBY-01", "1"), R("2026-10-14-JOBY-02", "", "1")]
+check("the child's parent is found by label",
+      oc.parent_of(rows).get("2026-10-14-JOBY-02") == "2026-10-14-JOBY-01")
+check("an unchained row has no parent", "2026-10-14-JOBY-01"
+      not in oc.parent_of(rows))
+check("a dangling label resolves to nothing",
+      not oc.parent_of([R("X", "", "NOPE")]))
 
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 raise SystemExit(1 if FAILED else 0)

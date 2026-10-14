@@ -61,12 +61,29 @@ DIRECTIONS = PRICE_DIRECTIONS | STRUCTURE_DIRECTIONS
 FIELDS = ["Row_ID", "Acct", "Ticker", "Side", "Close_Is", "Trigger_Price",
           "Limit_Price", "Qty", "Expires_On"]
 
-# Deliberately NOT in FIELDS. fingerprint() hashes FIELDS to notice a row
-# edited after the engine acted on it; appending to that list would change
-# every existing fingerprint and VOID every live row as INTENT_CHANGED on the
-# first run. It is folded into the hash separately, and only when set, so a
-# row that does not use chaining hashes byte-identically to before.
-CHAIN_FIELD = "After_Row_ID"
+# CHAINING USES A HUMAN-OWNED ID SPACE, NOT Row_ID.
+#
+# The first design had the child name its parent's Row_ID. Chakravarti caught
+# why that cannot work, 2026-10-14: *"i want ROW_ID to be left alone since
+# only Pi will update."* Row_ID is BLANK when he types the row — Pi 1 stamps
+# it on the next cycle — so the value he would have to reference does not
+# exist yet. Not a preference; the design was simply impossible to use.
+#
+#   TRIGGER_ID         a name this row PUBLISHES          "I am 1"
+#   AFTER_TRIGGER_ID   a name this row WAITS FOR          "after 1"
+#
+# Two columns, and here that is right. The earlier objection to two columns
+# was that both ends encoding the LINK can disagree — parent claiming it
+# triggers row 5 while row 5 waits on row 2. These are not two link
+# directions: one DECLARES a name, the other REFERENCES it, like a label and
+# a goto. A declaration cannot contradict a reference.
+TRIGGER_FIELD = "Trigger_ID"
+CHAIN_FIELD = "After_Trigger_ID"
+CHAIN_FIELDS = (TRIGGER_FIELD, CHAIN_FIELD)
+
+# Short and typeable: "1", "A", "joby-entry". His own namespace, reusable once
+# the chain that used it is finished.
+RE_TRIGGER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
 
 MAX_CHAIN_DEPTH = 3
 
@@ -164,11 +181,19 @@ def normalize(intent: dict) -> dict:
     # otherwise need the child edited by hand to 31 — and editing a live row
     # is precisely what INTENT_CHANGED voids. Blank inherits, so the partial
     # case needs no intervention.
-    after = _s(intent.get(CHAIN_FIELD), upper=False)
-    if after and not RE_ROW_ID.match(after):
+    mine = _s(intent.get(TRIGGER_FIELD), upper=False)
+    if mine and not RE_TRIGGER_ID.match(mine):
         raise IntentError(
-            f"{CHAIN_FIELD} {after!r} must be the Row_ID of the row that has "
-            f"to fill first, or blank")
+            f"{TRIGGER_FIELD} {mine!r} must be 1-32 chars of letters, digits, "
+            f". _ or -, starting alphanumeric — your own label for this row, "
+            f"e.g. 1")
+    out[TRIGGER_FIELD] = mine
+
+    after = _s(intent.get(CHAIN_FIELD), upper=False)
+    if after and not RE_TRIGGER_ID.match(after):
+        raise IntentError(
+            f"{CHAIN_FIELD} {after!r} must be the {TRIGGER_FIELD} of the row "
+            f"that has to fill first, or blank")
     out[CHAIN_FIELD] = after
 
     qty = _f2(intent.get("Qty"))
@@ -182,10 +207,10 @@ def normalize(intent: dict) -> dict:
         raise IntentError("Qty must be greater than zero")
     out["Qty"] = qty
 
-    if after and after == out["Row_ID"]:
+    if after and mine and after == mine:
         raise IntentError(
-            f"{CHAIN_FIELD} points at this row's own Row_ID — a row cannot "
-            f"wait for itself")
+            f"{CHAIN_FIELD} {after!r} is this row's own {TRIGGER_FIELD} — a "
+            f"row cannot wait for itself")
 
     exp = _s(intent.get("Expires_On"), upper=False)
     if exp and not RE_DATE.match(exp):
@@ -195,34 +220,65 @@ def normalize(intent: dict) -> dict:
     return out
 
 
-def chain_problems(rows: list[dict], max_depth: int = MAX_CHAIN_DEPTH) -> dict:
+def chain_problems(rows: list[dict], done_ids=frozenset(),
+                   max_depth: int = MAX_CHAIN_DEPTH) -> dict:
     """{Row_ID: complaint} for every row whose chain is unusable.
 
-    Checked across the WHOLE tab rather than per row, because a loop and an
-    over-long chain are both properties of the graph, not of any single row.
+    Checked across the WHOLE tab rather than per row, because a duplicate
+    label, a loop and an over-long chain are all properties of the graph, not
+    of any single row.
+
+    `done_ids` are Row_IDs already in a terminal state. A Trigger_ID belonging
+    to one of them is FREE AGAIN — his words: *"if i give trigger_id value
+    used elsewhere in orders not completed yet you can give error"*. Reusing
+    "1" next month is normal; reusing it while the first "1" is still live is
+    the mistake.
 
     Catches, in this order:
-      - a parent that does not exist on the tab
-      - a cycle (A waits for B waits for A) — would otherwise be a set of rows
-        that look ARMED forever and never fire
+      - a Trigger_ID used by two rows that are both still live
+      - an After_Trigger_ID naming a label no live row publishes
+      - a cycle (1 waits for 2 waits for 1) — otherwise rows that look ARMED
+        forever and never fire
       - a chain deeper than max_depth
 
     DEPTH IS REPORTED, NOT SILENTLY DROPPED. Chakravarti asked for the row to
     be highlighted RED so he can see it and restructure, rather than having it
     quietly refuse to act.
     """
-    by_id, out = {}, {}
+    out: dict = {}
+
+    # Label -> Row_ID, live rows only.
+    publishes: dict = {}
     for r in rows:
         rid = _s(r.get("Row_ID"), upper=False)
-        if rid:
-            by_id[rid] = _s(r.get(CHAIN_FIELD), upper=False)
-
-    for rid, parent in by_id.items():
-        if not parent:
+        lbl = _s(r.get(TRIGGER_FIELD), upper=False)
+        if not lbl or (rid and rid in done_ids):
             continue
-        if parent not in by_id:
-            out[rid] = (f"CHAIN_BROKEN: {CHAIN_FIELD} {parent!r} is not a "
-                        f"Row_ID on this tab")
+        if lbl in publishes:
+            out[rid or lbl] = (
+                f"TRIGGER_ID_IN_USE: {lbl!r} is already the {TRIGGER_FIELD} of "
+                f"a row that has not finished. Pick another, or wait for that "
+                f"one to complete.")
+            continue
+        publishes[lbl] = rid
+
+    # Row_ID -> the LABEL it waits for; and Row_ID -> its own label.
+    waits, label_of, by_id = {}, {}, {}
+    for r in rows:
+        rid = _s(r.get("Row_ID"), upper=False)
+        if not rid:
+            continue
+        by_id[rid] = r
+        label_of[rid] = _s(r.get(TRIGGER_FIELD), upper=False)
+        waits[rid] = _s(r.get(CHAIN_FIELD), upper=False)
+
+    for rid, want in waits.items():
+        if not want or rid in out or rid in done_ids:
+            continue
+        parent = publishes.get(want)
+        if not parent:
+            out[rid] = (f"CHAIN_BROKEN: {CHAIN_FIELD} {want!r} — no live row "
+                        f"on this tab has that {TRIGGER_FIELD}")
             continue
         # DEPTH IS COUNTED IN ROWS, NOT LINKS. A->B->C is three rows and is
         # allowed at a cap of 3; a fourth is not. Counting links let a 4-row
@@ -232,7 +288,8 @@ def chain_problems(rows: list[dict], max_depth: int = MAX_CHAIN_DEPTH) -> dict:
         while cur:
             if cur in seen:
                 out[rid] = (f"CHAIN_LOOP: following {CHAIN_FIELD} comes back "
-                            f"to {cur!r} — this chain can never fire")
+                            f"to {label_of.get(cur) or cur!r} — this chain can "
+                            f"never fire")
                 break
             seen.add(cur)
             rows_in_chain += 1
@@ -242,7 +299,29 @@ def chain_problems(rows: list[dict], max_depth: int = MAX_CHAIN_DEPTH) -> dict:
                             f"likely a paste error than an intention — split "
                             f"it or re-plan.")
                 break
-            cur = by_id.get(cur)
+            cur = publishes.get(waits.get(cur, ""))
+    return out
+
+
+def parent_of(rows: list[dict], done_ids=frozenset()) -> dict:
+    """{Row_ID: parent Row_ID} — After_Trigger_ID resolved to a real row.
+
+    The human columns are labels; everything downstream (the ledger, fill
+    lookup, cascade) works in Row_IDs. This is the one place the two
+    namespaces meet.
+    """
+    publishes = {}
+    for r in rows:
+        rid = _s(r.get("Row_ID"), upper=False)
+        lbl = _s(r.get(TRIGGER_FIELD), upper=False)
+        if lbl and rid and rid not in done_ids and lbl not in publishes:
+            publishes[lbl] = rid
+    out = {}
+    for r in rows:
+        rid = _s(r.get("Row_ID"), upper=False)
+        want = _s(r.get(CHAIN_FIELD), upper=False)
+        if rid and want and want in publishes:
+            out[rid] = publishes[want]
     return out
 
 
@@ -256,13 +335,14 @@ def fingerprint(intent: dict) -> str:
     n = normalize(intent)
     canon = "|".join(n[f] for f in FIELDS)
     # APPENDED ONLY WHEN SET, so an unchained row hashes exactly as it did
-    # before After_Row_ID existed. Adding it to FIELDS would have changed
+    # before the chain columns existed. Adding them to FIELDS would have changed
     # every fingerprint on the tab, and the engine reads a changed
     # fingerprint as "this row was edited after I acted on it" — every live
     # row would have VOIDed itself with INTENT_CHANGED on the first run after
     # deploy.
-    if n.get(CHAIN_FIELD):
-        canon += f"|after={n[CHAIN_FIELD]}"
+    for f in CHAIN_FIELDS:
+        if n.get(f):
+            canon += f"|{f}={n[f]}"
     return sha256(canon.encode("utf-8")).hexdigest()[:12]
 
 
