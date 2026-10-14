@@ -580,6 +580,100 @@ silently and only voids live-state ones. §6.3 is correct — a filled row stays
 in the sheet and is re-read every cycle, so §4.2's wording would flip every
 historical row to `VOID`.
 
+### 💡 OPEN — structure triggers (HH/HL/LL/LH) and ORDER CHAINING
+Chakravarti, 2026-10-14. Two capabilities for the Orders tab, requested
+together because the second is what makes the first useful.
+
+#### 1. Trigger on a structure event, not a price
+
+> *"just like how we wait for close and trigger buy/sell — i need to wait for
+> the next HL or HH and then trigger buy, or wait for LL, LH and trigger
+> sell"*
+
+**Most of this already exists.** `hhll.py` computes exactly these labels every
+cycle — `_label_pivots()` assigns HH/LH to pivot highs and HL/LL to pivot
+lows, each **confirmed by a Break of Structure on a close**, not a wick. It
+exports `Last_Label`, `Last_Label_Price`, `Structure`, `Regime` and
+`Bars_Since_Flip` in `HHLL_MERGE_COLS`, and the only consumer today is
+`core/recommend.py` using the support/resistance levels. See the separate open
+item "nothing trades off HHLL yet" — this is its concrete use case.
+
+So the work is a new `Close_Is` value, not new maths:
+
+```
+Ticker  Side  Close_Is   Trigger_Price   Qty   Acct
+JOBY    BUY   HL         (blank)         50    171
+```
+
+Design points to settle:
+
+- **Which event arms it.** "The next HL" means a NEW pivot low labelled HL
+  appearing after the row was typed — not the fact that `Last_Label` is
+  currently HL, which may be weeks old. The row needs the label's *pivot
+  date* compared against its own `Date`, or it fires instantly on a stale
+  structure. This is the same class of bug as the P_BREAKOUT stored boundary.
+- **Confirmation lag is real.** A pivot is only confirmed once a later close
+  breaks structure, so the HL is recognised some bars *after* the low itself.
+  You are buying above the low, not at it. That is honest and worth stating on
+  the row rather than discovering later.
+- **An optional price bound.** `Trigger_Price` could stay blank, or act as a
+  ceiling — "buy the next HL, but only if it is under 6.40".
+
+#### 2. Chaining — fire row B only after row A fills
+
+> *"i need another 2 columns — 'To trigger Row Id' and 'trigger row id' …
+> this triggers only after earlier one was met and that order was placed and
+> was successful in Schwab."*
+
+The requirement is right. **I would suggest ONE column rather than two**, and
+he explicitly invited a better mechanism.
+
+| | |
+|---|---|
+| **His proposal** | `To_Trigger_Row_Id` on the parent, `Trigger_Row_Id` on the child |
+| **Suggested** | `After_Row_ID` on the child only |
+
+```
+Row_ID                  Side  Close_Is  Trigger_Price  After_Row_ID
+2026-10-14-JOBY-01      BUY   HL        (blank)        (blank)      ← arms now
+2026-10-14-JOBY-02      SELL  ABOVE     7.20           2026-10-14-JOBY-01
+```
+
+**Why one column and not two.** Two columns encode the same link from both
+ends, so they can disagree — if the parent says "I trigger row 5" and row 5
+says "I wait for row 2", there is no right answer and the engine has to pick
+one. One column cannot contradict itself. The chain is still fully
+discoverable: to find what a row triggers, look for rows pointing at it.
+
+**Use `Row_ID`, not a hand-numbered 1 / 2 / 3.** His sketch used `value 1`,
+which creates a second namespace he has to keep unique by hand across a tab
+that grows forever and gets rows deleted. `Row_ID` already exists, is stamped
+by Pi 1, and is unique by construction.
+
+**Both blank for ordinary rows**, exactly as he said — an unchained row arms
+immediately, which is today's behaviour unchanged.
+
+Rules this needs, none optional:
+
+| rule | why |
+|---|---|
+| parent must be **FILLED**, not SUBMITTED | his words: *"was placed and was successful"*. A resting GTC limit may never fill; arming the child on submission would fire a sell for shares never bought. |
+| parent VOID / EXPIRED / BLOCKED ⇒ child **VOIDs too** | otherwise the child waits forever on something that can no longer happen, which is a dead row that looks armed |
+| parent partially filled ⇒ child arms for the **filled quantity** | or it sells more than was bought |
+| **loop detection** at validation | A→B→A must be refused when typed, not discovered at 13:15 |
+| chain depth cap (3?) | a long chain is far more likely a paste error than an intention |
+| the child shows **WAITING ON `<row>`** in Status | an armed-looking row that cannot fire yet is the Dashboard's recurring failure in miniature |
+
+**Natural fit with `P_BREAKOUT` and the structure triggers**: "buy the next
+HL, then rest a trim 1 ATR above the fill" is two rows and one link, and the
+trim's price can be derived from the parent's actual fill rather than typed
+blind.
+
+**Cost.** The column is cheap now that `orders_columns.py` resolves names from
+the header. The engine work is a pre-pass marking chained rows as not-yet-
+armed, plus reading the parent's fill from the ledger — which `trade_history`
+and the order ledger already record.
+
 ### 🐞 DEFECT — the daily evaluation window can lose a bar
 Timer runs 06:00–13:30 PT; trigger evaluation only fires after 13:15, roughly
 four cycles. If the price fetch fails through 13:30 the rows correctly stay
@@ -639,6 +733,58 @@ read-only deploy keys, via SSH host aliases `github-jobmytrading-ro` and
 `github-botsmytrading-ro`, and both pull cleanly. Separate from Pi 2's
 `github-agents` identity, which has write on `myTrading` — read-only here was a
 deliberate constraint, not a convenience.
+
+### 🐞 DEFECT — the ONDO bot destroyed 96% of a position by churning it
+Investigated on-chain 2026-10-14 after Chakravarti said *"This is friggin my
+Ondo wallet — something crazy going on & I lost lot of money here."*
+
+Wallet `0xD4847c8975C237a62EaCffE51574E0533b74F043`, Ethereum mainnet.
+
+**Not a drain, and not fees.** Nonce 84 — eighty-four transactions in a year,
+where a drainer shows thousands. Ordinary EOA, not a contract. Every
+counterparty is legitimate: Uniswap SwapRouter02, UniversalRouter, 0x
+AllowanceHolder. **Total gas for the year: 0.006670 ETH ≈ $16.78.**
+
+The money went to CHURN:
+
+| | |
+|---|---|
+| deposited Oct–Nov 2025 — 1,434.51 ONDO @ $0.82 / $0.69 + 186.51 USDC | **$1,318.94** |
+| if simply held, at ONDO $0.4687 | **$858.90** |
+| actually there on 2026-10-14 | **$34.48** |
+
+```
+lost to ONDO's price falling     $460.04     the market
+lost to the BOT trading          $824.42     ← the defect
+gas                               $16.78
+```
+
+5,494 ONDO bought and 5,437 sold across 38 transfers — the same position
+round-tripped over and over, paying spread and slippage each time on a token
+with thin liquidity. One swap in his screenshot netted **0.00037 USDC**: a
+trade too small to cover its own slippage, which the bot placed anyway.
+
+**Likely the same fault on every low-liquidity pair**, not ONDO specifically.
+Worth checking the other bots' wallets the same way before concluding this is
+one bad ticker. What a fix needs:
+
+- a **minimum trade size** — below it, skip rather than churn
+- a **slippage/round-trip cost model** in the rebalance decision, so a signal
+  worth less than the cost of acting on it does not act
+- 41 of the 84 transactions were `approve` on ONDO alone. Approving once
+  (or via Permit2) rather than per-trade would cut transaction count by
+  roughly half, even though the gas is small.
+
+**Separately, a standing risk:** an **unlimited USDC approval to Permit2** and
+a near-unlimited ONDO approval are open on that wallet. Permit2 is legitimate
+Uniswap infrastructure, not an active threat — but an unlimited standing
+approval is the mechanism by which a phished signature later empties a wallet.
+Revoke at revoke.cash.
+
+**Also present and harmless if untouched:** unsolicited scam airdrops — `EꓔH`
+(Cherokee ꓔ impersonating ETH), `CAT`, `DOG`, `KING`, `NOODLE`, `ZIK`, and one
+named *"Visit website ondoearn .org to claim rewards"*. Received only, never
+interacted with. Selling or approving one is the trap; leave them.
 
 ### 💡 IDEA — daily log scan and failure report
 Parse the logs, decide what "failing" means, report. First make it work by hand
@@ -890,7 +1036,7 @@ showing the most recent 400.
 
 <details><summary>The original design, which this replaced</summary>
 
-### 🐞 WAS OPEN — the History tab is created and never written
+### ✅ SUPERSEDED — the History tab is created and never written
 `orders_sheet_init.py` builds it with `Orders` columns plus `Completed_At` and
 `Outcome`. **Nothing writes to it** — zero code references outside the
 creation call. The design intent was that a finished row (FILLED, CANCELLED,
