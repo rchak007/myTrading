@@ -162,6 +162,11 @@ PY_VERBS = {
     "close":        (True,  False),
     "apply_fills":  (False, False),
     "reserves":     (False, False),
+    # Rebuild the sheet tabs now instead of waiting for :15 / :50. Launches
+    # detached and returns at once — see _run_signals for why it must not
+    # block the poller. Places no orders and moves no money; it recomputes
+    # signals and rewrites the read-only tabs.
+    "run_signals":  (False, False),
 }
 
 
@@ -260,8 +265,66 @@ def run_pyverb(verb: str, arg: str) -> tuple[int, str]:
                    f"marked FAIL rather than left stranded on RUNNING.")
 
 
+def _run_signals() -> tuple[int, str]:
+    """Kick off jobStocksSignals and return AT ONCE.
+
+    Chakravarti, 2026-10-14: *"many time when we update the excel sheet we
+    need this."* The Dashboard, Positions, Cash and the reserve tables are
+    only rebuilt at :15 and :50, Mon-Fri 01-16h, so an edit made at 17:00 is
+    invisible until 01:15 the next morning.
+
+    DETACHED, NOT WAITED ON. The job takes 9-10 minutes and run_verb() uses a
+    blocking subprocess.run — holding the poller for ten minutes would stall
+    every other verb behind it and overlap the next poll. setsid --fork
+    returns immediately; the job's own logging is the progress report.
+
+    flock -n, NOT -w. The scheduled run takes the same lock. Queueing behind
+    it would mean a second full pass starting the moment the first ended, for
+    no benefit — if it is already running, the rebuild he wants is already
+    happening. Reported, not silently skipped.
+    """
+    import shutil
+    import subprocess as sp
+
+    lock = Path(os.getenv("MYTRADING_JOB_LOCK", "/tmp/jobmytrading.lock"))
+    py = REPO / ".venv" / "bin" / "python"
+    job = REPO / "jobStocksSignals.py"
+    if not py.exists():
+        return 1, f"no interpreter at {py}"
+    if not job.exists():
+        return 1, f"no {job.name} in {REPO}"
+    for tool in ("setsid", "flock"):
+        if not shutil.which(tool):
+            return 1, f"{tool} is not installed — cannot start detached"
+
+    # Is it already running? flock -n on a subshell that exits immediately
+    # tells us without waiting and without disturbing the holder.
+    busy = sp.run(["flock", "-n", str(lock), "true"],
+                  capture_output=True).returncode != 0
+    if busy:
+        return 0, ("already running — the job lock is held, so a rebuild is "
+                   "in progress right now.\n"
+                   "Watch it with:   tail_log  stocks")
+
+    sp.Popen(["setsid", "--fork", "flock", "-n", str(lock),
+              str(py), str(job), "--no-push"],
+             cwd=str(REPO), stdin=sp.DEVNULL,
+             stdout=sp.DEVNULL, stderr=sp.DEVNULL, start_new_session=True)
+    audit(event="signals_started", verb="run_signals")
+    return 0, ("started jobStocksSignals in the background.\n\n"
+               "It takes 9-10 minutes and rewrites Positions, Cash, Dashboard "
+               "and the reserve tables.\n"
+               "This row is DONE as soon as it LAUNCHED — it does not wait "
+               "for the job to finish.\n\n"
+               "Progress:   tail_log  stocks\n"
+               "Finished when that log shows '⏱ Total runtime'.")
+
+
 def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
     import schwab_auth
+
+    if verb == "run_signals":
+        return _run_signals()
 
     if verb == "seed":
         return _run_seed(arg)

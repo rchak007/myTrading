@@ -22,6 +22,7 @@ All times Pacific. `flock` prevents two jobs writing the same files at once.
 |---|---|---|---|
 | `:00` hourly | `jobCryptoSignals.py` | `crypto_signals.csv` | `-w 600` waits |
 | `:15`, `:50` Mon–Fri, 01–16h | `jobStocksSignals.py` | signals, orders, cash, reserves CSVs + **both sheet tabs** | `-w 600` waits |
+| *on demand* | `run_signals` verb → `jobStocksSignals.py` | the same, launched detached from the ops sheet | `-n` skips if already running |
 | `*/5` | `gitpush.py` | pushes `jobMyTrading` to GitHub | `-n` skips |
 | `*/15` | `gitpush.py bots` | pushes `botsMyTrading` | `-n` skips (bots lock) |
 | `*/1` | `remote_ops.py` | ops sheet results | own lock, `-n` |
