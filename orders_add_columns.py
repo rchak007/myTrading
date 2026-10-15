@@ -56,17 +56,32 @@ def _load_env() -> None:
 
 
 def open_tab(write: bool):
+    """The Orders tab, and a word on which identity opened it.
+
+    FOR A WRITE, this goes through order_engine.open_orders_tab() — the same
+    call the engine itself makes every cycle, with the same credential order
+    (REMOTE_OPS_CREDS, else /etc/myTrading/gsheets-ops.json) and the same
+    read-write scope. Inventing a second credential chain here is how the
+    migration ends up authenticating as a different, read-only identity than
+    the engine that has to live with the result.
+
+    For a dry run it falls back to the reader key, so Pi 2 — which holds only
+    a read-only identity, deliberately — can still report what is missing.
+    """
+    if write:
+        from order_engine import open_orders_tab
+        return open_orders_tab(), "order_engine.open_orders_tab()"
+
     import gspread
     from google.oauth2.service_account import Credentials
-    scope = ("https://www.googleapis.com/auth/spreadsheets" if write else
-             "https://www.googleapis.com/auth/spreadsheets.readonly")
-    creds = (os.getenv("GSHEET_WRITER_CREDS") or os.getenv("REMOTE_OPS_CREDS")
-             or os.getenv("GSHEET_READER_CREDS"))
+    creds = (os.getenv("GSHEET_READER_CREDS") or os.getenv("REMOTE_OPS_CREDS")
+             or os.getenv("GSHEET_CREDS"))
     if not creds:
         raise RuntimeError("no sheet credentials in the environment")
-    c = Credentials.from_service_account_file(creds, scopes=[scope])
+    c = Credentials.from_service_account_file(
+        creds, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"])
     book = gspread.authorize(c).open_by_key(os.environ["GSHEET_ORDERS_ID"])
-    return book.worksheet("Orders"), creds
+    return book.worksheet("Orders"), Path(creds).name
 
 
 def main() -> int:
@@ -83,7 +98,7 @@ def main() -> int:
         print(f"⛔ cannot read the Orders tab: {type(e).__name__}: {e}")
         return 1
 
-    print(f"credentials : {Path(creds).name}")
+    print(f"opened via  : {creds}")
     print(f"header row  : {oco.HEADER_ROW}, {cols.width()} columns")
     missing = cols.missing(oco.HUMAN)
     if not missing:
