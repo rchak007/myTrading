@@ -289,5 +289,38 @@ check("a missing column RAISES rather than guessing an offset",
 check("the letter helper survives past Z", oco.letter(26) == "AA"
       and oco.letter(0) == "A" and oco.letter(25) == "Z")
 
+print("\n── a ticker with an open order but no position still gets a row ──")
+# ARM and AAOI, 2026-10-14: resting BUYs in 171 holding $4,106 of cash, and
+# invisible on the Dashboard because nothing was held. That $4,106 was
+# exactly the part of 171's Cash_In_Open_Orders that could not be accounted
+# for from the Dashboard.
+import pandas as _pd                                       # noqa: E402
+from orders_sheet import build_positions_table as _bpt      # noqa: E402
+_pos = _pd.DataFrame([{"Acct": "171", "Ticker": "MSTR", "Qty": 100,
+                       "Avg_Cost": 120.0, "Market_Value": 14178.0,
+                       "Unrealized_PL": 2178.0}])
+_od = _pd.DataFrame([{"Account": "...171", "Ticker": t, "Side": "Buy",
+                      "Status": "WORKING", "Remaining_QTY": q, "QTY": q,
+                      "Limit_Price": px, "Stop_Price": None,
+                      "Est_Value": q * px, "Asset_Type": "EQUITY"}
+                     for t, q, px in (("MSTR", 26, 119.0), ("ARM", 13, 172.0),
+                                      ("AAOI", 10, 82.0))])
+_out = _bpt(_pos, orders_df=_od, log=lambda *a: None)
+_t = set(_out["Ticker"])
+check("an order-only ticker appears", {"ARM", "AAOI"} <= _t, str(sorted(_t)))
+check("...with Qty 0, which is the honest number",
+      all(float(r.Qty) == 0 for _, r in
+          _out[_out.Ticker.isin(["ARM", "AAOI"])].iterrows()))
+check("a held ticker is unaffected",
+      float(_out[(_out.Ticker == "MSTR")].iloc[0].Qty) == 100.0)
+check("no duplicate row for a ticker that is both held AND has an order",
+      len(_out[_out.Ticker == "MSTR"]) == 1)
+# A filled or cancelled order must not resurrect a ticker forever.
+_closed = _od.assign(Status="FILLED")
+check("a CLOSED order does not create a row",
+      "ARM" not in set(_bpt(_pos, orders_df=_closed, log=lambda *a: None)["Ticker"]))
+check("no orders at all behaves as before",
+      set(_bpt(_pos, orders_df=None, log=lambda *a: None)["Ticker"]) == {"MSTR"})
+
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 raise SystemExit(1 if FAILED else 0)

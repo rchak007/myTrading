@@ -383,16 +383,51 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
     # multi-account ticker had one.
     held = {(str(r["Acct"]), str(r["Ticker"]).upper())
             for _, r in positions_df.iterrows()}
-    ghosts = [{"Ticker": t, "Acct": a, "Qty": 0.0, "Avg_Cost": 0.0,
-               "Market_Value": 0.0, "Unrealized_PL": 0.0}
-              for (a, t), amt in sorted((reserves).items())
+    def _ghost(a, t):
+        return {"Ticker": t, "Acct": a, "Qty": 0.0, "Avg_Cost": 0.0,
+                "Market_Value": 0.0, "Unrealized_PL": 0.0}
+
+    ghosts = [_ghost(a, t) for (a, t), amt in sorted(reserves.items())
               if (a, t) not in held and _num(amt)]
-    if ghosts:
-        positions_df = pd.concat([positions_df, pd.DataFrame(ghosts)],
-                                 ignore_index=True)
-        log(f"{len(ghosts)} fenced pair(s) with cash but no position: "
-            + ", ".join(f"{a}/{t}" for t, a in
-                        ((g["Ticker"], g["Acct"]) for g in ghosts)))
+    seen = held | {(g["Acct"], g["Ticker"]) for g in ghosts}
+
+    # AN OPEN ORDER ALSO NEEDS A BLOCK, even with nothing held. Chakravarti,
+    # 2026-10-14, on ARM and AAOI: *"i dont hold anything so its not showing
+    # on Dashboard. but i need you to show that since order is there."*
+    #
+    # He is right, and a resting BUY is the case that matters most: the cash
+    # is already committed, the order can fill at any moment, and the ticker
+    # was invisible on the one page meant to show everything. Qty 0 is honest
+    # — it says the order exists and the position does not.
+    order_only = []
+    if orders_df is not None and not getattr(orders_df, "empty", True):
+        try:
+            from stocks_orders import OPEN_STATUSES
+            od = orders_df
+            if "Status" in od.columns:
+                od = od[od["Status"].astype(str).str.upper().isin(OPEN_STATUSES)]
+            for a, t in {(acct_key(r.get("Account")),
+                          str(r.get("Ticker") or "").strip().upper())
+                         for _, r in od.iterrows()}:
+                if a and t and (a, t) not in seen:
+                    order_only.append(_ghost(a, t))
+                    seen.add((a, t))
+        except Exception as e:
+            # Never let this cost the whole table. A missing block is a
+            # smaller failure than no Dashboard.
+            log(f"⚠️  could not add order-only tickers: {e}")
+
+    if ghosts or order_only:
+        positions_df = pd.concat(
+            [positions_df, pd.DataFrame(ghosts + order_only)],
+            ignore_index=True)
+        if ghosts:
+            log(f"{len(ghosts)} fenced pair(s) with cash but no position: "
+                + ", ".join(f"{g['Acct']}/{g['Ticker']}" for g in ghosts))
+        if order_only:
+            log(f"{len(order_only)} ticker(s) with an open order but no "
+                f"position: "
+                + ", ".join(f"{g['Acct']}/{g['Ticker']}" for g in order_only))
     out = []
 
     for ticker in sorted(positions_df["Ticker"].unique()):
