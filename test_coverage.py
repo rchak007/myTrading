@@ -322,5 +322,43 @@ check("a CLOSED order does not create a row",
 check("no orders at all behaves as before",
       set(_bpt(_pos, orders_df=None, log=lambda *a: None)["Ticker"]) == {"MSTR"})
 
+print("\n── the INDICATORS section ──")
+# Everything jobStocksSignals computes, grouped so it can be read rather than
+# dumped as a 57-column wall.
+from orders_sheet import _ind_rows, IND_GROUPS, DASH_WIDTH   # noqa: E402
+_sig = _pd.DataFrame([{
+    "Ticker": "AAPL", "ATH": 348.15, "ATH_Dist_Pct": -1.77, "RSI": 60.59,
+    "ATR": 6.53, "Supertrend": 325.13, "Supertrend Signal": "BUY",
+    "Regime": "BEAR", "Structure": "MIXED", "Last_Label": "HH",
+    "Last_Label_Confirmed": "2026-10-15", "Score_Weighted": 44,
+    "Benter_Rating": 8.5, "Benter_Band": "BUY", "Volume": 39678300}])
+_r = _ind_rows("AAPL", _sig, DASH_WIDTH)
+check("it produces rows", len(_r) >= 2, str(len(_r)))
+check("every row is exactly the dashboard width",
+      all(len(x) == DASH_WIDTH for x in _r), str({len(x) for x in _r}))
+check("rows come in header/value PAIRS", len(_r) % 2 == 0, str(len(_r)))
+# The alignment that matters: a name and its number in the same column.
+_h, _v = _r[0], _r[1]
+_cols = [i for i, n in enumerate(_h) if str(n).strip() and i > 1]
+check("each field name has its value in the SAME column",
+      all(str(_v[i]).strip() for i in _cols),
+      str([(i, _h[i], _v[i]) for i in _cols]))
+check("the group label sits in column B and its value cell is blank",
+      str(_h[1]).strip() and not str(_v[1]).strip(), f"{_h[1]!r}/{_v[1]!r}")
+check("Benter_Rating is carried", any("Benter" in str(c) for r in _r for c in r))
+# A field the CSV does not have must be skipped, not shown as an empty cell a
+# reader cannot tell from a real zero.
+_thin = _pd.DataFrame([{"Ticker": "AAPL", "RSI": 60.59}])
+_tr = _ind_rows("AAPL", _thin, DASH_WIDTH)
+check("absent columns are skipped, not blanked",
+      all("MRC_R1" not in str(c) for r in _tr for c in r), str(_tr))
+check("an unknown ticker gets nothing",
+      _ind_rows("ZZZZ", _sig, DASH_WIDTH) == [])
+check("no signals frame gets nothing",
+      _ind_rows("AAPL", None, DASH_WIDTH) == []
+      and _ind_rows("AAPL", _pd.DataFrame(), DASH_WIDTH) == [])
+check("every group references real field names",
+      all(isinstance(c, str) and c for _g, fs in IND_GROUPS for _l, c in fs))
+
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 raise SystemExit(1 if FAILED else 0)

@@ -858,6 +858,87 @@ def _rec_for(ticker, price, signals_df, is_fenced):
     return recommend_row(row0, fenced=is_fenced, price=price), row0
 
 
+# INDICATORS — everything jobStocksSignals computes, per ticker.
+# Chakravarti, 2026-10-16: *"create another section called Indicators ... so
+# just put everything from the JobStocksSignal that we currently have"*.
+#
+# Grouped rather than dumped. 57 columns in one row is a thing nobody reads;
+# five labelled groups of related fields is something you can scan. Each
+# group renders as a header line of names and a line of values, the same
+# shape the RECOMMENDED block already uses.
+#
+# Names on the LEFT of each pair are the CSV's own column names, not
+# prettified ones — so a number on the Dashboard can be traced straight back
+# to stocks_signals.csv without a translation table.
+IND_GROUPS = [
+    ("RATING", [("Benter", "Benter_Rating"), ("Band", "Benter_Band"),
+                ("Gap_%", "Benter_Gap_%"), ("Score_W", "Score_Weighted"),
+                ("Regime_Action", "Regime_Action"), ("Macro", "Macro_Regime"),
+                ("Signal", "SIGNAL-Super-MOST-ADXR"),
+                ("Sell_Order", "SELL_ORDER"), ("Earnings", "Earnings_Alert"),
+                ("Mkt_Cap_M", "Market_Cap_M")]),
+    ("TREND", [("Supertrend", "Supertrend"), ("ST_Sig", "Supertrend Signal"),
+               ("MOST_MA", "MOST MA"), ("MOST_Line", "MOST Line"),
+               ("MOST_Sig", "MOST Signal"), ("ADXR", "ADXR State"),
+               ("ADXR_Sig", "ADXR Signal"), ("ST+Vol", "Supertrend+Vol Signal"),
+               ("Combined", "Combined Signal"), ("Full", "Full Combined")]),
+    ("LEVELS", [("ATH", "ATH"), ("ATH_Dist_%", "ATH_Dist_Pct"),
+                ("MRC_Zone", "MRC_Zone"), ("MRC_Dist_%", "MRC_Dist_Pct"),
+                ("MRC_R2", "MRC_R2"), ("MRC_R1", "MRC_R1"),
+                ("MRC_Mean", "MRC_Mean"), ("MRC_S1", "MRC_S1"),
+                ("MRC_S2", "MRC_S2"), ("RSI", "RSI")]),
+    ("STRUCTURE", [("Regime", "Regime"), ("Structure", "Structure"),
+                   ("Last_Label", "Last_Label"),
+                   ("At", "Last_Label_Price"),
+                   ("Confirmed", "Last_Label_Confirmed"),
+                   ("Prev", "Prev_Label"), ("Prev_At", "Prev_Label_Price"),
+                   ("Support", "Nearest_Support"),
+                   ("Resistance", "Nearest_Resistance"),
+                   ("Bars_Flip", "Bars_Since_Flip")]),
+    ("MOMENTUM", [("ATR", "ATR"), ("RET30_%", "%RET30"), ("RET60_%", "%RET60"),
+                  ("RET90_%", "%RET90"), ("RET120_%", "%RET120"),
+                  ("Score30", "Score_30"), ("Score60", "Score_60"),
+                  ("Score90", "Score_90"), ("Score120", "Score_120"),
+                  ("Volume", "Volume")]),
+]
+
+
+def _ind_rows(ticker, signals_df, width):
+    """[[label, name...], [.., value..]] x group, for one ticker.
+
+    [] when the ticker has no signals row — an empty section says nothing a
+    reader would mistake for a reading of zero.
+
+    A field the CSV does not carry is SKIPPED rather than shown blank, so the
+    section shrinks honestly as columns come and go instead of growing a rail
+    of empties nobody can tell from a real zero.
+    """
+    if signals_df is None or getattr(signals_df, "empty", True):
+        return []
+    try:
+        hit = signals_df[signals_df["Ticker"].astype(str).str.upper()
+                         == str(ticker).upper()]
+        if hit.empty:
+            return []
+        row = hit.iloc[0]
+    except Exception:
+        return []
+
+    out = []
+    for label, fields in IND_GROUPS:
+        pairs = [(lbl, row.get(col)) for lbl, col in fields
+                 if col in signals_df.columns]
+        pairs = [(lbl, v) for lbl, v in pairs
+                 if v is not None and str(v).strip() not in ("", "nan", "None")]
+        if not pairs:
+            continue
+        head = ["", label] + [lbl for lbl, _ in pairs]
+        vals = ["", ""] + [v for _, v in pairs]
+        out.append(head[:width] + [""] * max(0, width - len(head)))
+        out.append(vals[:width] + [""] * max(0, width - len(vals)))
+    return out
+
+
 def _rec_rows(ticker, price, signals_df, is_fenced, pos_width,
               rec=None, row0=None):
     """The two RECOMMENDED lines for one block: headers, then levels.
@@ -943,7 +1024,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     # unprotected holding should be impossible to scroll past.
     marks = {"ticker": [], "label": [], "header": [], "title": [],
              "warn": [], "rec": [], "warn_row": [], "chitra": [],
-             "intent": [], "option": []}
+             "intent": [], "option": [], "ind": []}
 
     # Which (acct, ticker) have a resting BUY — so a seed waiting to be spent
     # by one can be painted yellow rather than looking freely available.
@@ -1139,6 +1220,19 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
 
         if legs.empty and wait.empty and not opt_legs:
             add(["", "— no open orders —"])
+
+        # INDICATORS, after the orders. Everything jobStocksSignals computed
+        # for this ticker, grouped so it can be read rather than dumped as a
+        # 57-column wall.
+        ind_lines = _ind_rows(ticker, signals_df, DASH_WIDTH)
+        if ind_lines:
+            add([])
+            marks["label"].append(add(["", "INDICATORS"]))
+            for i, line in enumerate(ind_lines):
+                r = add(line)
+                # Even rows are the field NAMES, odd are the values — the
+                # names get the header tint so the pairs stay legible.
+                (marks["header"] if i % 2 == 0 else marks["ind"]).append(r)
         add([])
         add([])
 
@@ -1234,6 +1328,13 @@ def _paint(ws, marks, log):
                        "textFormat": {"bold": True,
                                       "foregroundColor": {"red": 0.60, "green": 0.15,
                                                           "blue": 0.0}}})
+        if marks.get("ind"):
+            # Faint grey. Indicators are reference, not something to act on —
+            # they should read as background behind the orders above them,
+            # not compete with the yellow warnings for attention.
+            ws.format([f"B{r}:{_last_col()}{r}" for r in marks["ind"]],
+                      {"backgroundColor": {"red": 0.96, "green": 0.96,
+                                           "blue": 0.98}})
         if marks.get("option"):
             # Amber: an obligation, not an order you placed and can simply
             # cancel. A short call will be exercised against you if it is in
@@ -1285,6 +1386,23 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
 
     rows, marks = build_dashboard(positions, orders_df, quotes, fenced,
                                   signals_df, chitra_rows, intents_df, options)
+
+    # GROW THE TAB BEFORE WRITING. It is created with 1000 rows, and the
+    # INDICATORS section added ~10 rows per ticker — 1,350 across the list —
+    # which puts the Dashboard well past that. A write past the end does not
+    # fail cleanly; it truncates, and the tab simply stops partway through a
+    # ticker with nothing saying why. Exactly the History tab's bug, found
+    # before it shipped this time.
+    #
+    # Only ever grows. Shrinking would discard rows on a short read.
+    need = len(rows) + 50
+    try:
+        if int(getattr(ws, "row_count", 0) or 0) < need:
+            ws.resize(rows=need)
+            log(f"Dashboard grown to {need} rows")
+    except Exception as e:
+        log(f"⚠️  could not resize the Dashboard: {e}")
+
     ws.clear()
     ws.update(values=rows, range_name=f"A1:{_last_col()}{len(rows)}")
     ws.freeze(rows=0)
