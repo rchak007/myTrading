@@ -204,7 +204,7 @@ def benter() -> Path:
     enough relative to what it is worth. A name can pass one and fail the
     other — the doc's own AAPL example is exactly that.
     """
-    w, h = 1600, 470
+    w, h = 1600, 500
     img = Image.new("RGB", (w, h), BG)
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, 14, h], fill=VIOLET)
@@ -219,13 +219,22 @@ def benter() -> Path:
     d.text((78, 278), "in   myTrading / Documentation", font=font(27),
            fill=MUTED, anchor="lm")
 
-    d.line([(78, 322), (w - 78, 322)], fill=LINE, width=2)
-    d.text((78, 368),
+    d.line([(78, 318), (w - 78, 318)], fill=LINE, width=2)
+    d.text((78, 360),
            "Don't pick winners — find where YOUR probability beats the price.",
            font=font(31, True), fill=WHITE, anchor="lm")
-    d.text((78, 424),
-           "Only act on a real gap.   Size for uncertainty.   "
-           "Consensus targets are not an edge.",
+    # The scoring scale is on the tile because it is the bit that gets
+    # skipped: an analysis without a number can hedge forever.
+    # MEASURED, not a guessed offset. A fixed 452px put the scale on top of
+    # the label the first time — textlength is the only way to know.
+    lead, lf = "End every one with a SCORE /10", font(29, True)
+    d.text((78, 410), lead, font=lf, fill=AMBER, anchor="lm")
+    d.text((78 + d.textlength(lead, font=lf) + 26, 410),
+           "10 clean buy  ·  5 neutral  ·  0 don't buy",
+           font=font(27), fill=WHITE, anchor="lm")
+    d.text((78, 450),
+           "Pay for uncertainty: a big gap on an unproven thesis is not a big "
+           "score.",
            font=font(25), fill=MUTED, anchor="lm")
 
     img.save(OUT_BENTER, optimize=True)

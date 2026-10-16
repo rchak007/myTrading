@@ -237,7 +237,106 @@ For every stock we examined, the process was:
   - Strongest public-model gaps: **NVDA**, **AVGO**, then **GOOGL** and **MRVL**.
   - Modest or contested: **TSLA**, **SPCX**.
   - Little/no gap: **AAPL**.
+- **Every analysis ends with a score out of 10** — see §7. 10 is a clean buy,
+  5 is neutral, 0 is a clear don't buy.
 - The framework is most useful as a **screening and discipline tool**, not as a mechanical buy signal. The real work is improving the quality of your probability estimates over time.
+
+---
+
+## 7. The Final Take — a score out of 10
+
+*Added 2026-10-16 at Chakravarti's request: every analysis must end with one
+number.*
+
+> **10 = clean buy · 5 = neutral · 0 = clear don't buy**
+
+A written conclusion can hedge forever. A number cannot — it forces the
+analysis to commit, and it makes two names comparable at a glance.
+
+### How to arrive at the number
+
+The score is the doc's two axes combined: **how big is the gap**, and **how
+much do you trust it**. Start from the gap, then pay for uncertainty.
+
+**Step 1 — base score from the gap** (upside to your probability-weighted
+value, or to consensus if that is all you have):
+
+| Gap | Base |
+|---|---|
+| > 40% | 8 |
+| 25 – 40% | 7 |
+| 15 – 25% | 6 |
+| 5 – 15% | 5 |
+| −5 – 5% | 3 |
+| < −5% (price above fair value) | 1 |
+
+**Step 2 — adjust for uncertainty**, which is the half people skip:
+
+| | |
+|---|---|
+| Low — predictable cash flows, tight range | **+1** |
+| Medium | **0** |
+| High — cyclical, competitive, execution-dependent | **−1** |
+| Very high — the thesis rests on something unproven | **−2** |
+
+**Step 3 — adjust for the shape of the disagreement:**
+
+| | |
+|---|---|
+| Strong Buy consensus *and* a relatively tight target range | **+1** |
+| Extreme spread, or a high average driven by two outliers | **−1** |
+
+Clamp to 0–10.
+
+### What each band means in practice
+
+| Score | Reading | What to do |
+|---|---|---|
+| **9–10** | Large gap, high confidence, little disagreement | Clean buy. Full size. |
+| **7–8** | Real gap, uncertainty understood and acceptable | Buy. Normal size. |
+| **6** | Gap present but thin, or confidence limited | Starter position, or wait for a better price. |
+| **5** | Fairly priced | Neutral. Hold what you own; no new money. |
+| **3–4** | Small gap carrying large risk, or a contested one | Don't buy. Not necessarily a sell. |
+| **0–2** | At or above fair value, or the thesis does not hold | Clear don't buy. Trim if held and sized up. |
+
+### The honest caveats
+
+- **The number is a summary of judgement, not a calculation.** The rubric
+  makes it repeatable, not objective. Two people will score the same stock
+  differently, and that is fine as long as *you* score consistently.
+- **Write the score down with the date and the inputs**, per §5's record step.
+  A score you cannot audit later teaches you nothing about your calibration.
+- **A 9 is rare and should feel rare.** If everything scores 8+, the rubric is
+  not being applied — most things most of the time are a 5.
+- **Score ≠ position size.** An 8 on a very high-uncertainty name still gets
+  sized smaller than an 8 on a predictable one. §5 step 5 governs size; this
+  governs whether to act at all.
+
+### The §4 examples, scored
+
+Using the same mid-October 2026 data — so these demonstrate the *scoring*, not
+a current view:
+
+| Stock | Gap | Base | Uncertainty | Disagreement | **Score** | Reading |
+|---|---|---|---|---|---|---|
+| **AVGO** | ~53% | 8 | High −1 | Strong Buy +1 | **8** | Buy |
+| **NVDA** | ~48–51% | 8 | High −1 | Strong Buy +1 | **8** | Buy |
+| **MRVL** | ~35–50% | 7 | High −1 | Strong/Mod +1 | **7** | Buy |
+| **GOOGL** | ~22–24% | 6 | Med-high −1 | Strong Buy +1 | **6** | Starter |
+| **MSFT** | ~10% | 5 | Medium 0 | Strong Buy +1 | **6** | Starter |
+| **AMD** | ~10–13% | 5 | High −1 | Strong Buy +1 | **5** | Neutral |
+| **SPCX** | ~50% | 8 | Very high −2 | Extreme spread −1 | **5** | Neutral |
+| **TSLA** | modest | 6 | Very high −2 | Wide range −1 | **3** | Don't buy |
+| **AAPL** | flat / negative | 2 | Medium 0 | Moderate Buy 0 | **2** | Don't buy |
+
+Note what the rubric does to **SPCX**: the largest Street gap in the table
+lands at a 5, because −2 for an early post-IPO thesis and −1 for a $75-to-$800
+target range is what "wide disagreement about an unproven business" costs. The
+headline gap alone would have made it a buy. That discount is the entire point
+of the method.
+
+And **TSLA at 3** is not a claim the company is bad — it says the gap on
+offer is too small for a valuation ~80% dependent on FSD and Optimus.
 
 ---
 
