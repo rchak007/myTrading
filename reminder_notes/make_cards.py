@@ -8,6 +8,7 @@ reminder email:
     03-pbd-structure.png   P / b / D market structure + the breakout rule
     04-buy-cheap.png       the one discipline his own data says he breaks
     05-catch-winners.png   a pointer to the 17-step doc, so it is not lost
+    06-benter-method.png   a pointer to the expected-value doc
 
     .venv/bin/python reminder_notes/make_cards.py
 
@@ -28,6 +29,7 @@ HERE = Path(__file__).resolve().parent
 OUT = HERE / "03-pbd-structure.png"
 OUT_CHEAP = HERE / "04-buy-cheap.png"
 OUT_WINNERS = HERE / "05-catch-winners.png"
+OUT_BENTER = HERE / "06-benter-method.png"
 W, H = 1600, 1120
 
 BG = (13, 13, 16)
@@ -38,6 +40,7 @@ RED = (239, 68, 68)
 GREEN = (74, 222, 128)
 AMBER = (250, 204, 21)
 TEAL = (45, 212, 191)
+VIOLET = (167, 139, 250)
 LINE = (55, 55, 62)
 
 F = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
@@ -193,6 +196,42 @@ def catch_winners() -> Path:
     return OUT_WINNERS
 
 
+def benter() -> Path:
+    """A POINTER, like 05. The method in one line, and where the doc lives.
+
+    It pairs with catch-winners rather than repeating it: that one asks
+    whether the business is good and early, this one whether the price is low
+    enough relative to what it is worth. A name can pass one and fail the
+    other — the doc's own AAPL example is exactly that.
+    """
+    w, h = 1600, 470
+    img = Image.new("RGB", (w, h), BG)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, 14, h], fill=VIOLET)
+
+    d.text((78, 96), "BENTER METHOD", font=font(76, True), fill=VIOLET,
+           anchor="lm")
+    d.text((78, 168), "Is the PRICE low enough for what it is worth?",
+           font=font(36), fill=WHITE, anchor="lm")
+
+    d.text((78, 232), "BENTER-METHOD.md", font=font(38, True), fill=AMBER,
+           anchor="lm")
+    d.text((78, 278), "in   myTrading / Documentation", font=font(27),
+           fill=MUTED, anchor="lm")
+
+    d.line([(78, 322), (w - 78, 322)], fill=LINE, width=2)
+    d.text((78, 368),
+           "Don't pick winners — find where YOUR probability beats the price.",
+           font=font(31, True), fill=WHITE, anchor="lm")
+    d.text((78, 424),
+           "Only act on a real gap.   Size for uncertainty.   "
+           "Consensus targets are not an edge.",
+           font=font(25), fill=MUTED, anchor="lm")
+
+    img.save(OUT_BENTER, optimize=True)
+    return OUT_BENTER
+
+
 if __name__ == "__main__":
-    for p in (main(), buy_cheap(), catch_winners()):
+    for p in (main(), buy_cheap(), catch_winners(), benter()):
         print(f"wrote {p.name:<24} ({p.stat().st_size/1024:.0f} KB)")
