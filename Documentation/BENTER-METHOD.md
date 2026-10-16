@@ -253,90 +253,139 @@ number.*
 A written conclusion can hedge forever. A number cannot — it forces the
 analysis to commit, and it makes two names comparable at a glance.
 
-### How to arrive at the number
+**This section describes what `core/benter.py` actually computes.** The score
+is produced automatically for every ticker as a `Benter_Rating` column
+alongside the other indicators; §8 covers the machinery. Doc and code are
+written to match so they cannot drift.
 
-The score is the doc's two axes combined: **how big is the gap**, and **how
-much do you trust it**. Start from the gap, then pay for uncertainty.
+### The two halves
 
-**Step 1 — base score from the gap** (upside to your probability-weighted
-value, or to consensus if that is all you have):
+```
+score  =  base(gap)  ×  confidence
+```
 
-| Gap | Base |
-|---|---|
-| > 40% | 8 |
-| 25 – 40% | 7 |
-| 15 – 25% | 6 |
-| 5 – 15% | 5 |
-| −5 – 5% | 3 |
-| < −5% (price above fair value) | 1 |
+**Base — from the size of the gap.** Interpolated, not banded, so a 23% gap
+and a 10% gap cannot land on the same number:
 
-**Step 2 — adjust for uncertainty**, which is the half people skip:
-
-| | |
-|---|---|
-| Low — predictable cash flows, tight range | **+1** |
-| Medium | **0** |
-| High — cyclical, competitive, execution-dependent | **−1** |
-| Very high — the thesis rests on something unproven | **−2** |
-
-**Step 3 — adjust for the shape of the disagreement:**
-
-| | |
-|---|---|
-| Strong Buy consensus *and* a relatively tight target range | **+1** |
-| Extreme spread, or a high average driven by two outliers | **−1** |
-
-Clamp to 0–10.
-
-### What each band means in practice
-
-| Score | Reading | What to do |
+| Gap | Score (ordinary confidence) | |
 |---|---|---|
-| **9–10** | Large gap, high confidence, little disagreement | Clean buy. Full size. |
-| **7–8** | Real gap, uncertainty understood and acceptable | Buy. Normal size. |
-| **6** | Gap present but thin, or confidence limited | Starter position, or wait for a better price. |
-| **5** | Fairly priced | Neutral. Hold what you own; no new money. |
-| **3–4** | Small gap carrying large risk, or a contested one | Don't buy. Not necessarily a sell. |
-| **0–2** | At or above fair value, or the thesis does not hold | Clear don't buy. Trim if held and sized up. |
+| −10% | 0.0 | AVOID |
+| 0% | 3.0 | DON'T BUY |
+| 10% | 4.5 | NEUTRAL |
+| 20% | 6.0 | NEUTRAL |
+| 30% | 7.2 | BUY |
+| 40% | 8.4 | BUY |
+| **55 – 70%** | **9.5** | **CLEAN BUY** ← the sweet spot |
+| 100% | 7.0 | BUY |
+| 150% | 5.0 | NEUTRAL |
+| 250% | 3.0 | DON'T BUY |
 
-### The honest caveats
+**The curve PEAKS and then FALLS, and that is the most important thing in
+it.** A gap over ~70% is treated as a red flag rather than a bigger edge.
 
-- **The number is a summary of judgement, not a calculation.** The rubric
-  makes it repeatable, not objective. Two people will score the same stock
-  differently, and that is fine as long as *you* score consistently.
-- **Write the score down with the date and the inputs**, per §5's record step.
-  A score you cannot audit later teaches you nothing about your calibration.
-- **A 9 is rare and should feel rare.** If everything scores 8+, the rubric is
-  not being applied — most things most of the time are a 5.
-- **Score ≠ position size.** An 8 on a very high-uncertainty name still gets
-  sized smaller than an 8 on a predictable one. §5 step 5 governs size; this
+Running the real 135-ticker list made the reason obvious. A monotonic curve
+scored RCAT **7.1** on a 237% gap, ONDS **8.2** on 197%, STKE on 349% — $1-to-$6
+names where consensus claims the stock is worth three times the price. That
+is not a three-times edge. It means the anchor is not credible: either the
+analysts are modelling a lottery ticket, or the market is pricing a risk of
+zero that the target ignores. Benter needed a *better* probability estimate
+than the crowd's; a 237% disagreement with the crowd is overwhelmingly
+evidence that the estimate is wrong, not that the crowd is.
+
+**Confidence — a multiplier, measured, not asserted.** Scored by hand I gave
+NVDA, AVGO, AMD and MRVL all the same "high uncertainty". They are not
+equally uncertain. Three things the data already knows:
+
+| Input | What it catches | Costs when |
+|---|---|---|
+| **target spread** `(high − low) / mean` | the street has no shared view | above ~0.8 |
+| **ATR %** | how violently it actually moves | above ~3.2% |
+| **analyst count** | thin coverage | fewer than 5 |
+
+Each is pinned at 1.0 through the normal range and only bites in the tail —
+measured across the real list, spreads run 0.41–1.50 and ATR 1.9–6.8%. An
+earlier version charged for *ordinary* values and nothing could clear 6,
+which makes the top of a 10-point scale decoration.
+
+### What each band means
+
+| Score | Band | What to do |
+|---|---|---|
+| **9.0+** | CLEAN BUY | Large gap, high confidence. Full size. |
+| **7.0–8.9** | BUY | Real gap, uncertainty understood. Normal size. |
+| **6.0–6.9** | STARTER | Gap thin or confidence limited. Part size. |
+| **4.5–5.9** | NEUTRAL | Fairly priced. Hold what you own; no new money. |
+| **2.5–4.4** | DON'T BUY | Small gap for the risk. Not necessarily a sell. |
+| **< 2.5** | AVOID | At or above fair value. Trim if held and sized up. |
+
+### What the score CANNOT know
+
+- **Whether you already own the theme.** The top scores are usually the same
+  AI-semi trade, and the book is already AI-only by choice (see
+  `WALL-STREET-LEVEL-STOCK-ANALYSIS.md` PART C). `concentration_note()`
+  warns when the top names share a sector; acting on it is yours. Benter
+  never bet the same horse twice because the odds looked good in two races.
+- **Position size.** An 8 on a very-high-uncertainty name still gets sized
+  smaller than an 8 on a predictable one. §5 step 5 governs size; this
   governs whether to act at all.
+- **That consensus targets are not an edge.** Everybody sees them. A big gap
+  often just means targets have not caught up with price in either direction.
+  **This is a screen, not a conviction ranking.**
 
-### The §4 examples, scored
+### A worked comparison
 
-Using the same mid-October 2026 data — so these demonstrate the *scoring*, not
-a current view:
+Live, 2026-10-16, with the new scoring:
 
-| Stock | Gap | Base | Uncertainty | Disagreement | **Score** | Reading |
+| | Gap | Spread | ATR% | Conf | **Score** | |
 |---|---|---|---|---|---|---|
-| **AVGO** | ~53% | 8 | High −1 | Strong Buy +1 | **8** | Buy |
-| **NVDA** | ~48–51% | 8 | High −1 | Strong Buy +1 | **8** | Buy |
-| **MRVL** | ~35–50% | 7 | High −1 | Strong/Mod +1 | **7** | Buy |
-| **GOOGL** | ~22–24% | 6 | Med-high −1 | Strong Buy +1 | **6** | Starter |
-| **MSFT** | ~10% | 5 | Medium 0 | Strong Buy +1 | **6** | Starter |
-| **AMD** | ~10–13% | 5 | High −1 | Strong Buy +1 | **5** | Neutral |
-| **SPCX** | ~50% | 8 | Very high −2 | Extreme spread −1 | **5** | Neutral |
-| **TSLA** | modest | 6 | Very high −2 | Wide range −1 | **3** | Don't buy |
-| **AAPL** | flat / negative | 2 | Medium 0 | Moderate Buy 0 | **2** | Don't buy |
+| SE | 59% | 0.50 | 2.3 | 1.00 | **9.5** | CLEAN BUY |
+| STM | 61% | — | — | — | **8.7** | BUY |
+| NVDA | 51% | 1.02 | 2.8 | 0.92 | **8.5** | BUY |
+| MRVL | 41% | 0.71 | 6.8 | 0.80 | **6.4** | STARTER |
+| GOOGL | 23% | 0.41 | 2.5 | 1.00 | **6.3** | STARTER |
+| SPCX | 49% | 1.50 | 4.9 | 0.68 | **6.2** | STARTER |
+| MSFT | 11% | 0.72 | 2.1 | 1.00 | **4.6** | NEUTRAL |
+| TSLA | 10% | 1.19 | 2.9 | 0.86 | **3.9** | DON'T BUY |
+| AMD | 13% | 1.39 | 4.9 | 0.72 | **3.6** | DON'T BUY |
+| **RCAT** | **237%** | — | — | — | **2.3** | **AVOID** |
+| AAPL | −4% | 0.58 | 1.9 | 1.00 | **1.6** | AVOID |
 
-Note what the rubric does to **SPCX**: the largest Street gap in the table
-lands at a 5, because −2 for an early post-IPO thesis and −1 for a $75-to-$800
-target range is what "wide disagreement about an unproven business" costs. The
-headline gap alone would have made it a buy. That discount is the entire point
-of the method.
+MRVL at 6.4 rather than a hand-scored 7 comes entirely from its 6.8% ATR,
+the highest in the group — which also moves it closer to the house rule in
+`WALL-STREET-LEVEL-STOCK-ANALYSIS.md` that calls it *"worse value in-theme,
+strictly inferior to NVDA/AVGO in the same trade."*
 
-And **TSLA at 3** is not a claim the company is bad — it says the gap on
-offer is too small for a valuation ~80% dependent on FSD and Optimus.
+---
+
+## 8. Running It Automatically
+
+The rating is computed for every ticker each signals cycle, as
+`Benter_Rating`, `Benter_Band`, `Benter_Gap_%` and `Benter_Why`.
+
+**Slow and fast are split**, because they move at different speeds:
+
+| | changes | cost |
+|---|---|---|
+| analyst targets | days to weeks | one API call per ticker — refresh **weekly** |
+| price, ATR | every tick | already in the signals table — **free** |
+
+```
+.venv/bin/python benter_targets.py --refresh    # weekly, caches consensus
+.venv/bin/python benter_targets.py              # what is cached, and how old
+.venv/bin/python benter_targets.py --score      # cached targets vs live price
+```
+
+So each cycle re-scores a cached target against today's price. A week-old
+target against today's price is the honest combination — the target *is* a
+week old, and refetching it hourly would cost 135 calls to learn nothing.
+
+**Staleness is refused, not hidden.** Every cached row carries its fetch
+date, and a target older than 21 days is left unscored rather than rated off
+a consensus that predates an earnings report.
+
+**18 of 135 tickers have no rating**, and should not: GLD, SLV, IBIT, ARKB,
+BOTZ, COPX and the other ETFs have no analyst coverage. Blank is the honest
+answer.
 
 ---
 

@@ -474,6 +474,18 @@ def main(no_push: bool = False):
     except Exception as e:
         log(f"⚠️  ATH merge failed (continuing without it): {e}")
 
+    # ── 3c2. Benter expected-value rating (0-10) from cached analyst targets ──
+    # The targets are refreshed WEEKLY by benter_targets.py --refresh; this
+    # only re-scores them against today's price and ATR, which is the half
+    # that actually moves. Blank rather than wrong when a ticker has no
+    # coverage (ETFs) or the cache has gone stale.
+    try:
+        from benter_targets import attach as attach_benter
+        log("Scoring Benter expected value...")
+        df = attach_benter(df, log=log)
+    except Exception as e:
+        log(f"⚠️  Benter rating failed (continuing without it): {e}")
+
     # ── 3d. Decorate MRC_Zone with legend emoji (survives CSV / GitHub previews) ─
     # Done on the real df so the fund sub-tables (filtered below) inherit it.
     if "MRC_Zone" in df.columns:
