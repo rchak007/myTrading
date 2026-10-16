@@ -612,7 +612,18 @@ def main() -> int:
     # URGENT = nothing is trading, or will not be by tomorrow. A token with
     # three days left can wait for the daily digest; one expiring tonight
     # cannot, and the 20h throttle is what let the last one slip through.
-    urgent = (state in ("EXPIRED", "MISSING")
+    # A DEAD PI 1 IS URGENT. Added 2026-10-16: Pi 1 dropped off the network
+    # around 07:00 on a trading day and the sheet froze at 05:58. token_watch
+    # ran at 08:30, found the poll 2.5h old against a 3h threshold, said
+    # nothing — and was not due to look again until 18:30. A whole trading day
+    # with the engine down and no alert.
+    #
+    # Two things were wrong and both are fixed. The CADENCE is the real one —
+    # a watchdog that looks twice a day cannot report a morning failure before
+    # evening, so it now runs hourly through the window Pi 1 is scheduled in.
+    # And a stale poll is now urgent, so the 20-hour quiet throttle does not
+    # swallow every repeat while the machine is still down.
+    urgent = (state in ("EXPIRED", "MISSING") or stale
               or (days is not None and days <= URGENT_DAYS))
     if not args.force and not args.dry_run and recently_sent(urgent):
         print(f"already warned within "

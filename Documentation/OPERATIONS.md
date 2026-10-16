@@ -26,6 +26,7 @@ All times Pacific. `flock` prevents two jobs writing the same files at once.
 | `*/5` | `gitpush.py` | pushes `jobMyTrading` to GitHub | `-n` skips |
 | `*/15` | `gitpush.py bots` | pushes `botsMyTrading` | `-n` skips (bots lock) |
 | `*/1` | `remote_ops.py` | ops sheet results | own lock, `-n` |
+| `:05` hourly 01–17h Mon–Fri **on Pi 2** | `token_watch.py --from-sheet` | watches the LAST POLL header | was twice daily; a Pi 1 death at 07:00 went unreported until 18:30 |
 | `*/5` 01–16h Mon–Fri | `orders_sheet_prices.py` | `Live_Price`, `Day_%` | `-n` skips |
 | `04:30` daily | `build_pl_report.py` | `outputs/portfolio/*` | `-w 600` waits |
 | `05:00`, `17:00` Mon–Fri | `45_Signal.py` | 45° scan CSVs | scan unlocked, copy locked |
