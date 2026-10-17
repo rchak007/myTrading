@@ -1298,6 +1298,47 @@ def main() -> int:
             note_only(f"⏳ waiting — {why}")
             continue
 
+        # 5b. TURN DOLLARS INTO WHOLE SHARES, now that there is a price.
+        #     $730 and RESERVE cannot be resolved when the row is typed —
+        #     neither knows what a share will cost on the day it fires.
+        #
+        #     RESERVE is the one that closes the round trip: sell AAOI, the
+        #     proceeds land in that ticker's fenced reserve where nothing else
+        #     can spend them, and the buy-back spends exactly what came in.
+        #     This is also the first place available_to_buy() has ever been
+        #     consulted by the order path — PROJECT_PLAN §4 has carried "the
+        #     reserve gate is not wired in" as a defect since it was written.
+        kind = oc.qty_kind(n["Qty"])
+        if kind in ("dollars", "reserve"):
+            px_for_qty = _num_or_none(n["Limit_Price"]) or close
+            if kind == "dollars":
+                budget = float(n["Qty"].lstrip("$"))
+                src = f"${budget:,.2f} budget"
+            else:
+                import cash_reserve as cr
+                res = cr.available_to_buy(n["Acct"], n["Ticker"],
+                                          log=lambda *_: None)
+                if not res.get("allowed"):
+                    finish("BLOCKED",
+                           f"NO_RESERVE: {res.get('reason')}. A RESERVE row "
+                           f"needs the ticker fenced — until then there is no "
+                           f"pot to spend and no way to tell this apart from "
+                           f"spending the whole account.",
+                           trigger_close=f"{close:.2f}")
+                    continue
+                budget = float(res.get("available") or 0.0)
+                src = f"${budget:,.2f} reserved"
+            shares = int(budget // px_for_qty) if px_for_qty > 0 else 0
+            if shares <= 0:
+                finish("BLOCKED",
+                       f"BUDGET_TOO_SMALL: {src} buys 0 whole shares at "
+                       f"{px_for_qty:,.2f}. Blocked rather than rounded to "
+                       f"nothing.", trigger_close=f"{close:.2f}")
+                continue
+            _log(f"   {rid:<26} {src} ÷ {px_for_qty:,.2f} = {shares} share(s)")
+            note_only(f"▶ {src} ÷ {px_for_qty:,.2f} → {shares} whole share(s)")
+            n["Qty"] = f"{shares:.2f}"
+
         # 6. Triggered. Every guard again, now with the close.
         block = check_guards(n, close, n_sub, notional_today, acct_state)
         if block:

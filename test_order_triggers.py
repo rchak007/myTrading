@@ -238,5 +238,42 @@ check("staleness still applies to a multi-label row",
       not fired("HH/HL", 152.0, None, side="BUY", label="HL",
                 confirmed="2026-09-01", since="2026-10-01"))
 
+print("\n── Qty: shares, dollars, RESERVE, or inherited ──")
+# "If i sold below 73 then when i buy on the trigger row - i cant buy qty 10
+# since price would be higher." Ten shares out at $73 is $730; ten back at
+# $85 is $850 he does not have.
+_q = dict(Row_ID="2026-10-17-AAOI-02", Acct="171", Ticker="AAOI", Side="BUY",
+          Close_Is="HL HH", Trigger_Price="", Limit_Price="", Expires_On="")
+check("plain shares still work",
+      oc.normalize(dict(_q, Qty="10"))["Qty"] == "10.00"
+      and oc.qty_kind("10.00") == "shares")
+check("a dollar amount is kept as dollars",
+      oc.normalize(dict(_q, Qty="$730"))["Qty"] == "$730.00"
+      and oc.qty_kind("$730.00") == "dollars")
+# The dangerous one: _f2 strips "$", so without explicit handling $730 would
+# have become 730 SHARES — a 10x order on a $75 stock, silently.
+check("...NOT read as 730 shares",
+      oc.normalize(dict(_q, Qty="$730"))["Qty"] != "730.00")
+check("RESERVE is accepted, any case",
+      oc.normalize(dict(_q, Qty="RESERVE"))["Qty"] == "RESERVE"
+      and oc.normalize(dict(_q, Qty="reserve"))["Qty"] == "RESERVE")
+check("blank still means inherit, and still needs a parent",
+      oc.qty_kind("") == "inherit"
+      and not _ok(lambda: oc.normalize(dict(_q, Qty=""))))
+for bad in ("$0", "$-5", "0", "-3"):
+    check(f"Qty {bad!r} is refused",
+          not _ok(lambda b=bad: oc.normalize(dict(_q, Qty=b))))
+check("a RESERVE row changes the fingerprint vs 10 shares",
+      oc.fingerprint(dict(_q, Qty="RESERVE"))
+      != oc.fingerprint(dict(_q, Qty="10")))
+
+print("\n── dollars convert to WHOLE shares, never fractional ──")
+for budget, price, want in ((730.0, 85.0, 8), (730.0, 73.0, 10),
+                            (730.0, 800.0, 0), (100.0, 33.33, 3)):
+    got = int(budget // price)
+    check(f"${budget:,.0f} at {price} is {want} share(s)", got == want, str(got))
+check("it never rounds UP past the budget",
+      int(730.0 // 85.0) * 85.0 <= 730.0)
+
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 raise SystemExit(1 if FAILED else 0)

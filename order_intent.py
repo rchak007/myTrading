@@ -105,6 +105,21 @@ RE_TRIGGER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
 
 MAX_CHAIN_DEPTH = 3
 
+# Qty may say "spend whatever is fenced for this ticker" instead of a number.
+QTY_RESERVE = "RESERVE"
+
+
+def qty_kind(qty: str) -> str:
+    """"shares" | "dollars" | "reserve" | "inherit" — how to read a Qty."""
+    q = _s(qty)
+    if not q:
+        return "inherit"
+    if q.upper() == QTY_RESERVE:
+        return "reserve"
+    if q.startswith("$"):
+        return "dollars"
+    return "shares"
+
 # Row_ID is the replay key, so it must be a stable, typeable identity.
 RE_ROW_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$")
 RE_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -228,16 +243,43 @@ def normalize(intent: dict) -> dict:
             f"that has to fill first, or blank")
     out[CHAIN_FIELD] = after
 
-    qty = _f2(intent.get("Qty"))
-    if not qty:
-        if not after:
-            raise IntentError(
-                "Qty must be greater than zero — it may only be left blank on "
-                f"a chained row, where it inherits the parent's filled "
-                f"quantity ({CHAIN_FIELD} is empty here)")
-    elif float(qty) <= 0:
-        raise IntentError("Qty must be greater than zero")
-    out["Qty"] = qty
+    # QTY TAKES THREE FORMS. Chakravarti, 2026-10-17, on buying back what he
+    # sold: *"If i sold below 73 then when i buy on the trigger row - i cant
+    # buy qty 10 since price would be higher"*. Exactly — 10 shares out at $73
+    # is $730, and 10 shares back at $85 is $850 he does not have.
+    #
+    #   10          SHARES, as always
+    #   $730        DOLLARS — buy as many whole shares as that affords
+    #   RESERVE     whatever is fenced for this ticker right now
+    #   (blank)     chained rows only: the parent's filled QUANTITY
+    #
+    # RESERVE is the one that closes his loop, and it needs the ticker fenced:
+    # the sale credits the proceeds to that ticker's reserve, they cannot be
+    # spent on anything else in the meantime, and the buy-back spends exactly
+    # what came in. Resolved at FIRE time, never now — the price it converts
+    # at is not knowable when the row is typed.
+    raw_qty = _s(intent.get("Qty"))
+    if raw_qty.upper() == QTY_RESERVE:
+        out["Qty"] = QTY_RESERVE
+    elif raw_qty.startswith("$"):
+        # Handled BEFORE _f2, which strips "$" and would read $730 as 730
+        # SHARES — a 10x order on a $75 stock, silently.
+        amt = _f2(raw_qty[1:])
+        if not amt or float(amt) <= 0:
+            raise IntentError(f"Qty {raw_qty!r} must be a positive amount, "
+                              f"e.g. $730")
+        out["Qty"] = f"${amt}"
+    else:
+        qty = _f2(raw_qty)
+        if not qty:
+            if not after:
+                raise IntentError(
+                    "Qty must be shares (10), dollars ($730), RESERVE, or — "
+                    f"on a chained row only — blank to inherit the parent's "
+                    f"filled quantity ({CHAIN_FIELD} is empty here)")
+        elif float(qty) <= 0:
+            raise IntentError("Qty must be greater than zero")
+        out["Qty"] = qty
 
     if after and mine and after == mine:
         raise IntentError(
