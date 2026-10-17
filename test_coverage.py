@@ -360,5 +360,39 @@ check("no signals frame gets nothing",
 check("every group references real field names",
       all(isinstance(c, str) and c for _g, fs in IND_GROUPS for _l, c in fs))
 
+print("\n── the whole Dashboard payload must serialise ──")
+# 2026-10-16: seven np.int64 cells from the new INDICATORS section made
+# ws.update() raise — and because clear() ran first, the Dashboard came back
+# fully formatted and completely EMPTY. One bad cell takes the whole write
+# down, because gspread serialises the payload in a single call.
+import json as _json                                        # noqa: E402
+import numpy as _np                                         # noqa: E402
+from orders_sheet import _scrub as _sc, build_dashboard as _bd   # noqa: E402
+check("a numpy int becomes a plain int",
+      type(_sc(_np.int64(55))) is int and _sc(_np.int64(55)) == 55)
+check("a numpy float becomes a plain float",
+      type(_sc(_np.float64(1.5))) is float)
+check("a numpy bool becomes a plain bool", type(_sc(_np.bool_(True))) is bool)
+check("NaN and None still become blank",
+      _sc(_np.nan) == "" and _sc(None) == "")
+check("ordinary values are untouched",
+      _sc("x") == "x" and _sc(3) == 3 and _sc(1.5) == 1.5)
+_sig2 = _pd.DataFrame([{"Ticker": "AAPL", "ATH": _np.float64(348.15),
+                        "Score_30": _np.int64(45), "Volume": _np.int64(39678300),
+                        "RSI": _np.float64(60.59), "Regime": "BEAR"}])
+_pos2 = _pd.DataFrame([{"Ticker": "AAPL", "Acct": "171", "Qty": _np.int64(10),
+                        "Avg_Cost": _np.float64(100.0),
+                        "Market_Value": _np.float64(1000.0),
+                        "Unrealized_PL": _np.float64(0.0), "Has_Stop": "N",
+                        "Has_Trim": "N", "Has_Dip": "N", "Has_Breakout": "N",
+                        "Seed_Reserved": ""}])
+_rows2, _ = _bd(_pos2, signals_df=_sig2)
+try:
+    _json.dumps(_rows2)
+    _ok2 = True
+except TypeError:
+    _ok2 = False
+check("a dashboard built from numpy-typed frames serialises whole", _ok2)
+
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 raise SystemExit(1 if FAILED else 0)

@@ -749,11 +749,19 @@ def load_fenced(log=print) -> set:
 
 
 def _scrub(v):
-    """NaN/NaT/None -> "". Anything else passes through untouched.
+    """NaN/NaT/None -> "". NumPy scalars -> plain Python. Everything else
+    passes through.
 
     pd.isna() raises on a list or array rather than returning a scalar, so the
     guard is not decoration — it keeps a stray sequence from taking the whole
     write down.
+
+    THE NUMPY COERCION IS NOT COSMETIC. json cannot serialise np.int64, and
+    gspread serialises the whole payload in one call — so ONE such cell makes
+    the ENTIRE write raise. 2026-10-16: the new INDICATORS section read
+    Score_30 and Volume straight off the signals DataFrame, which holds numpy
+    dtypes, and seven np.int64 cells in one ticker took down the whole
+    Dashboard write. The tab came back formatted and completely empty.
     """
     if v is None:
         return ""
@@ -762,6 +770,12 @@ def _scrub(v):
             return ""
     except (TypeError, ValueError):
         pass
+    item = getattr(v, "item", None)       # np.int64 / np.float64 / np.bool_
+    if callable(item) and getattr(v, "ndim", None) == 0:
+        try:
+            return item()
+        except Exception:
+            return str(v)
     return v
 
 
@@ -1396,15 +1410,32 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
     #
     # Only ever grows. Shrinking would discard rows on a short read.
     need = len(rows) + 50
-    try:
-        if int(getattr(ws, "row_count", 0) or 0) < need:
-            ws.resize(rows=need)
-            log(f"Dashboard grown to {need} rows")
-    except Exception as e:
-        log(f"⚠️  could not resize the Dashboard: {e}")
+    was = int(getattr(ws, "row_count", 0) or 0)
+    if was < need:
+        # NOT swallowed. The update below writes a range that depends on this
+        # having worked; logging a failure and carrying on would just produce
+        # "exceeds grid limits" one line later, having already cleared.
+        ws.resize(rows=need)
+        log(f"Dashboard grown to {need} rows")
 
-    ws.clear()
+    # WRITE FIRST, CLEAR THE TAIL AFTER. Never the other way round.
+    #
+    # It used to be ws.clear() then ws.update(). clear() removes values and
+    # leaves formatting, so when the update raised — a single np.int64 in the
+    # new INDICATORS section was enough, 2026-10-16 — the Dashboard was left
+    # fully formatted and completely EMPTY, which reads as "the system wrote
+    # nothing" rather than "the write failed".
+    #
+    # Writing over the top is non-destructive: a failure here leaves the
+    # PREVIOUS Dashboard standing, which is stale but true. Only once the new
+    # content is safely in place is the leftover tail of a longer previous
+    # render removed.
     ws.update(values=rows, range_name=f"A1:{_last_col()}{len(rows)}")
+    if was > len(rows):
+        try:
+            ws.batch_clear([f"A{len(rows) + 1}:{_last_col()}{was}"])
+        except Exception as e:
+            log(f"⚠️  could not clear the Dashboard tail: {e}")
     ws.freeze(rows=0)
     _link_tickers(ws, rows, marks, log)
     _paint(ws, marks, log)          # after the links, so the cyan survives
