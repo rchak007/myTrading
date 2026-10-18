@@ -9,6 +9,7 @@ reminder email:
     04-buy-cheap.png       the one discipline his own data says he breaks
     05-catch-winners.png   a pointer to the 17-step doc, so it is not lost
     06-benter-method.png   a pointer to the expected-value doc
+    07-vix-regime.png      the VIX fear-gauge bands, with what the data says
 
     .venv/bin/python reminder_notes/make_cards.py
 
@@ -30,6 +31,7 @@ OUT = HERE / "03-pbd-structure.png"
 OUT_CHEAP = HERE / "04-buy-cheap.png"
 OUT_WINNERS = HERE / "05-catch-winners.png"
 OUT_BENTER = HERE / "06-benter-method.png"
+OUT_VIX = HERE / "07-vix-regime.png"
 W, H = 1600, 1120
 
 BG = (13, 13, 16)
@@ -241,6 +243,67 @@ def benter() -> Path:
     return OUT_BENTER
 
 
+def vix_regime() -> Path:
+    """The VIX bands, from Justin Banks (@RealJGBanks) 2026-10-17, plus what
+    ten years of data actually says about them.
+
+    Chakravarti asked for it knowing it cuts against the rest of the book:
+    *"I know this contradicts our philosophy"*. It does, in one direction
+    only, and the card says which — a tile that printed "TRIM below 20"
+    unqualified would be advice to sell for 69% of all trading days.
+
+    Checked over 10 years to 2026-10-16, SPY forward 60 days:
+
+        > 40   +19.6%  (100% of the time, but only ~4 real episodes)
+        30-40  + 7.0%
+        20-30  + 4.2%
+        < 20   + 2.4%  on 69% of all days — still positive
+
+    So the BUY half is real and the TRIM half is not, and both belong on the
+    card. The buy side is also the half that contradicts our stops: at VIX 40
+    a close-confirmed stop has already sold.
+    """
+    w, h = 1600, 560
+    img = Image.new("RGB", (w, h), BG)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, 14, h], fill=RED)
+
+    d.text((78, 82), "VIX  —  THE FEAR GAUGE", font=font(66, True), fill=RED,
+           anchor="lm")
+    d.text((78, 144), "Wall Street's fear gauge. Market-wide, not per-ticker.",
+           font=font(32), fill=WHITE, anchor="lm")
+
+    bands = [("> 40", "BUY THE PANIC", RED),
+             ("30 - 40", "START BUYING", (251, 146, 60)),
+             ("20 - 30", "HOLD POSITIONS", (148, 163, 184)),
+             ("< 20", "TRIM / REDUCE RISK", GREEN)]
+    x = 78
+    for lvl, what, colour in bands:
+        d.rectangle([x, 196, x + 348, 286], outline=colour, width=3)
+        d.text((x + 20, 226), lvl, font=font(34, True), fill=colour)
+        d.text((x + 20, 262), what, font=font(23), fill=WHITE)
+        x += 362
+
+    d.line([(78, 322), (w - 78, 322)], fill=LINE, width=2)
+    d.text((78, 364), "10 YEARS OF DATA — SPY, 60 days forward:",
+           font=font(29, True), fill=AMBER, anchor="lm")
+    d.text((78, 410),
+           "VIX > 40  →  +19.6%, every time.   30-40  →  +7.0%.   "
+           "The BUY half is real.",
+           font=font(27), fill=WHITE, anchor="lm")
+    d.text((78, 452),
+           "But VIX < 20 is 69% of ALL days and still +2.4% — that is not a "
+           "sell signal.",
+           font=font(27), fill=(252, 165, 165), anchor="lm")
+    d.text((78, 506),
+           "Market-wide overlay, not a stock picker. At VIX 40 a "
+           "close-confirmed stop has already sold.",
+           font=font(24), fill=MUTED, anchor="lm")
+
+    img.save(OUT_VIX, optimize=True)
+    return OUT_VIX
+
+
 if __name__ == "__main__":
-    for p in (main(), buy_cheap(), catch_winners(), benter()):
+    for p in (main(), buy_cheap(), catch_winners(), benter(), vix_regime()):
         print(f"wrote {p.name:<24} ({p.stat().st_size/1024:.0f} KB)")
