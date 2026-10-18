@@ -64,6 +64,11 @@ transactions_cache/
 !/chitra_orders.csv
 !/chitra_reserves.csv
 !/options_reminders.csv
+# Analyst targets: produced on Pi 2, READ on Pi 1 inside jobStocksSignals.
+# git is the transport, so being ignored meant every Benter_Rating came out
+# blank on Pi 1 — the third time this catch-all has silently eaten a config
+# file that the code assumes is versioned.
+!/benter_targets.csv
 *.parquet
 *.json
 

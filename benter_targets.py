@@ -40,9 +40,22 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-STATE_DIR = Path(os.getenv("REMOTE_OPS_STATE",
-                           Path.home() / ".local" / "state" / "myTrading"))
-FILE = Path(os.getenv("BENTER_TARGETS_FILE", STATE_DIR / "benter_targets.csv"))
+# IN THE REPO, NOT IN MACHINE-LOCAL STATE.
+#
+# It started in ~/.local/state/myTrading/ and that was simply wrong: the
+# weekly refresh runs on PI 2 (which has the spare cycles and the cron), while
+# attach() runs inside jobStocksSignals on PI 1. Pi 1 had no such file, so
+# every Benter_Rating came out blank and the column looked broken rather than
+# unfed.
+#
+# Here, git is the transport — the same arrangement chitra_holdings.csv uses:
+# Pi 2 produces, a commit carries it, Pi 1 only ever reads. Pi 1 never writes
+# this file, so a pull can never conflict with it.
+#
+# Versioned on purpose too. Analyst targets are the input to every rating, so
+# "what did the street think when I bought this" stays answerable, and a
+# refresh that goes wrong is one `git diff` away from being visible.
+FILE = Path(os.getenv("BENTER_TARGETS_FILE", HERE / "benter_targets.csv"))
 COLS = ["Ticker", "Fetched", "Price_At_Fetch", "Target_Mean", "Target_High",
         "Target_Low", "Analysts", "Recommendation", "Sector"]
 
@@ -123,7 +136,7 @@ def refresh(syms=None, log=print) -> int:
             log(f"   …{i}/{len(syms)}")
 
     try:
-        STATE_DIR.mkdir(parents=True, exist_ok=True)
+        FILE.parent.mkdir(parents=True, exist_ok=True)
         with FILE.open("w", newline="", encoding="utf-8") as fh:
             w = csv.DictWriter(fh, fieldnames=COLS, extrasaction="ignore")
             w.writeheader()
