@@ -127,26 +127,70 @@ def compose(st: dict, auth_url: str | None) -> tuple[str, str]:
         "when the token was issued, not from when it would have expired. So",
         "doing this now costs nothing and buys the whole window back.",
         "",
-        "HOW  (about two minutes, from your phone)",
-        "  1. Open the link below, sign in, approve.",
-        "  2. The redirect to 127.0.0.1 WILL fail to load. That is expected.",
-        "  3. Copy the ENTIRE address bar.",
-        "  4. In myTrading-ops-pi1, insert a row at the top:",
-        "         column A: auth_code",
-        "         column B: <the whole pasted URL>",
-        "     Fill column B FIRST, then column A — the verb is what arms the row.",
+    ]
+
+    # THE STEPS DEPEND ON WHETHER THIS EMAIL CARRIES A LINK, and they used to
+    # not. One fixed HOW block said "open the link below" and then, when run
+    # --from-sheet (which is what cron runs, and so what he actually
+    # receives), there was no link below — only instructions to go and ask
+    # for one. Chakravarti, 2026-10-19: *"The order here is not clear no?"*
+    # It was not: step 3 was printed above step 1.
+    if auth_url:
+        body += [
+            "WHAT TO DO  (about two minutes, from your phone)",
+            "",
+            "  1. Open the AUTHORIZE LINK at the bottom of this email.",
+            "     Sign in and approve.",
+            "  2. The redirect to 127.0.0.1 WILL fail to load. That is",
+            "     expected — nothing is listening there.",
+            "  3. Copy the ENTIRE address bar.",
+            "  4. In myTrading-ops-pi1, insert a row at the top:",
+            "         column B : <the whole pasted URL>   <- fill B FIRST",
+            "         column A : auth_code                <- then A",
+            "     The verb in column A is what ARMS the row, so it goes last.",
+            "",
+        ]
+    else:
+        body += [
+            "WHAT TO DO  —  TWO rows in myTrading-ops-pi1, in this order.",
+            "",
+            "  STEP 1 - ask Pi 1 for a link",
+            "      Insert a row at the TOP:",
+            "          column A : auth_url      (leave column B empty)",
+            "      Within a minute, column I of that row holds a tappable",
+            "      link. This email has no link in it because it was built",
+            "      from the sheet, not from Pi 1's credentials.",
+            "",
+            "  STEP 2 - approve it",
+            "      Open that link, sign in, approve.",
+            "      The redirect to 127.0.0.1 WILL fail to load. That is",
+            "      expected — nothing is listening there.",
+            "      Copy the ENTIRE address bar.",
+            "",
+            "  STEP 3 - hand the code back",
+            "      Insert ANOTHER row at the TOP:",
+            "          column B : <the whole pasted URL>   <- fill B FIRST",
+            "          column A : auth_code                <- then A",
+            "      The verb in column A is what ARMS the row, so it goes last.",
+            "",
+        ]
+
+    body += [
+        "BE QUICK BETWEEN STEP 2 AND STEP 3.",
+        "  The authorization code expires in SECONDS, not minutes. Take as",
+        "  long as you like signing in — the code only exists once you press",
+        "  approve. Two codes have already been lost to this.",
         "",
         "WHEN",
         SAFE_WINDOWS,
         "",
+        "AT PI 1 INSTEAD?  One command does all three steps, with the prompt",
+        "already waiting so the code cannot go stale:",
+        "      .venv/bin/python schwab_auth.py --login",
+        "",
     ]
     if auth_url:
         body += ["AUTHORIZE LINK", auth_url, ""]
-    else:
-        body += ["TO RE-AUTHORIZE — add a row at the top of myTrading-ops-pi1:",
-                 "    column A: auth_url        (leave B empty)",
-                 "Within a minute column I holds the tappable link.",
-                 "Then a second row with auth_code and the pasted URL.", ""]
     body.append("— token_watch.py on Pi 1")
     return subject, "\n".join(body)
 

@@ -68,6 +68,12 @@ TS_FMT = "%Y-%m-%d %H:%M:%S %Z"
 START_ROW = 2               # row 1 is the header; new work goes directly below
 SCAN_WINDOW = 25            # rows from START_ROW examined each poll, stamped or not
 MAX_ROWS_PER_RUN = 5        # a pasted wall of rows cannot stampede the box
+
+# After handing out an authorize URL, watch for the code instead of sleeping
+# until the next cron tick. Schwab's authorization code expires in seconds,
+# and a once-a-minute poll is slower than that — see _watch_for_code.
+AUTH_WATCH_SECS = int(os.getenv("REMOTE_OPS_AUTH_WATCH", "300"))
+AUTH_WATCH_EVERY = int(os.getenv("REMOTE_OPS_AUTH_POLL", "4"))
 SHEET_OUTPUT_MAX = 1500     # chars kept in column I; full text goes to disk
 TAIL_LINES = 120
 
@@ -411,10 +417,43 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
         # re-authorising.
         # install() takes the job lock itself, so every caller gets it —
         # the ops sheet, the CLI, anything else.
+        # SAY WHAT ARRIVED, BEFORE TRYING TO SPEND IT.
+        #
+        # 2026-10-19: the sheet path failed twice with "Authorization code is
+        # invalid, expired or revoked" while the SAME install() called from
+        # Pi 1's shell worked. The authorize URL was byte-identical and only
+        # two minutes had passed, so neither the URL nor the clock explains
+        # it — which leaves what the cell actually contained. A phone paste
+        # into Google Sheets can arrive shortened, linkified, or with the
+        # query trimmed, and nothing here would have noticed.
+        #
+        # Redacted to a shape, never the code: length, first/last few chars,
+        # and whether the pieces a redirect URL must have are present. A good
+        # one measured 76 characters ending '@'.
+        shape = []
         try:
-            return 0, schwab_auth.install(arg)
+            raw = (arg or "").strip()
+            shape.append(f"pasted {len(raw)} chars")
+            shape.append("has 'code='" if "code=" in raw else "NO 'code=' — "
+                         "the cell is not a redirect URL")
+            code = schwab_auth.extract_code(raw)
+            shape.append(f"code {len(code)} chars, "
+                         f"{code[:4]}…{code[-3:]}")
+            if len(code) < 40:
+                return 1, ("CODE LOOKS TRUNCATED — " + " · ".join(shape) +
+                           "\n\nA whole Schwab code is ~76 characters and ends "
+                           "'@'. Paste the ENTIRE address bar, not a shortened "
+                           "or linkified version of it.")
         except Exception as e:
-            return 1, f"{type(e).__name__}: {e}"
+            return 2, (f"could not read a code out of column B: {e}\n\n"
+                       + " · ".join(shape))
+
+        try:
+            return 0, schwab_auth.install(arg) + "\n\n[" + " · ".join(shape) + "]"
+        except Exception as e:
+            # The shape goes on the FAILURE too — that is the case we are
+            # trying to diagnose.
+            return 1, f"{type(e).__name__}: {e}\n\n[{' · '.join(shape)}]"
 
     return 2, f"unhandled python verb {verb!r}"
 
@@ -745,9 +784,78 @@ def main() -> int:
 
         executed += 1
 
+        # AFTER auth_url, STAY AWAKE AND WATCH FOR THE CODE.
+        #
+        # The poller runs once a minute, so a pasted auth_code waited up to 60
+        # seconds before Pi 1 even looked at the row. Schwab's authorization
+        # code does not live that long: two were lost to exactly this
+        # (2026-10-13, 2026-10-19), both reported as "Authorization code is
+        # invalid, expired or revoked" after an exchange that itself took
+        # 0.8s. The paste was never the problem; the WAIT was.
+        #
+        # Having just handed out a URL, we know a code is coming. Watching for
+        # a few seconds at a time collapses the gap from 60s to ~4s. Bounded,
+        # and only ever entered right after auth_url.
+        #
+        # Safe to hold the process open: the cron invocation takes remote_ops'
+        # own lock with -n, so the next minute's run simply skips rather than
+        # doubling up.
+        if verb == "auth_url" and rc == 0:
+            _watch_for_code(ws, deadline=time.monotonic() + AUTH_WATCH_SECS)
+
     if executed == 0:
         audit(event="idle", sheet_rows=last_sheet_row)
     return 0
+
+
+def _watch_for_code(ws, deadline: float) -> None:
+    """Poll the sheet every few seconds for an armed auth_code row.
+
+    Runs the verb the moment one appears rather than waiting for the next
+    cron tick. Never raises: a failure here must not lose the auth_url result
+    that has already been written back.
+    """
+    print(f"watching for auth_code for {AUTH_WATCH_SECS}s "
+          f"(every {AUTH_WATCH_EVERY}s) — paste the URL and it goes straight "
+          f"through")
+    audit(event="auth_watch_start", secs=AUTH_WATCH_SECS)
+    while time.monotonic() < deadline:
+        time.sleep(AUTH_WATCH_EVERY)
+        try:
+            rows = ws.get_all_values()
+        except Exception as e:
+            audit(event="auth_watch_read_failed", error=str(e))
+            continue
+        for r in range(START_ROW,
+                       min(len(rows), START_ROW + SCAN_WINDOW - 1) + 1):
+            cells = rows[r - 1] + [""] * (len(HEADER) - len(rows[r - 1]))
+            if cells[0].strip() != "auth_code" or cells[2].strip():
+                continue                      # not it, or already handled
+            arg = cells[1].strip()
+            if not arg:
+                continue                      # still being typed
+            started = now_str()
+            if not write_back(ws, r, {"Status": "RUNNING", "QueuedAt": started,
+                                      "StartedAt": started, "Host": HOST}):
+                audit(event="auth_watch_claim_failed", row=r)
+                return
+            t0 = time.monotonic()
+            rc, output = run_verb("auth_code", arg)
+            secs = round(time.monotonic() - t0, 1)
+            path = spill(r, "auth_code", output)
+            write_back(ws, r, {
+                "Status": "OK" if rc == 0 else "FAIL", "QueuedAt": started,
+                "StartedAt": started, "FinishedAt": now_str(), "Secs": secs,
+                "Exit": rc, "Output": shrink(output, path), "Host": HOST})
+            try:
+                ws.update(values=[["(consumed)"]], range_name=f"B{r}")
+            except Exception as e:
+                audit(event="redact_failed", row=r, error=str(e))
+            audit(event="auth_watch_done", row=r, exit=rc, secs=secs)
+            print(f"row {r}: auth_code handled {secs}s after it appeared")
+            return
+    audit(event="auth_watch_timeout", secs=AUTH_WATCH_SECS)
+    print("no auth_code appeared — back to the normal once-a-minute poll")
 
 
 if __name__ == "__main__":
