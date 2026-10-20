@@ -402,11 +402,24 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
         return 0, json.dumps(schwab_auth.status(), indent=2)
 
     if verb == "auth_url":
+        # ORDER MATTERS, AND IT IS NOT THE OBVIOUS ONE.
+        #
+        # The code Schwab hands back lives about THIRTY SECONDS, counted from
+        # the moment you approve. Typing the verb after approving spends most
+        # of that budget switching apps. So: arm the row first, approve
+        # second, and the only thing left to do on the clock is one paste.
+        # Pi 1 is already watching every 4s, so it fires the instant B lands.
         return 0, (
-            "Open this on your phone, sign in, approve.\n"
-            "The redirect to 127.0.0.1 WILL fail to load — that is expected.\n"
-            "Copy the entire address bar, then add a row:\n"
-            "    A: auth_code    B: <the whole pasted URL>\n\n"
+            "⏱  THE CODE DIES ~30 SECONDS AFTER YOU TAP APPROVE.\n"
+            "So do step 1 BEFORE you open the link.\n\n"
+            "1. Add a row now: column A = auth_code, leave B EMPTY.\n"
+            "   (Nothing runs until B is filled, so it can sit there.)\n"
+            "2. Open the link below, sign in, approve.\n"
+            "   The redirect to 127.0.0.1 WILL fail to load — that is expected.\n"
+            "3. Copy the ENTIRE address bar and paste it into that row's B.\n"
+            "   Pi 1 picks it up within 4 seconds.\n\n"
+            "If it fails, do NOT re-paste the same URL — that code is spent.\n"
+            "Run auth_url again for a fresh one.\n\n"
             + schwab_auth.authorize_url()
         )
 

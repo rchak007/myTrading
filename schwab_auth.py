@@ -54,6 +54,7 @@ import argparse
 import base64
 import contextlib
 import fcntl
+import hashlib
 import json
 import os
 import time
@@ -131,8 +132,70 @@ def creds() -> tuple[str, str, str]:
     return key, secret, cb
 
 
+# ---------------------------------------------------------------------
+# The 30-second clock
+# ---------------------------------------------------------------------
+# THERE IS NO HANDSHAKE BETWEEN authorize_url() AND exchange().
+#
+# Chakravarti asked, 2026-10-19, exactly the right question: how does
+# auth_code give the URL back to auth_url? It does not, and nothing is
+# missing. This is plain OAuth2 authorization-code flow with no PKCE and no
+# state: the two halves share only client_id and redirect_uri, both read from
+# .env by creds(). Two separate processes on two separate ops rows is fine.
+#
+# Which matters, because it rules the whole class of bug out. If nothing is
+# carried between the halves, nothing can be LOST between them. A well-formed
+# 76-character code that Schwab calls `invalid_grant` was not mangled in
+# transit — it was already dead when it arrived. Only two things kill one:
+#
+#   EXPIRY   Schwab's authorization code lives ~30 SECONDS, and the clock
+#            starts when you tap Approve — NOT when auth_url ran. This is the
+#            tightest window in the whole system and nothing about the sheet
+#            path made it visible.
+#   REPLAY   A code is single-use, and a spent or failed one stays dead.
+#            Retrying the same pasted URL cannot ever work.
+#
+# These two files exist only to make both of those legible instead of
+# arriving as the same generic 400 either way.
+STATE_DIR = Path(os.getenv("REMOTE_OPS_STATE",
+                           Path.home() / ".local" / "state" / "myTrading"))
+URL_ISSUED = STATE_DIR / "schwab_auth_url_issued"
+LAST_CODE = STATE_DIR / "schwab_last_code"
+
+
+def _stamp(p: Path, text: str) -> None:
+    """Best effort. Diagnostics must never break the thing they diagnose."""
+    with contextlib.suppress(Exception):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+
+
+def _since_url() -> float | None:
+    """Seconds since the authorize URL was last handed out, or None."""
+    try:
+        return time.time() - float(URL_ISSUED.read_text(encoding="utf-8").strip())
+    except Exception:
+        return None
+
+
+def _replayed(code: str) -> bool:
+    """True if this exact code was already tried. Records it either way.
+
+    Hashed, never stored: this file sits in plain state and a live
+    authorization code is a credential for the whole account.
+    """
+    h = hashlib.sha256(code.encode()).hexdigest()
+    try:
+        prev = LAST_CODE.read_text(encoding="utf-8").strip()
+    except Exception:
+        prev = ""
+    _stamp(LAST_CODE, h)
+    return bool(prev) and prev == h
+
+
 def authorize_url() -> str:
     key, _, cb = creds()
+    _stamp(URL_ISSUED, str(time.time()))
     return f"{AUTH_BASE}?client_id={key}&redirect_uri={cb}"
 
 
@@ -379,7 +442,35 @@ def job_lock(timeout: int = JOB_LOCK_WAIT, log=print):
 def install(pasted: str) -> str:
     """Full flow. Returns a human summary with no secrets in it."""
     code = extract_code(pasted)
-    payload = exchange(code)
+
+    # REFUSE A REPLAY BEFORE SPENDING A MINUTE ON IT.
+    #
+    # 2026-10-19 cost two attempts to the same dead code: the first failed, the
+    # second re-pasted the identical URL and failed identically, and the two
+    # rows were indistinguishable. A retry here is never a retry — it is the
+    # same single-use code, and the only way forward is a fresh auth_url.
+    if _replayed(code):
+        raise RuntimeError(
+            "THIS IS THE SAME CODE AS THE LAST ATTEMPT — already spent, and a "
+            "Schwab code is single-use, so this can never succeed.\n"
+            "Run auth_url again for a fresh one.")
+
+    waited = _since_url()
+    try:
+        payload = exchange(code)
+    except RuntimeError as e:
+        # The 30-second window is the prime suspect for invalid_grant, so SAY
+        # how long it took. Without this the operator cannot tell "I was slow"
+        # from "something is broken", which is precisely where we got stuck.
+        if "invalid_grant" in str(e) and waited is not None:
+            raise RuntimeError(
+                f"{e}\n\n{waited:.0f}s elapsed since auth_url was issued. The "
+                f"code's own ~30s clock starts when you tap APPROVE, so if the "
+                f"approve-to-paste gap was anywhere near that, the code died "
+                f"before it got here — type `auth_code` into column A FIRST, "
+                f"then approve, then paste the URL into column B.") from None
+        raise
+
     detail = validate(payload["access_token"])          # fail here => store untouched
 
     with job_lock() as clean:
