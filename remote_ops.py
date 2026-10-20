@@ -130,6 +130,43 @@ def _status(_):
             ["df", "-h", "/"]]
 
 
+# Packages this channel may upgrade. A NAMED SET, not a free-form argument.
+#
+# 2026-10-20: Pi 1's yfinance went stale and every download failed with
+# "'NoneType' object is not subscriptable" — all 53 tickers, from the first
+# call. The signals and price jobs kept running and kept writing nothing, so
+# the sheet sat 17 hours out of date while the market was open. Pi 2, on
+# yfinance 1.7.0, fetched the same ticker without complaint.
+#
+# The fix was one pip command, and it needed SSH — which is precisely the
+# dependency this channel exists to remove. Chakravarti was away from home
+# and could not reach the box.
+#
+# WHY AN ALLOWLIST. Letting the sheet name any package turns a spreadsheet
+# cell into arbitrary code execution on the machine holding the brokerage
+# credentials: a typo'd or hostile name is a package install. These are the
+# market-data libraries that actually rot, and nothing else.
+PIP_OK = {"yfinance", "curl_cffi", "requests", "pandas", "gspread"}
+
+
+def _pip_upgrade(arg):
+    """Upgrade one allowlisted package in the repo venv, reporting both versions.
+
+    Prints the version before and after so the sheet shows what changed —
+    "already current" and "1.2.3 -> 1.7.0" are different answers, and after
+    a silent-failure bug you want the difference stated rather than implied.
+    """
+    pkg = (arg or "").strip().lower()
+    if pkg not in PIP_OK:
+        raise ValueError(
+            f"{pkg!r} is not upgradable from the sheet; allowed: "
+            f"{', '.join(sorted(PIP_OK))}")
+    pip = str(REPO / ".venv" / "bin" / "pip")
+    return [[pip, "show", pkg],
+            [pip, "install", "--upgrade", pkg],
+            [pip, "show", pkg]]
+
+
 VERBS = {
     # verb        builder      timeout(s)  needs_arg
     "ping":       (lambda a: [["date", "-Is"], ["echo", f"alive on {HOST}"]], 20, False),
@@ -144,6 +181,9 @@ VERBS = {
     "cron_check": (lambda a: [["crontab", "-l"]], 30, False),
     "svc_log":    (lambda a: [["journalctl", "-u", SERVICE, "-n", "80",
                                "--no-pager", "--output=short-iso"]], 60, False),
+    # 300s: pip on a Pi builds wheels and is slow. svc_log's 60s cap already
+    # cost us a FAIL on a journalctl that simply needed longer.
+    "pip_upgrade": (_pip_upgrade, 300, True),
 }
 
 # Verbs handled in-process rather than via subprocess. They may take a
