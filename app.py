@@ -127,10 +127,53 @@ IO_FUND = [
     "MXL",  "NEE", "NVDA","PLTR","RDDT", "SIMO", "SITM",  "SNDK"
 ]
 
-BETH_FUNDS = [ "AMD", "AVGO", "NVDA", "TSM", "MRVL",  "ARM", "MU", "SNDK", "SIMO", "WDC", "STX", 
-               "BE", "GEV", "VST", "CEG", "LITE", "AAOI", "SITM", "CRDO", "COHR", 
-                  "ALAB", "GLW", 
-                  "VRT", "META", "NET", "PLTR", "GOOG", "RDDT",     "NEE" ]
+# Beth Kindig / I/O Fund — the CURRENT quarterly list.
+#
+# Synced 2026-10-19 to "Top 20 AI Stocks for Q4 2026" (published 2026-10-20).
+# The full report is kept at Documentation/BethQtr4-2026.md, which is where the
+# per-name numbers and her stated risks live.
+#
+# WHAT COUNTS AS "ON THE LIST". Only names she actually picks: the 18 with full
+# write-ups, plus the 3 she labels honorable mentions (TSM, AVGO, PLTR), which
+# get the same tables and so are picks in everything but name. NOT included:
+# companies discussed at length as competitors, customers or valuation
+# comparables. NVDA, GOOG, META, ARM, MRVL, CEG, VST and NEE are all over that
+# report and none of them is a pick — reading mentions as endorsements is how
+# this list grew to 29 names in the first place.
+BETH_FUNDS = [
+    # Networking (7)
+    "LITE", "AAOI", "SITM", "MXL", "MTSI", "COHR", "ALAB",
+    # Memory and storage (5)  — SKHY is the SK Hynix ADR
+    "MU", "SKHY", "SNDK", "SIMO", "STX",
+    # Semis and equipment (2)
+    "AMD", "LRCX",
+    # Energy and power (2)
+    "BE", "GEV",
+    # Software (2)
+    "NET", "CRWD",
+    # Honorable mentions (3)
+    "TSM", "AVGO", "PLTR",
+]
+
+# Dropped from the Q4 2026 list. PARKED, NOT DELETED.
+#
+# Every one of these was on the list as of Q3 2026 and is absent from Q4. That
+# is information worth keeping: a name leaving tells you something, and if it
+# returns next quarter we want to know it is a re-add rather than a discovery.
+#
+# Three distinct reasons are mixed in here, and the list does not distinguish
+# them because the report does not either:
+#   - closed for a realized gain (GOOG — she exited GOOGL earlier in 2026)
+#   - still discussed heavily but never a pick (NVDA, ARM, MRVL, META)
+#   - simply absent from the Q4 report (CRDO, VRT, RDDT, WDC)
+#   - named only as a valuation comparable or in passing (CEG, VST, NEE, GLW)
+#
+# Not wired into the dashboard. These are here so the drop is recorded, not so
+# it gets its own block of cards.
+BETH_REMOVED = [
+    "ARM", "CEG", "CRDO", "GLW", "GOOG", "META", "MRVL", "NEE",
+    "NVDA", "RDDT", "VRT", "VST", "WDC",
+]
 
 INVESTANSWERS = [
     "TSLA","NVDA","STRC","MSTR", "ECHO", "MU", "AMD",   "AVGO", "BABA","ALAB", "MRVL"
