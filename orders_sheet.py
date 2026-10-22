@@ -1015,6 +1015,30 @@ def _rec_rows(ticker, price, signals_df, is_fenced, pos_width,
     return out
 
 
+def _beth_tickers(log=print) -> set:
+    """BETH_FUNDS out of app.py, read as SOURCE rather than imported.
+
+    `import app` pulls in schwabdev and a Streamlit page — far too much to drag
+    into a sheet writer, and it would fail outright anywhere those are absent.
+    Parsing the literal list is the same trick benter_targets.py uses on
+    STOCK_TICKERS, and it cannot execute anything.
+
+    Returns an empty set on any trouble: a missing tag is cosmetic, while an
+    exception here would cost the whole Dashboard.
+    """
+    try:
+        import ast
+        tree = ast.parse((Path(__file__).resolve().parent / "app.py").read_text())
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and any(
+                    getattr(t, "id", "") == "BETH_FUNDS" for t in node.targets):
+                return {str(e.value).upper() for e in node.value.elts
+                        if isinstance(e, ast.Constant)}
+    except Exception as e:                      # noqa: BLE001
+        log(f"⚠️  could not read BETH_FUNDS from app.py: {e}")
+    return set()
+
+
 def build_dashboard(positions: pd.DataFrame, orders_df=None,
                     quotes: dict | None = None,
                     fenced: set | None = None,
@@ -1038,7 +1062,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     # unprotected holding should be impossible to scroll past.
     marks = {"ticker": [], "label": [], "header": [], "title": [],
              "warn": [], "rec": [], "warn_row": [], "chitra": [],
-             "intent": [], "option": [], "ind": []}
+             "intent": [], "option": [], "ind": [], "beth": []}
 
     # Which (acct, ticker) have a resting BUY — so a seed waiting to be spent
     # by one can be painted yellow rather than looking freely available.
@@ -1094,8 +1118,26 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     order = sorted(positions["Ticker"].unique(),
                    key=lambda t: (-float(size.get(t, 0.0)), t))
 
+    # BETH'S LIST, WHETHER OR NOT IT IS OWNED.
+    #
+    # Chakravarti, 2026-10-21: the Dashboard only ever showed tickers he holds
+    # or has an order on, so the names he is WATCHING had no block — no
+    # indicators, no recommended levels, nothing to decide from. A watchlist
+    # you cannot see is not a watchlist.
+    #
+    # They go on the END rather than interleaved. The sort is by market value
+    # descending, so a zero-value name would land at the bottom anyway; naming
+    # it explicitly means it stays there if the sort ever changes.
+    # print, not log: build_dashboard takes no logger, and this is the one
+    # line that says how many watchlist blocks got appended.
+    beth = _beth_tickers()
+    watch_only = sorted(beth - set(str(t).upper() for t in order))
+    if watch_only:
+        print(f"{len(watch_only)} Beth ticker(s) not held, listed as "
+              f"watchlist: {', '.join(watch_only)}")
+
     fenced = fenced or set()
-    for ticker in order:
+    for ticker in list(order) + watch_only:
         grp = positions[positions["Ticker"] == ticker]
 
         # Fill the price columns here rather than leaving them blank for
@@ -1111,8 +1153,21 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         is_fenced = any(t == ticker for _acct, t in fenced)
         rec, rec_row0 = _rec_for(ticker, px, signals_df, is_fenced)
 
-        marks["ticker"].append(add([ticker, "POSITIONS"]))
+        # The BETH tag sits in column C, beside the POSITIONS label, so it
+        # reads at a glance while scrolling without costing a row.
+        on_beth = str(ticker).upper() in beth
+        hdr_row = add([ticker, "POSITIONS", "BETH" if on_beth else ""])
+        marks["ticker"].append(hdr_row)
+        if on_beth:
+            marks["beth"].append(hdr_row)
         marks["header"].append(add([""] + POS_HDR))
+
+        # A watchlist name has no rows here. Say so, rather than leaving a
+        # bare header — an empty table under a header reads as a broken write.
+        if grp.empty:
+            add(["", ticker, "—", 0, "", px if px is not None else "",
+                 round(pct, 2) if pct is not None else "", 0, 0])
+
         for _, r in grp.iterrows():
             add(["", r["Ticker"], r["Acct"], r["Qty"], r["Avg_Cost"],
                  px if px is not None else "",
@@ -1334,6 +1389,16 @@ def _paint(ws, marks, log):
             ws.format([f"A{r}" for r in marks["ticker"]], cyan_link)
         if marks["label"]:
             ws.format([f"B{r}" for r in marks["label"]], yellow)
+        if marks.get("beth"):
+            # The cyan Chakravarti used by hand on SNDK — same shade as the
+            # ticker link so the two read as one header rather than competing.
+            ws.format([f"C{r}" for r in marks["beth"]],
+                      {"backgroundColor": {"red": 0.47, "green": 0.90,
+                                           "blue": 0.90},
+                       "textFormat": {"bold": True,
+                                      "foregroundColor": {"red": 0.0,
+                                                          "green": 0.20,
+                                                          "blue": 0.35}}})
         if marks["header"]:
             ws.format([f"B{r}:{_last_col()}{r}" for r in marks["header"]], bold)
         if marks.get("warn_row"):
