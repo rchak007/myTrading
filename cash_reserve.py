@@ -126,11 +126,35 @@ RESERVE_COLS = [
     "Status", "Last_Event_PST",
 ]
 
-CREDIT_EVENTS = {"SEED", "TOPUP", "SELL_FILL"}
-DEBIT_EVENTS = {"WITHDRAW", "BUY_FILL", "CLOSE"}
+# BORROWING BETWEEN TICKERS.
+#
+# Chakravarti, 2026-10-22: MSTR has $2,000 fenced and he wants to buy ALAB
+# today. Rather than un-fencing MSTR and losing the record of what it was for,
+# he borrows $1,000 out of it — the cash frees up, and the fact that MSTR is
+# owed $1,000 stays on the books until he puts it back.
+#
+# TWO SIDES, DELIBERATELY UNLINKED.
+#
+#   BORROW / RETURN_BORROW   on the LENDER. Real cash events: they move the
+#                            reserve, so Free_To_Deploy changes and nothing
+#                            else has to know about borrowing at all.
+#   OWE / PAID_BACK          on the BORROWER. Pure memo — "this position was
+#                            funded with money that belongs somewhere else".
+#                            Zero cash effect.
+#
+# Unlinked because that is how he described using it: borrowing is what frees
+# the money, and tagging the buyer is optional and may come later or never.
+# Forcing them to balance would turn a note-to-self into a double-entry system
+# he did not ask for and would have to keep reconciled.
+BORROW_EVENTS = {"BORROW", "RETURN_BORROW"}
+MEMO_EVENTS = {"OWE", "PAID_BACK"}           # magnitude recorded, cash untouched
+
+CREDIT_EVENTS = {"SEED", "TOPUP", "SELL_FILL", "RETURN_BORROW"}
+DEBIT_EVENTS = {"WITHDRAW", "BUY_FILL", "CLOSE", "BORROW"}
 SKIP_EVENTS = {"SKIP_BUY", "SKIP_SELL"}
 FREE_EVENTS = {"ADJUST"}                     # signed either way, audit trail
-EVENTS = CREDIT_EVENTS | DEBIT_EVENTS | SKIP_EVENTS | FREE_EVENTS
+EVENTS = (CREDIT_EVENTS | DEBIT_EVENTS | SKIP_EVENTS | FREE_EVENTS
+          | MEMO_EVENTS)
 
 POLICIES = {"CASH_ONLY", "TOTAL_CAPITAL"}
 DEFAULT_POLICY = "CASH_ONLY"
@@ -268,7 +292,7 @@ def fold_balances(ledger: pd.DataFrame | None = None,
     if df.empty:
         return pd.DataFrame(columns=[
             "Account", "Ticker", "Reserved_Cash", "Seeded", "Withdrawn",
-            "Deployed", "Returned", "Last_Event_PST",
+            "Deployed", "Returned", "Borrowed", "Owed", "Last_Event_PST",
         ])
 
     df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce").fillna(0.0)
@@ -278,11 +302,23 @@ def fold_balances(ledger: pd.DataFrame | None = None,
         s = df["Amount"].where(mask, 0.0)
         return s.abs() if magnitude else s
 
-    df["_bal"] = df["Amount"]
+    # MEMO ROWS CARRY THEIR MAGNITUDE BUT MUST NOT MOVE THE BALANCE.
+    #
+    # OWE/PAID_BACK are notes, not cash. The amount still goes in Amount so the
+    # ledger stays readable and auditable on its own — the alternative was
+    # Amount=0 with the number buried in Reason, which hides it from every
+    # tool. So they are excluded HERE instead, at the one place that turns the
+    # ledger into money.
+    df["_bal"] = df["Amount"].where(~ev.isin(MEMO_EVENTS), 0.0)
     df["_seeded"] = _sum_where(ev.isin(["SEED", "TOPUP"]))
     df["_withdrawn"] = _sum_where(ev.isin(["WITHDRAW", "CLOSE"]), magnitude=True)
     df["_deployed"] = _sum_where(ev.eq("BUY_FILL"), magnitude=True)
     df["_returned"] = _sum_where(ev.eq("SELL_FILL"))
+    # Outstanding, not cumulative: what is still out on loan, and still owed.
+    df["_borrowed"] = (_sum_where(ev.eq("BORROW"), magnitude=True)
+                       - _sum_where(ev.eq("RETURN_BORROW"), magnitude=True))
+    df["_owed"] = (_sum_where(ev.eq("OWE"), magnitude=True)
+                   - _sum_where(ev.eq("PAID_BACK"), magnitude=True))
 
     g = df.groupby(["Account", "Ticker"], sort=True)
     out = g.agg(
@@ -291,10 +327,13 @@ def fold_balances(ledger: pd.DataFrame | None = None,
         Withdrawn=("_withdrawn", "sum"),
         Deployed=("_deployed", "sum"),
         Returned=("_returned", "sum"),
+        Borrowed=("_borrowed", "sum"),
+        Owed=("_owed", "sum"),
         Last_Event_PST=("Timestamp_PST", "last"),
     ).reset_index()
 
-    for c in ("Reserved_Cash", "Seeded", "Withdrawn", "Deployed", "Returned"):
+    for c in ("Reserved_Cash", "Seeded", "Withdrawn", "Deployed", "Returned",
+              "Borrowed", "Owed"):
         out[c] = out[c].astype(float).round(2)
     return out
 
@@ -489,6 +528,131 @@ def withdraw(account, ticker, amount, *, reason="", source="cli",
                               balance_after=bal)], ledger_path, log)
     log(f"WITHDRAW {acct_key(account)}/{tkr_key(ticker)} -${amount:,.2f} -> ${bal:,.2f}")
     return round(bal, 2)
+
+
+def outstanding(account, ticker, kind, ledger_path=LEDGER_PATH) -> float:
+    """Still-borrowed, or still-owed, for one pair. 0.0 if nothing recorded."""
+    b = fold_balances(ledger_path=ledger_path)
+    if b.empty or kind not in b.columns:
+        return 0.0
+    hit = b[(b["Account"] == acct_key(account)) & (b["Ticker"] == tkr_key(ticker))]
+    return 0.0 if hit.empty else round(float(hit[kind].iloc[0]), 2)
+
+
+def borrow(account, ticker, amount, *, reason="", source="cli",
+           ledger_path=LEDGER_PATH, log=print) -> float:
+    """Take cash OUT of one ticker's reserve, keeping a note that it is owed back.
+
+    Mechanically a withdraw that remembers. The reserve falls, so the money
+    appears in Free_To_Deploy and the engine can spend it on anything —
+    nothing downstream needs to know borrowing exists. The difference is the
+    event name, which is what lets Borrowed show what is still out.
+
+    REFUSES TO OVERDRAW, with no force flag. `withdraw` has allow_negative
+    because releasing a reserve you no longer want is a legitimate thing to
+    do. Borrowing more than is there is not a decision, it is a typo: the
+    lender is supposed to get it back.
+    """
+    # NOT abs(). withdraw() takes a magnitude and ignores the sign, but
+    # these four come in matched pairs — a negative here would silently run
+    # the OPPOSITE direction to the verb you typed, which is the one mistake
+    # that must not be absorbed quietly.
+    amount = float(amount)
+    if amount <= 0:
+        raise ValueError("borrow amount must be a positive number")
+    cur = balance_of(account, ticker, ledger_path=ledger_path)
+    if amount > cur + _EPS:
+        raise ValueError(
+            f"cannot borrow ${amount:,.2f} from {acct_key(account)}/"
+            f"{tkr_key(ticker)} — it holds ${cur:,.2f}. Borrow less, or seed "
+            f"it first.")
+    bal = cur - amount
+    append_events([_event_row(account, ticker, "BORROW", -amount,
+                              ref=f"op:{uuid.uuid4().hex[:12]}",
+                              reason=reason or "borrow", source=source,
+                              balance_after=bal)], ledger_path, log)
+    out = outstanding(account, ticker, "Borrowed", ledger_path)
+    log(f"BORROW {acct_key(account)}/{tkr_key(ticker)} -${amount:,.2f} — "
+        f"reserve now ${bal:,.2f}, ${out:,.2f} out on loan")
+    return round(bal, 2)
+
+
+def return_borrow(account, ticker, amount, *, reason="", source="cli",
+                  ledger_path=LEDGER_PATH, log=print) -> float:
+    """Put borrowed cash back into the lender's reserve."""
+    # NOT abs(). withdraw() takes a magnitude and ignores the sign, but
+    # these four come in matched pairs — a negative here would silently run
+    # the OPPOSITE direction to the verb you typed, which is the one mistake
+    # that must not be absorbed quietly.
+    amount = float(amount)
+    if amount <= 0:
+        raise ValueError("return amount must be a positive number")
+    out = outstanding(account, ticker, "Borrowed", ledger_path)
+    if amount > out + _EPS:
+        raise ValueError(
+            f"cannot return ${amount:,.2f} to {acct_key(account)}/"
+            f"{tkr_key(ticker)} — only ${out:,.2f} is out on loan. Use topup "
+            f"to add NEW money to the reserve.")
+    bal = balance_of(account, ticker, ledger_path=ledger_path) + amount
+    append_events([_event_row(account, ticker, "RETURN_BORROW", amount,
+                              ref=f"op:{uuid.uuid4().hex[:12]}",
+                              reason=reason or "return borrowed", source=source,
+                              balance_after=bal)], ledger_path, log)
+    left = outstanding(account, ticker, "Borrowed", ledger_path)
+    log(f"RETURN_BORROW {acct_key(account)}/{tkr_key(ticker)} +${amount:,.2f} — "
+        f"reserve now ${bal:,.2f}, ${left:,.2f} still out")
+    return round(bal, 2)
+
+
+def owe(account, ticker, amount, *, reason="", source="cli",
+        ledger_path=LEDGER_PATH, log=print) -> float:
+    """Note that this ticker was bought with borrowed money. NO cash effect.
+
+    Deliberately not created by borrow(): the money is fungible once freed,
+    and which position it ended up in is a judgement only the operator can
+    make — possibly days later, possibly never.
+    """
+    # NOT abs(). withdraw() takes a magnitude and ignores the sign, but
+    # these four come in matched pairs — a negative here would silently run
+    # the OPPOSITE direction to the verb you typed, which is the one mistake
+    # that must not be absorbed quietly.
+    amount = float(amount)
+    if amount <= 0:
+        raise ValueError("owe amount must be a positive number")
+    append_events([_event_row(account, ticker, "OWE", amount,
+                              ref=f"op:{uuid.uuid4().hex[:12]}",
+                              reason=reason or "owes borrowed cash",
+                              source=source, balance_after=None)],
+                  ledger_path, log)
+    out = outstanding(account, ticker, "Owed", ledger_path)
+    log(f"OWE {acct_key(account)}/{tkr_key(ticker)} ${amount:,.2f} — "
+        f"${out:,.2f} owed in total (reserve untouched)")
+    return out
+
+
+def paid_back(account, ticker, amount, *, reason="", source="cli",
+              ledger_path=LEDGER_PATH, log=print) -> float:
+    """Clear some or all of what a ticker owes. NO cash effect."""
+    # NOT abs(). withdraw() takes a magnitude and ignores the sign, but
+    # these four come in matched pairs — a negative here would silently run
+    # the OPPOSITE direction to the verb you typed, which is the one mistake
+    # that must not be absorbed quietly.
+    amount = float(amount)
+    if amount <= 0:
+        raise ValueError("paid_back amount must be a positive number")
+    out = outstanding(account, ticker, "Owed", ledger_path)
+    if amount > out + _EPS:
+        raise ValueError(
+            f"cannot pay back ${amount:,.2f} on {acct_key(account)}/"
+            f"{tkr_key(ticker)} — it owes ${out:,.2f}.")
+    append_events([_event_row(account, ticker, "PAID_BACK", -amount,
+                              ref=f"op:{uuid.uuid4().hex[:12]}",
+                              reason=reason or "paid back", source=source,
+                              balance_after=None)], ledger_path, log)
+    left = outstanding(account, ticker, "Owed", ledger_path)
+    log(f"PAID_BACK {acct_key(account)}/{tkr_key(ticker)} ${amount:,.2f} — "
+        f"${left:,.2f} still owed (reserve untouched)")
+    return left
 
 
 def close(account, ticker, *, reason="", source="cli",

@@ -31,6 +31,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import socket
@@ -206,12 +207,19 @@ PY_VERBS = {
     # Both only REDUCE a reserve: neither moves money nor places an order.
     "withdraw":     (True,  False),
     "close":        (True,  False),
+    # Borrowing between tickers. Amounts belong in the audit log for the same
+    # reason seed's does: they move money, and the argument IS the record.
+    "borrow":        (True, False),
+    "return_borrow": (True, False),
+    "owe":           (True, False),
+    "paid_back":     (True, False),
     "apply_fills":  (False, False),
     "reserves":     (False, False),
     # Rebuild the sheet tabs now instead of waiting for :15 / :50. Launches
     # detached and returns at once — see _run_signals for why it must not
     # block the poller. Places no orders and moves no money; it recomputes
     # signals and rewrites the read-only tabs.
+    "verbs_doc":    (False, False),
     "run_signals":  (False, False),
 }
 
@@ -372,6 +380,9 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
     if verb == "run_signals":
         return _run_signals()
 
+    if verb == "verbs_doc":
+        return _write_verbs_doc()
+
     if verb == "seed":
         return _run_seed(arg)
 
@@ -402,6 +413,56 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
                                      log=out.append)
         out.append(f"\nreserve balance for {acct}/{ticker.upper()} "
                    f"is now ${bal:,.2f}")
+        return 0, "\n".join(out)
+
+    # BORROWING, from the sheet. Four verbs, one shape: ACCT TICKER AMOUNT.
+    #
+    #   borrow         171 MSTR 1000   reserve down, cash freed, Borrowed up
+    #   return_borrow  171 MSTR 1000   reserve back up, Borrowed down
+    #   owe            171 ALAB 1000   memo only — no cash moves
+    #   paid_back      171 ALAB 1000   clears the memo
+    #
+    # Every one refuses to overdraw, so a typo'd amount is rejected rather
+    # than quietly leaving a reserve or a debt that never existed.
+    if verb in ("borrow", "return_borrow", "owe", "paid_back"):
+        import cash_reserve
+        parts = arg.split()
+        if len(parts) < 3:
+            return 2, (
+                f"need ACCT TICKER AMOUNT\n  e.g.  {verb}  171 MSTR 1000\n\n"
+                + {"borrow": "Takes cash OUT of that ticker's reserve. The "
+                             "reserve falls and Free_To_Deploy rises, so you "
+                             "can spend it elsewhere. Borrowed records what is "
+                             "owed back.",
+                   "return_borrow": "Puts borrowed cash back. The reserve rises "
+                                    "and Borrowed falls. Refuses more than is "
+                                    "actually out on loan.",
+                   "owe": "A NOTE on the ticker you bought: this position was "
+                          "funded with borrowed money. No cash moves.",
+                   "paid_back": "Clears some or all of what a ticker owes. No "
+                                "cash moves."}[verb])
+        acct, ticker = parts[0], parts[1]
+        try:
+            amount = float(parts[2].replace(",", "").lstrip("$"))
+        except ValueError:
+            return 2, f"{parts[2]!r} is not an amount"
+
+        out = []
+        fn = getattr(cash_reserve, verb)
+        try:
+            fn(acct, ticker, amount, source="ops_sheet", log=out.append)
+        except ValueError as e:
+            # The guard messages already say what is wrong and by how much, so
+            # pass them through rather than wrapping them in something vaguer.
+            return 1, str(e)
+
+        key = (acct, ticker)
+        out.append(
+            f"\n{acct}/{ticker.upper()}: reserve "
+            f"${cash_reserve.balance_of(*key):,.2f} · borrowed "
+            f"${cash_reserve.outstanding(*key, 'Borrowed'):,.2f} · owed "
+            f"${cash_reserve.outstanding(*key, 'Owed'):,.2f}")
+        out.append("Run run_signals to refresh the sheet columns.")
         return 0, "\n".join(out)
 
     if verb == "fence":
@@ -625,6 +686,112 @@ def run_verb(verb: str, arg: str) -> tuple[int, str]:
 # ---------------------------------------------------------------------
 # Sheet plumbing
 # ---------------------------------------------------------------------
+# ---------------------------------------------------------------------
+# The reference tab
+# ---------------------------------------------------------------------
+# DOCS LIVE NEXT TO THE CODE, NOT IN THE SHEET.
+#
+# The ops tab's own header row already carried a cramped sentence listing the
+# verbs, and it went stale the moment one was added — nothing made it update.
+# Here, a verb without an entry shows up as "(undocumented)" in the generated
+# tab, so the gap is visible rather than silent.
+#
+# (verb, argument, example, what it does)
+VERB_DOCS = [
+    ("ping", "—", "ping", "Is Pi 1 alive and reading the sheet? Returns the time and hostname."),
+    ("status", "—", "status", "Bot service state, uptime and disk in one shot."),
+    ("uptime", "—", "uptime", "Load average and free memory. Rising load with nothing running is worth a look."),
+    ("disk", "—", "disk", "Free space on every filesystem."),
+    ("git_pull", "—", "git_pull", "Pull the latest code, then show the last 5 commits. Run this after any change is pushed."),
+    ("git_status", "—", "git_status", "Uncommitted changes and the current branch."),
+    ("git_log", "—", "git_log", "The last 15 commits."),
+    ("cron_check", "—", "cron_check", "The full crontab — what is scheduled and when."),
+    ("svc_log", "—", "svc_log", "Last 80 journal lines for the bot service. Can time out if the box is busy."),
+    ("ls", "repo | jobs | bots", "ls  jobs", "Directory listing for one of the three repos."),
+    ("tail_log", "stocks | crypto | 45 | ops", "tail_log  stocks", "Tail a job log. Use this to watch run_signals progress."),
+    ("pip_upgrade", "package name", "pip_upgrade  yfinance", "Upgrade one allowlisted library in the venv (yfinance, curl_cffi, requests, pandas, gspread). Shows the version before and after."),
+
+    ("token_status", "—", "token_status", "Schwab token state and days remaining."),
+    ("auth_url", "—", "auth_url", "Start a Schwab re-auth. ⏱ THE CODE DIES ~30s AFTER YOU TAP APPROVE — add the auth_code row with column B EMPTY first, then approve, then paste."),
+    ("auth_code", "the whole pasted redirect URL", "auth_code  https://127.0.0.1:8000/?code=C0.b...@&session=...", "Finishes the re-auth. Paste the ENTIRE address bar. A re-pasted code is refused — get a fresh auth_url instead."),
+
+    ("run_signals", "—", "run_signals", "Rebuild Positions, Cash, Dashboard and the reserve tables now instead of waiting for the next cron. Returns as soon as it LAUNCHES; watch with tail_log stocks."),
+    ("reserves", "—", "reserves", "The whole reserve table: what is fenced, deployed and available per ticker."),
+    ("apply_fills", "—", "apply_fills", "Pull recent Schwab fills into the reserve ledger. Idempotent — already-seen fills are skipped."),
+
+    ("seed", "ACCT TICKER AMOUNT", "seed  171 MSTR 5000", "Fence cash for a ticker. It leaves Free_To_Deploy and is held for that name."),
+    ("fence", "ACCT TICKER", "fence  171 MSTR", "Register a ticker you already own. No cash moves now; future sale proceeds are held for it instead of becoming free cash."),
+    ("withdraw", "ACCT TICKER AMOUNT", "withdraw  171 MSTR 1000", "Release fenced cash back to the free pool. The position is untouched."),
+    ("close", "ACCT TICKER", "close  171 MSTR", "Zero the reserve and deactivate the row. History is kept."),
+
+    ("borrow", "ACCT TICKER AMOUNT", "borrow  171 MSTR 1000", "Take cash OUT of that ticker's reserve so you can spend it elsewhere. Seed_Reserved falls, Free_To_Deploy rises, Borrowed records what is owed back. Refuses more than the reserve holds."),
+    ("return_borrow", "ACCT TICKER AMOUNT", "return_borrow  171 MSTR 1000", "Put borrowed cash back. Seed_Reserved rises, Borrowed falls. Refuses more than is actually out on loan."),
+    ("owe", "ACCT TICKER AMOUNT", "owe  171 ALAB 1000", "A NOTE on the ticker you bought with borrowed money. NO cash moves — this only fills the Owed column."),
+    ("paid_back", "ACCT TICKER AMOUNT", "paid_back  171 ALAB 1000", "Clear some or all of what a ticker owes. NO cash moves."),
+
+    ("verbs_doc", "—", "verbs_doc", "Rebuild this tab from the code. Run it after a new verb is added."),
+]
+
+DOC_TAB = os.getenv("GSHEET_VERBS_TAB", "VERBS-howToUse")
+
+
+def _write_verbs_doc() -> tuple[int, str]:
+    """(Re)build the VERBS-howToUse tab from VERB_DOCS and the verb tables."""
+    import gspread
+    from google.oauth2.service_account import Credentials
+
+    creds = Credentials.from_service_account_file(CREDS_PATH, scopes=SCOPES)
+    book = gspread.authorize(creds).open_by_key(os.environ["GSHEET_OPS_ID"])
+
+    known = set(VERBS) | set(PY_VERBS)
+    documented = {v for v, *_ in VERB_DOCS}
+    # A verb nobody documented still gets a row. Silence would mean the tab
+    # looks complete while missing exactly the thing you came to look up.
+    extra = [(v, "?", v, "(undocumented — add it to VERB_DOCS in remote_ops.py)")
+             for v in sorted(known - documented)]
+    gone = sorted(documented - known - {"verbs_doc"})
+
+    rows = [["VERB", "COLUMN B", "EXAMPLE", "WHAT IT DOES"]]
+    rows += [list(r) for r in VERB_DOCS if r[0] in known or r[0] == "verbs_doc"]
+    rows += [list(r) for r in extra]
+    rows.append([])
+    rows.append(["HOW TO RUN", "", "",
+                 "Type the verb in column A of the ops tab and its argument "
+                 "(if any) in column B. Leave C-J empty — Pi 1 fills them in. "
+                 "Rows are picked up within a minute."])
+    rows.append(["", "", "",
+                 f"Generated from remote_ops.py on {now_str()} · "
+                 f"{len(known)} verb(s) live. Re-run verbs_doc after a change."])
+
+    try:
+        ws = book.worksheet(DOC_TAB)
+        ws.clear()
+    except gspread.WorksheetNotFound:
+        ws = book.add_worksheet(title=DOC_TAB, rows=max(len(rows) + 10, 60),
+                                cols=4)
+
+    ws.resize(rows=max(len(rows) + 10, 60), cols=4)
+    ws.update(values=rows, range_name=f"A1:D{len(rows)}")
+    with contextlib.suppress(Exception):
+        ws.format("A1:D1", {"backgroundColor": {"red": 0.20, "green": 0.25,
+                                                "blue": 0.35},
+                            "textFormat": {"bold": True,
+                                           "foregroundColor": {"red": 1.0,
+                                                               "green": 1.0,
+                                                               "blue": 1.0}}})
+        ws.format(f"A2:A{len(rows)}", {"textFormat": {"bold": True}})
+        ws.columns_auto_resize(0, 3)
+        ws.freeze(rows=1)
+
+    note = f"wrote {len(rows)} row(s) to '{DOC_TAB}'"
+    if extra:
+        note += f"\n⚠️  {len(extra)} undocumented verb(s): " \
+                + ", ".join(v for v, *_ in extra)
+    if gone:
+        note += f"\n⚠️  documented but no longer a verb: {', '.join(gone)}"
+    return 0, note
+
+
 def open_sheet():
     from google.oauth2.service_account import Credentials
     import gspread

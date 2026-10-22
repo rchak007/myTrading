@@ -47,7 +47,7 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 POSITIONS_COLS = [
     "Ticker", "Acct", "Qty", "Avg_Cost", "Market_Value", "Unrealized_PL",
     "Has_Stop", "Has_Trim", "Has_Dip", "Has_Breakout",
-    "Fenced", "Seed_Reserved", "Updated",
+    "Fenced", "Seed_Reserved", "Borrowed", "Owed", "Updated",
 ]
 CASH_COLS = [
     "Acct", "Nickname", "Cash", "Cash_In_Open_Orders", "Cash_After_Open_Orders",
@@ -348,9 +348,25 @@ def coverage_for(ticker: str, acct: str, price: float | None,
 
 
 # ──────────────────────────────────────────────────── positions table
+def _bo(table, acct, ticker, idx):
+    """One side of the borrow pair for a (account, ticker), blank when zero."""
+    v = (table or {}).get((acct_key(acct), str(ticker).strip().upper()))
+    if not v or abs(v[idx]) < 0.005:
+        return ""
+    return round(v[idx], 2)
+
+
+def _sum_bo(table, accts, ticker, idx):
+    """The same across every account holding a ticker, for the TOTAL row."""
+    vals = [_num(_bo(table, a, ticker, idx), 0.0) or 0.0 for a in accts]
+    tot = round(sum(vals), 2)
+    return tot if abs(tot) >= 0.005 else ""
+
+
 def build_positions_table(positions_df, signals_df=None, orders_df=None,
                           reserves=None, intents_df=None, fenced=None,
-                          log=print, options=None) -> pd.DataFrame:
+                          log=print, options=None,
+                          borrow_owe=None) -> pd.DataFrame:
     """
     Per (ticker, account), plus a TOTAL row for any ticker held in more than
     one account. Avg_Cost on a TOTAL row is QUANTITY-WEIGHTED — a mean of the
@@ -369,6 +385,7 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
                       for t, p in zip(signals_df["Ticker"], signals_df[pcol])}
 
     reserves = reserves or {}
+    borrow_owe = borrow_owe or {}
     fenced = fenced or set()
     stamp = _now()
 
@@ -457,6 +474,8 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
                 "Unrealized_PL": r["Unrealized_PL"], **flags,
                 "Fenced": "🔒" if (str(r["Acct"]), ticker) in fenced else "",
                 "Seed_Reserved": reserves.get((r["Acct"], ticker), ""),
+                "Borrowed": _bo(borrow_owe, r["Acct"], ticker, 0),
+                "Owed": _bo(borrow_owe, r["Acct"], ticker, 1),
                 "Updated": stamp,
             })
 
@@ -478,6 +497,11 @@ def build_positions_table(positions_df, signals_df=None, orders_df=None,
                 # about accounts it cannot see.
                 "Fenced": BLANK,
                 "Seed_Reserved": round(sum(seeds), 2) if any(seeds) else "",
+                # These DO roll up, unlike coverage and fencing: borrowed and
+                # owed are plain dollar amounts, and the total across accounts
+                # is exactly the number you want before paying one back.
+                "Borrowed": _sum_bo(borrow_owe, grp["Acct"], ticker, 0),
+                "Owed": _sum_bo(borrow_owe, grp["Acct"], ticker, 1),
                 "Updated": stamp,
             })
 
@@ -628,6 +652,43 @@ def load_reserves(log=print) -> dict:
     if out:
         log(f"Reserves loaded: {len(out)} fenced pair(s) · "
             f"${sum(out.values()):,.2f} reserved")
+    return out
+
+
+def load_borrow_owe(log=print) -> dict:
+    """{(acct_last3, TICKER): (borrowed, owed)} — what is out on loan, what is owed.
+
+    Same fail-soft contract as load_reserves(): these two columns are a
+    memory aid, and losing them must never cost the positions table.
+
+    Zeroes are dropped so the cells stay blank. Chakravarti's call, and the
+    right one — a column of $0.00 next to 60 tickers hides the two that
+    actually have a balance.
+    """
+    try:
+        import cash_reserve
+        folded = cash_reserve.fold_balances()
+    except Exception as e:                      # noqa: BLE001
+        log(f"⚠️  Borrowed/Owed left blank: {e}")
+        return {}
+
+    if folded is None or folded.empty:
+        return {}
+    if "Borrowed" not in folded.columns:        # ledger folded by an older build
+        return {}
+
+    out = {}
+    for _, r in folded.iterrows():
+        b, o = float(r.get("Borrowed", 0) or 0), float(r.get("Owed", 0) or 0)
+        if abs(b) < 0.005 and abs(o) < 0.005:
+            continue
+        out[(acct_key(r["Account"]), str(r["Ticker"]).strip().upper())] = (b, o)
+
+    if out:
+        tb = sum(b for b, _ in out.values())
+        to = sum(o for _, o in out.values())
+        log(f"Borrow ledger: ${tb:,.2f} out on loan · ${to:,.2f} owed "
+            f"across {len(out)} pair(s)")
     return out
 
 
@@ -797,7 +858,10 @@ POS_HDR = ["Ticker", "Acct", "Qty", "Avg_Cost", "Live_Price", "Day_%",
            # Fenced sits beside Seed_Reserved because they answer the same
            # question from two sides: whether the capital is earmarked, and how
            # much of it is currently cash rather than shares.
-           "Fenced", "Seed_Reserved"]
+           # Borrowed = taken OUT of this ticker's reserve and owed back to it.
+           # Owed = this ticker was bought with money belonging elsewhere.
+           # Two sides of the same habit, deliberately not linked to each other.
+           "Fenced", "Seed_Reserved", "Borrowed", "Owed"]
 # Column letters within a block (column A is the ticker label, so POS_HDR
 # starts at B). orders_sheet_prices.py writes into these two.
 COL_LIVE_PRICE = "F"
@@ -1175,7 +1239,8 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                  r["Market_Value"], r["Unrealized_PL"], r["Has_Stop"],
                  r["Has_Trim"], r["Has_Dip"], r["Has_Breakout"],
                  "🔒" if (str(r["Acct"]), ticker) in fenced else "",
-                 r["Seed_Reserved"]])
+                 r["Seed_Reserved"],
+                 r.get("Borrowed", ""), r.get("Owed", "")])
             # Flag only real (ticker, account) rows. A TOTAL row carries BLANK
             # rather than N — coverage has no honest aggregate — so it is
             # skipped here without needing a special case.
@@ -1535,7 +1600,8 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
         log(f"Fenced pairs: {len(fenced)}")
     positions = build_positions_table(pos_raw, signals_df, orders_df, reserves,
                                       intents_df=intents, fenced=fenced, log=log,
-                                      options=opts)
+                                      options=opts,
+                                      borrow_owe=load_borrow_owe(log=log))
     # Resting BUYs keyed by (acct, ticker), on the same basis stocks_cash uses
     # for Cash_In_Open_Orders — so the netting cancels exactly.
     try:
