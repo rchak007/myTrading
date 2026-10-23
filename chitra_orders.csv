@@ -9,28 +9,39 @@
 # account the difference matters: her coverage flags are only honest if this
 # is current. (2026-10-02 read "No orders found" — a fact worth recording.)
 #
-#   As_Of     2026-10-13 17:06 ET
+#   As_Of     2026-10-23 13:24 ET
 #
 # DATES HERE ARE EASTERN, because Merrill's page is. Rows timestamped just
 # after midnight ET are the previous evening Pacific — not a future date, just
 # a timezone. Worth knowing before "correcting" it.
 #
-# ── ONLY "Open" ORDERS BELONG BELOW ────────────────────────────────────────
-# EXECUTED since the 2026-10-10 screenshot, so no longer resting:
+# ── THIS ONE IS COMPLETE, AND THAT IS NEW ──────────────────────────────────
+# The screenshot was filtered to Status = Open and footed "Showing 1-5 of 5
+# results". Every previous update came from an unfiltered list that might have
+# been cut off below the fold, which is why two orders had been carried as
+# UNKNOWN for ten days. Both are now resolved:
 #
-#   CBRS  BUY   8 @ limit 147.00  ->  filled 8 @ $143.59   (10/13)
-#   SKHY  BUY   5 @ limit 163.00  ->  filled 5 @ $152.12   (10/13)
-#   MSFT  SELL  1 @ limit 550.00  ->  filled 1 @ $550.00   (10/10)
+#   MU   SELL 1 @ 1,171.00  — STILL RESTING. Was below the fold, not gone.
+#   TSLA SELL 1 @   412.00  — STILL RESTING. Flagged UNKNOWN since 2026-10-13
+#                             with the note "if it is in fact still open, TSLA
+#                             has a trim and the Has_Trim flag is wrong."
+#                             It was, and it was. Now corrected.
 #
-# All three are reflected in chitra_holdings.csv As_Of 2026-10-13.
+# Ask for the Open filter every time. It is the difference between a list and
+# a guess.
 #
-# ⚠️  TSLA SELL 1 @ 412.00 (entered 2026-10-06) IS NOT LISTED HERE.
-#     It was resting on the 2026-10-10 screenshot and does not appear on the
-#     2026-10-13 one — but that screenshot showed seven rows and may simply
-#     have been cut off below TSLA BUY. It is therefore UNKNOWN, not
-#     cancelled, and is left out because this file means "known to be
-#     resting". If it is in fact still open, TSLA has a trim and the Has_Trim
-#     flag below is wrong. Worth a glance at the next screenshot.
+# ── EXECUTED since the 2026-10-13 screenshot, so no longer resting ─────────
+#
+#   TSLA BUY   1 @ limit   360.00  ->  FILLED          (was the dip bid)
+#   TSM  BUY   3 @ market          ->  filled 3 @ $413.23   (10/15)
+#   SKHY BUY   5 @ market          ->  filled 5 @ $138.07   (10/15)
+#
+# All three are reflected in chitra_holdings.csv As_Of 2026-10-23.
+#
+# ── NEW SINCE LAST TIME ────────────────────────────────────────────────────
+#
+#   AMD  BUY   1 @ limit 487.00, entered 10/16 — a dip bid on a name she does
+#        NOT yet hold. Last 515.56, so it sits about 5.5% below the market.
 #
 # COLUMNS — match the ORDERS block on his Dashboard so both read alike
 #   Ticker        symbol
@@ -50,24 +61,32 @@
 # only information there is.
 #
 # ── COVERAGE AS OF THIS SCREENSHOT: STILL NO STOPS ANYWHERE ────────────────
-# Every SELL below is ABOVE the market, so every one is a trim. The MSFT
+# All four SELLs sit ABOVE the market, so all four are trims. The MSFT
 # trailing stop cancelled on 2026-10-09 remains the only stop-type order this
-# account has ever had, and it is gone. Nothing has downside protection:
+# account has ever had. Nothing has downside protection:
 #
-#   held          trim            covers        stop
-#   MU      4     1 @ 1,171       1 of 4        none
-#   MRVL    9     3 @   323       3 of 9        none
-#   GOOG    2     1 @   380       1 of 2        none
-#   TSLA    4     —  (see note)   0 of 4        none   (+ a 1 sh dip bid @ 360)
-#   IBIT   45     —               0 of 45       none
-#   CBRS    8     —               0 of 8        none   ← new position
-#   SKHY    5     —               0 of 5        none   ← new position
-#   MSFT    1     —               0 of 1        none   ← trim just filled
+#   held             trim           covers       stop
+#   MU      4        1 @ 1,171      1 of 4       none
+#   MRVL    9        3 @   323      3 of 9       none
+#   TSLA    5        1 @   412      1 of 5       none   ← trim CONFIRMED today
+#   GOOG    2.0037   1 @   380      1 of 2       none
+#   IBIT   45        —              0 of 45      none
+#   SKHY   10        —              0 of 10      none   ← doubled, still bare
+#   CBRS    8        —              0 of 8       none   ← -20.89%, 10% ATR
+#   TSM     3        —              0 of 3       none   ← new position
+#   MSFT    1.0037   —              0 of 1       none
 #
-# Last prices on the screenshot: MU 953.19 · MRVL 268.725 · IBIT 47.13 ·
-# TSLA 375.23 · CBRS 149.085 · SKHY 157.06 · GOOG 349.52 · MSFT 543.45.
+# Every trim is also a long way out of reach: MU needs +32%, MRVL +42%,
+# TSLA +11%, GOOG +19%. They are exits for a good outcome, not protection
+# against a bad one.
+#
+# Last prices on the screenshot: AMD 515.56 · GOOG 319.11 · MRVL 227.89 ·
+# MU 884.51 · TSLA 371.83. From the positions page, 13:21 ET: MU 886.13 ·
+# IBIT 46.2150 · MRVL 228.1927 · TSLA 372.0044 · SKHY 137.27 · TSM 416.96 ·
+# CBRS 113.6001 · GOOG 319.3350 · MSFT 524.95.
 Ticker,Side,Type,Qty,Limit_Price,Stop_Price,Duration,Entered,Order_ID,Note
-GOOG,SELL,LIMIT,1,380.00,,GTC,2026-10-10,,Exp 2027-04-09 · trim — 1 of 2 held (last 349.52)
-MRVL,SELL,LIMIT,3,323.00,,GTC,2026-10-09,,Exp 2027-04-09 · trim — 3 of 9 held (last 268.73)
-MU,SELL,LIMIT,1,1171.00,,GTC,2026-10-07,,Exp 2027-04-06 · trim — 1 of 4 held (last 953.19)
-TSLA,BUY,LIMIT,1,360.00,,GTC,2026-10-06,,Exp 2027-04-02 · dip bid — below the market (last 375.23)
+AMD,BUY,LIMIT,1,487.00,,GTC,2026-10-16,,Exp 2027-04-14 · dip bid — NOT held yet (last 515.56)
+GOOG,SELL,LIMIT,1,380.00,,GTC,2026-10-10,,Exp 2027-04-09 · trim — 1 of 2 held (last 319.11)
+MRVL,SELL,LIMIT,3,323.00,,GTC,2026-10-09,,Exp 2027-04-09 · trim — 3 of 9 held (last 227.89)
+MU,SELL,LIMIT,1,1171.00,,GTC,2026-10-07,,Exp 2027-04-06 · trim — 1 of 4 held (last 884.51)
+TSLA,SELL,LIMIT,1,412.00,,GTC,2026-10-06,,Exp 2027-04-02 · trim — 1 of 5 held (last 371.83)

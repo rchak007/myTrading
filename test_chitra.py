@@ -143,9 +143,28 @@ check("a seeded ticker shows its dollars",
 # covered-call collateral was, in the other pocket.
 live = chitra.load_orders(log=lambda *_: None)
 _c, _s, buys, free_after = chitra.cash_position(rows, res, live)
-check("an open BUY limit commits cash", buys == 360.0, str(buys))
-check("...and comes out of free", abs(free_after - (cash - 360.0)) < 0.01,
-      f"{free_after} vs {cash - 360.0}")
+
+# DERIVED, NOT LITERAL. This read `buys == 360.0` — the TSLA dip bid that was
+# resting the day the test was written. It filled on 2026-10-23 and AMD @ 487
+# took its place, so the assertion failed on a file update with nothing wrong
+# in the code. Fourth time a hardcoded expectation has done that here, after
+# the reminder-card count, the 6,764.23 sweep and the column letters.
+#
+# What is actually being tested is the RULE — every open BUY at a limit
+# commits price x qty, and that total comes out of free cash. Computing the
+# expectation the same way keeps the rule under test while letting the
+# brokerage data change underneath it.
+expect_buys = sum(
+    float(o["Limit_Price"]) * float(o["Qty"])
+    for o in live
+    if str(o.get("Side", "")).upper() == "BUY"
+    and str(o.get("Limit_Price", "")).strip()
+)
+check("an open BUY limit commits cash", abs(buys - expect_buys) < 0.01,
+      f"{buys} vs {expect_buys} from {len(live)} live order(s)")
+check("...and comes out of free",
+      abs(free_after - (cash - expect_buys)) < 0.01,
+      f"{free_after} vs {cash - expect_buys}")
 check("a SELL commits no cash",
       chitra.cash_position(rows, res,
                            [{"Side": "SELL", "Limit_Price": "412", "Qty": "1"}]

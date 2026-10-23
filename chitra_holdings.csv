@@ -16,21 +16,28 @@
 # they never touch reserves, coverage flags, totals, or the order engine.
 #
 #   Account   IRA-Edge 272-98230
-#   As_Of     2026-10-13
+#   As_Of     2026-10-23 13:21 ET
 #
-# The statement showed $17,637.31 total, +$1,587.10 (+10.24%) unrealized on
-# that date, and the rows below reproduce it to the cent. Worth re-checking
-# after any edit: if the TOTAL stops matching the statement, a row was
-# mistyped.
+# The statement showed $15,148.19 total value and +$604.28 (+4.15%)
+# unrealized. The Cost_Basis column below sums to $14,543.91, and
+# 15,148.19 − 14,543.91 = 604.28 EXACTLY — so every row is reproduced to the
+# cent. Re-check that subtraction after any edit: if it stops matching, a row
+# was mistyped.
 #
-# CHANGED SINCE 2026-09-30 (previous As_Of)
-#   CBRS   NEW   8 sh — order executed 8 @ $143.59 = $1,148.72 exactly
-#   SKHY   NEW   5 sh — order executed 5 @ $152.12 =   $760.60 exactly
-#   MSFT   2.0037 -> 1.0037 sh — sold 1 @ $550.00
-#   MU        3 -> 4 sh    )  no matching row on the orders screenshot; both
-#   IBIT     20 -> 45 sh   )  executed before the window it showed
-#   IIAXX  6,764.23 -> 4,560.48 — the sweep funding all of the above
-#   MRVL / TSLA / GOOG unchanged in both quantity and basis
+# CHANGED SINCE 2026-10-13 (previous As_Of)
+#   TSM    NEW    3 sh @ $1,239.69 — market buy 10/15, 3 @ $413.23 exactly
+#   SKHY   5 -> 10 sh — market buy 10/15, 5 @ $138.07; 760.60 + 690.35 = 1,450.95
+#   TSLA   4 -> 5 sh  — THE $360.00 DIP BID FILLED. Basis 1,384.00 -> 1,744.00,
+#                       a delta of exactly $360.00 for one share. That order
+#                       had been resting since 10/06 and is now gone from the
+#                       open list for the right reason.
+#   IIAXX  4,560.48 -> 911.11 — the sweep funding TSM, SKHY and TSLA
+#   MSFT   basis 407.30 -> 398.49 — REAL figure at last, replacing the
+#                       prorated estimate carried since the 1 sh sale on 10/10
+#   MU / MRVL / IBIT / CBRS / GOOG unchanged in both quantity and basis
+#
+# AMD is NOT held. There is a BUY bid resting at $487 (see chitra_orders.csv);
+# if it fills, add the row here.
 #
 # COLUMNS
 #   Ticker      symbol, or the sweep fund for cash
@@ -41,12 +48,13 @@
 #
 # To update: replace the rows, bump As_Of above, commit. No code change.
 Ticker,Qty,Cost_Basis,Asset,Note
-IIAXX,4560.4800,4560.48,CASH,Money account — BANK OF AMERICA NA RASP sweep
+IIAXX,911.1100,911.11,CASH,Money account — BANK OF AMERICA NA RASP sweep
 MU,4,3485.82,EQUITY,
 MRVL,9,1574.42,EQUITY,
 IBIT,45,1955.65,EQUITY,iShares Bitcoin Trust ETF
-TSLA,4,1384.00,EQUITY,
+TSLA,5,1744.00,EQUITY,5th share from the 360.00 dip bid filling after 2026-10-13
+SKHY,10,1450.95,EQUITY,SK Hynix ADR — 5 @ 152.12 on 10/13 plus 5 @ 138.07 on 10/15
+TSM,3,1239.69,EQUITY,Taiwan Semiconductor ADR — bought 2026-10-15 at 413.23
 CBRS,8,1148.72,EQUITY,Cerebras Systems Cl A — bought 2026-10-13 at 143.59
-SKHY,5,760.60,EQUITY,SK Hynix ADR — bought 2026-10-13 at 152.12
 GOOG,2.0037,635.06,EQUITY,Alphabet Class C
-MSFT,1.0037,407.30,EQUITY,ESTIMATED BASIS — Merrill showed no basis after the 1 sh sale; prorated from 813.09 at 2.0037 sh. Replace when the statement shows a real figure
+MSFT,1.0037,398.49,EQUITY,
