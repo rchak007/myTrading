@@ -137,16 +137,28 @@ IO_FUND = [
 # write-ups, plus the 3 she labels honorable mentions (TSM, AVGO, PLTR), which
 # get the same tables and so are picks in everything but name. NOT included:
 # companies discussed at length as competitors, customers or valuation
-# comparables. NVDA, GOOG, META, ARM, MRVL, CEG, VST and NEE are all over that
+# comparables. GOOG, META, ARM, MRVL, CEG, VST and NEE are all over that
 # report and none of them is a pick — reading mentions as endorsements is how
-# this list grew to 29 names in the first place.
+# this list grew to 29 names in the first place. NVDA is the ONE deliberate
+# exception, added by hand; the note beside it says why.
 BETH_FUNDS = [
     # Networking (7)
     "LITE", "AAOI", "SITM", "MXL", "MTSI", "COHR", "ALAB",
     # Memory and storage (5)  — SKHY is the SK Hynix ADR
     "MU", "SKHY", "SNDK", "SIMO", "STX",
-    # Semis and equipment (2)
-    "AMD", "LRCX",
+    # Semis and equipment (3)
+    #
+    # NVDA is here by Chakravarti's call, 2026-10-24, NOT because Beth picks
+    # it — she does not. Her Q4 report discusses Nvidia on nearly every page
+    # as the thing everyone else is measured against, and never puts it on
+    # the list. It sat in BETH_REMOVED for exactly that reason.
+    #
+    # The independent reason it belongs anyway: NVDA is TIER 1 in
+    # WALL-STREET-LEVEL-STOCK-ANALYSIS.md — 18.1x forward, PEG 0.35, ROIC
+    # 92%, share count DOWN 1.04%. A watchlist that tracks her picks but
+    # omits the name his own framework rates highest would be a strange
+    # thing to read every morning.
+    "AMD", "LRCX", "NVDA",
     # Energy and power (2)
     "BE", "GEV",
     # Software (2)
@@ -164,15 +176,17 @@ BETH_FUNDS = [
 # Three distinct reasons are mixed in here, and the list does not distinguish
 # them because the report does not either:
 #   - closed for a realized gain (GOOG — she exited GOOGL earlier in 2026)
-#   - still discussed heavily but never a pick (NVDA, ARM, MRVL, META)
+#   - still discussed heavily but never a pick (ARM, MRVL, META)
 #   - simply absent from the Q4 report (CRDO, VRT, RDDT, WDC)
 #   - named only as a valuation comparable or in passing (CEG, VST, NEE, GLW)
 #
 # Not wired into the dashboard. These are here so the drop is recorded, not so
 # it gets its own block of cards.
 BETH_REMOVED = [
+    # NVDA left this list on 2026-10-24 — added back to BETH_FUNDS by
+    # request. Still not one of her picks; see the note above.
     "ARM", "CEG", "CRDO", "GLW", "GOOG", "META", "MRVL", "NEE",
-    "NVDA", "RDDT", "VRT", "VST", "WDC",
+    "RDDT", "VRT", "VST", "WDC",
 ]
 
 INVESTANSWERS = [
