@@ -1,118 +1,118 @@
 Ticker,Fetched,Price_At_Fetch,Target_Mean,Target_High,Target_Low,Analysts,Recommendation,Sector
-AAOI,2026-10-17,75.57,160.0,220.0,92.0,5,buy,Technology
-AAPL,2026-10-17,343.46,329.3759,405.0,215.0,39,buy,Technology
-ABTC,2026-10-17,7.56,16.75,22.0,14.0,4,strong_buy,Financial Services
-AEHR,2026-10-17,60.6,128.0,175.0,110.0,5,strong_buy,Technology
-ALAB,2026-10-17,285.82,391.7687,500.0,190.0,22,buy,Technology
-AMAT,2026-10-17,409.29,627.8333,900.0,358.0,36,strong_buy,Technology
-AMD,2026-10-17,528.75,636.208,1250.0,365.0,50,strong_buy,Technology
-AMZN,2026-10-17,250.0,331.46103,405.0,230.0,58,strong_buy,Consumer Cyclical
-APH,2026-10-17,79.35,102.97368,116.0,85.0,19,strong_buy,Technology
-APLD,2026-10-17,18.05,64.26667,93.0,22.0,15,strong_buy,Technology
-APP,2026-10-17,266.13,480.07773,790.0,325.0,31,buy,Communication Services
-ARM,2026-10-17,227.8,290.705,500.0,125.0,40,buy,Technology
-ASML,2026-10-17,1641.52,2155.3225,2889.8562,869.747,17,strong_buy,Technology
-ASTS,2026-10-17,40.66,74.275,108.0,42.5,12,hold,Technology
-AVAV,2026-10-17,121.79,216.16228,315.0,148.57,22,buy,Industrials
-AVGO,2026-10-17,328.75,527.5915,660.0,215.88,47,strong_buy,Technology
-BABA,2026-10-17,109.11,186.36197,239.03964,95.53004,40,strong_buy,Consumer Cyclical
-BE,2026-10-17,221.31,285.43076,380.0,97.0,26,buy,Industrials
-BKR,2026-10-17,55.7,71.16667,85.0,51.0,24,buy,Energy
-BMNR,2026-10-17,21.66,45.86667,63.6,34.0,3,strong_buy,Financial Services
-BWXT,2026-10-17,137.01,209.44438,290.0,150.0,16,buy,Industrials
-CBRS,2026-10-17,127.21,291.63635,330.0,209.0,11,strong_buy,Technology
-CEG,2026-10-17,271.37,337.57455,395.0,238.0,22,buy,Utilities
-CFG,2026-10-17,63.36,78.02632,89.0,70.0,19,buy,Financial Services
-CIEN,2026-10-17,332.73,512.9907,660.0,347.0,20,buy,Technology
-CLSK,2026-10-17,8.4,23.39286,27.0,19.0,14,strong_buy,Financial Services
-COHR,2026-10-17,232.9,410.43317,500.0,280.0,23,buy,Technology
-COIN,2026-10-17,173.16,212.15456,330.0,110.0,33,buy,Financial Services
-CORZ,2026-10-17,13.48,32.61905,47.0,16.0,21,strong_buy,Technology
-CRCL,2026-10-17,82.22,106.97583,243.0,37.0,24,buy,Financial Services
-CRDO,2026-10-17,169.7,279.0931,315.0,185.0,20,strong_buy,Technology
-CRWD,2026-10-17,227.39,246.15,325.0,132.0,50,buy,Technology
-CRWV,2026-10-17,61.39,140.57895,278.0,39.0,38,buy,Technology
-CTVA,2026-10-17,12.88,22.05441,75.0,13.65291,12,buy,Basic Materials
-DELL,2026-10-17,451.71,593.0,735.0,480.0,25,buy,Technology
-DPRO,2026-10-17,3.7,10.734364,13.795007,8.034236,6,none,Industrials
-ECHO,2026-10-17,85.37,130.2,156.0,103.0,10,strong_buy,Communication Services
-FCEL,2026-10-17,13.0,21.1,32.0,8.0,10,buy,Industrials
-FIG,2026-10-17,21.49,30.1,37.0,22.0,10,buy,Technology
-GEV,2026-10-17,921.2,1223.9773,1450.0,940.0,33,buy,Industrials
-GLW,2026-10-17,132.0,187.70589,238.0,129.0,17,buy,Technology
-GLXY,2026-10-17,16.14,40.25,57.0,24.0,16,strong_buy,Financial Services
-GOOG,2026-10-17,336.91,420.78857,485.0,340.0,14,strong_buy,Communication Services
-HHH,2026-10-17,68.69,84.0,90.0,79.0,3,buy,Real Estate
-HIMS,2026-10-17,28.07,31.15385,42.0,23.0,13,hold,Healthcare
-HOOD,2026-10-17,98.87,134.38414,170.0,57.0,29,buy,Financial Services
-IBM,2026-10-17,232.14,242.6513,297.0,174.0,23,buy,Technology
-IDR,2026-10-17,21.81,45.0,45.0,45.0,1,none,Basic Materials
-INOD,2026-10-17,52.82,122.75,140.0,111.0,4,none,Technology
-INVA,2026-10-17,20.78,35.0,46.0,18.0,5,none,Healthcare
-IONQ,2026-10-17,31.28,64.06071,100.0,41.85,14,strong_buy,Technology
-IRDM,2026-10-17,43.76,42.0,54.0,36.0,5,none,Communication Services
-IREN,2026-10-17,26.99,77.80556,139.0,37.0,18,buy,Financial Services
-JOBY,2026-10-17,4.66,10.00889,18.0,4.0,9,hold,Industrials
-KTOS,2026-10-17,40.42,98.33333,150.0,55.0,24,strong_buy,Industrials
-LEU,2026-10-17,114.94,240.82056,340.0,167.0,18,buy,Energy
-LITE,2026-10-17,824.13,1179.071,1500.0,820.0,26,strong_buy,Technology
-LMT,2026-10-17,552.09,618.8571,756.0,486.0,21,buy,Industrials
-LRCX,2026-10-17,263.94,375.80646,500.0,290.0,31,strong_buy,Technology
-LUNR,2026-10-17,10.78,29.0,43.0,13.0,9,strong_buy,Industrials
-META,2026-10-17,709.325,814.5124,1050.0,580.0,58,strong_buy,Communication Services
-MNST,2026-10-17,45.73,49.84783,57.0,35.0,23,buy,Consumer Defensive
-MP,2026-10-17,40.17,72.11765,100.0,53.0,17,strong_buy,Basic Materials
-MRVL,2026-10-17,227.83,339.35742,450.0,210.0,44,strong_buy,Technology
-MSFT,2026-10-17,529.05,599.23755,870.0,440.0,53,strong_buy,Technology
-MSTR,2026-10-17,136.83,239.26666,435.0,165.0,15,strong_buy,Technology
-MTSI,2026-10-17,262.24,395.33334,475.0,300.0,15,buy,Technology
-MU,2026-10-17,878.84,1560.5652,3000.0,361.0,46,strong_buy,Technology
-MXL,2026-10-17,71.32,94.54545,125.0,40.0,11,buy,Technology
-NBIS,2026-10-17,165.47,283.6,410.0,84.0,20,buy,Communication Services
-NBR,2026-10-17,78.2,107.375,130.0,80.0,8,hold,Energy
-NEE,2026-10-17,79.8,97.0,114.0,56.0,19,buy,Utilities
-NET,2026-10-17,296.3,343.41934,430.0,160.0,31,buy,Technology
-NOC,2026-10-17,519.86,619.0833,815.0,419.0,24,buy,Industrials
-NPK,2026-10-17,149.05,162.0,162.0,162.0,1,none,Industrials
-NVDA,2026-10-17,214.13,328.71695,515.0,180.0,59,strong_buy,Technology
-OKLO,2026-10-17,27.97,75.375,130.0,14.0,20,buy,Utilities
-ONDS,2026-10-17,6.04,18.875,25.0,13.0,10,strong_buy,Technology
-ORCL,2026-10-17,128.23,237.3644,400.0,110.0,41,buy,Technology
-OUST,2026-10-17,28.43,59.4,75.0,52.0,5,none,Technology
-PANW,2026-10-17,342.0,398.52,525.0,190.0,50,buy,Technology
-PBLS,2026-10-17,22.75,41.75,45.0,40.0,4,strong_buy,Healthcare
-PL,2026-10-17,13.56,30.27273,50.0,17.0,11,buy,Industrials
-PLTR,2026-10-17,186.03,206.42693,265.0,80.0,26,buy,Technology
-QBTS,2026-10-17,11.78,34.6475,43.0,18.36,16,strong_buy,Technology
-QUBT,2026-10-17,6.36,18.66667,32.0,10.0,6,none,Technology
-RCAT,2026-10-17,4.72,16.5,25.0,9.0,8,strong_buy,Industrials
-RDDT,2026-10-17,156.14,213.70909,300.0,130.0,33,buy,Communication Services
-RDW,2026-10-17,8.39,14.27778,20.0,8.0,9,buy,Industrials
-RGTI,2026-10-17,11.8,28.525,40.0,17.3,12,none,Technology
-RIOT,2026-10-17,13.72,30.92636,42.0,22.0,22,strong_buy,Financial Services
-RKLB,2026-10-17,50.84,102.26316,150.0,64.0,19,buy,Industrials
-RTX,2026-10-17,193.92,227.78261,250.0,200.0,23,buy,Industrials
-SE,2026-10-17,93.77,154.93143,195.0,105.0,28,strong_buy,Consumer Cyclical
-SIMO,2026-10-17,211.3,369.7,450.0,325.0,10,strong_buy,Technology
-SITM,2026-10-17,472.14,849.5,900.0,730.0,10,none,Technology
-SKHY,2026-10-17,136.49,252.2143,355.0,152.0,14,strong_buy,Technology
-SMCI,2026-10-17,31.63,42.26667,60.0,15.0,15,hold,Technology
-SMR,2026-10-17,5.83,11.76667,20.0,6.0,15,hold,Industrials
-SNA,2026-10-17,367.25,412.66666,485.0,343.0,9,buy,Industrials
-SNDK,2026-10-17,1299.3,2173.0,3600.0,1000.0,24,buy,Technology
-SOFI,2026-10-17,14.55,20.36087,30.0,12.0,23,hold,Financial Services
-SPCX,2026-10-17,146.03,222.70969,450.0,118.0,31,buy,Industrials
-STKE,2026-10-17,1.31,6.2,6.2,6.2,1,none,Financial Services
-STM,2026-10-17,45.39,75.04167,98.0,52.0,12,none,Technology
-STX,2026-10-17,639.01,1138.3334,1600.0,700.0,24,strong_buy,Technology
-TEM,2026-10-17,64.72,74.94444,100.0,35.0,18,buy,Healthcare
-TER,2026-10-17,325.0,446.46667,550.0,350.0,15,buy,Technology
-TLN,2026-10-17,354.81,457.94443,560.0,307.0,18,buy,Utilities
-TSLA,2026-10-17,354.72,397.83212,600.0,128.11,38,buy,Consumer Cyclical
-TSM,2026-10-17,412.61,584.39294,1000.0,440.0,20,strong_buy,Technology
-UMAC,2026-10-17,16.31,39.0,45.0,30.0,8,strong_buy,Technology
-UPXI,2026-10-17,0.9739,2.0,2.0,2.0,1,none,Communication Services
-VRT,2026-10-17,206.42,333.7143,427.0,236.0,28,strong_buy,Industrials
-VST,2026-10-17,152.02,210.09525,305.0,106.0,21,strong_buy,Utilities
-WDC,2026-10-17,332.0,668.5,1050.0,420.0,24,buy,Technology
-WTI,2026-10-17,3.8,4.15,4.25,4.0,3,strong_buy,Energy
+AAOI,2026-10-24,67.51,160.0,220.0,92.0,5,buy,Technology
+AAPL,2026-10-24,347.725,328.35025,405.0,215.0,39,buy,Technology
+ABTC,2026-10-24,7.51,16.75,22.0,14.0,4,strong_buy,Financial Services
+AEHR,2026-10-24,55.31,128.0,175.0,110.0,5,strong_buy,Technology
+ALAB,2026-10-24,257.16,388.35962,500.0,190.0,22,buy,Technology
+AMAT,2026-10-24,377.24,627.8333,900.0,358.0,36,strong_buy,Technology
+AMD,2026-10-24,516.79,637.608,1250.0,365.0,50,strong_buy,Technology
+AMZN,2026-10-24,248.0,331.71967,405.0,230.0,58,strong_buy,Consumer Cyclical
+APH,2026-10-24,74.09,102.97368,116.0,85.0,19,strong_buy,Technology
+APLD,2026-10-24,18.25,62.4375,93.0,22.0,16,strong_buy,Technology
+APP,2026-10-24,260.25,476.85193,790.0,325.0,31,buy,Communication Services
+ARM,2026-10-24,210.33,290.705,500.0,125.0,40,buy,Technology
+ASML,2026-10-24,1571.8,2148.9858,2847.468,866.8236,17,strong_buy,Technology
+ASTS,2026-10-24,39.79,74.68333,108.0,42.5,12,hold,Technology
+AVAV,2026-10-24,123.25,213.06825,315.0,148.57,23,buy,Industrials
+AVGO,2026-10-24,321.68,529.1,660.0,215.88,48,strong_buy,Technology
+BABA,2026-10-24,99.64,186.74243,239.61304,95.75919,40,strong_buy,Consumer Cyclical
+BE,2026-10-24,193.3,284.34616,380.0,97.0,26,buy,Industrials
+BKR,2026-10-24,55.86,70.625,85.0,51.0,24,buy,Energy
+BMNR,2026-10-24,22.4,45.86667,63.6,34.0,3,none,Financial Services
+BWXT,2026-10-24,127.19,209.44438,290.0,150.0,16,buy,Industrials
+CBRS,2026-10-24,110.82,282.54544,330.0,175.0,11,strong_buy,Technology
+CEG,2026-10-24,253.45,338.0713,395.0,238.0,23,buy,Utilities
+CFG,2026-10-24,65.14,76.60526,87.0,65.0,19,buy,Financial Services
+CIEN,2026-10-24,320.26,512.9907,660.0,347.0,20,buy,Technology
+CLSK,2026-10-24,7.88,23.16667,27.0,19.0,15,strong_buy,Financial Services
+COHR,2026-10-24,209.29,394.79013,500.0,230.0,24,buy,Technology
+COIN,2026-10-24,164.45,212.30606,330.0,110.0,33,buy,Financial Services
+CORZ,2026-10-24,13.1,32.61905,47.0,16.0,21,strong_buy,Technology
+CRCL,2026-10-24,85.91,107.35083,243.0,37.0,24,buy,Financial Services
+CRDO,2026-10-24,147.29,284.04538,315.0,235.0,19,strong_buy,Technology
+CRWD,2026-10-24,257.57,246.65,325.0,132.0,50,buy,Technology
+CRWV,2026-10-24,54.235,135.8158,278.0,39.0,38,buy,Technology
+CTVA,2026-10-24,12.45,17.24117,20.0,13.65291,11,buy,Basic Materials
+DELL,2026-10-24,456.44,593.0,735.0,480.0,25,buy,Technology
+DPRO,2026-10-24,3.58,10.83631,13.926021,8.110539,6,none,Industrials
+ECHO,2026-10-24,89.08,130.2,156.0,103.0,10,strong_buy,Communication Services
+FCEL,2026-10-24,11.11,21.1,32.0,8.0,10,buy,Industrials
+FIG,2026-10-24,24.64,30.1,37.0,22.0,10,buy,Technology
+GEV,2026-10-24,815.0,1223.9773,1450.0,940.0,33,buy,Industrials
+GLW,2026-10-24,123.69,187.41176,238.0,129.0,17,buy,Technology
+GLXY,2026-10-24,14.68,38.8125,57.0,24.0,16,strong_buy,Financial Services
+GOOG,2026-10-24,317.28,422.35715,485.0,340.0,14,strong_buy,Communication Services
+HHH,2026-10-24,70.19,84.0,90.0,79.0,3,buy,Real Estate
+HIMS,2026-10-24,27.71,31.15385,42.0,23.0,13,hold,Healthcare
+HOOD,2026-10-24,95.07,134.90466,170.0,57.0,30,buy,Financial Services
+IBM,2026-10-24,253.56,257.21652,300.0,174.0,23,buy,Technology
+IDR,2026-10-24,19.18,45.0,45.0,45.0,1,none,Basic Materials
+INOD,2026-10-24,59.39,122.75,140.0,111.0,4,none,Technology
+INVA,2026-10-24,20.66,35.0,46.0,18.0,5,none,Healthcare
+IONQ,2026-10-24,31.27,64.06071,100.0,41.85,14,strong_buy,Technology
+IRDM,2026-10-24,44.4,46.0,54.0,36.0,4,buy,Communication Services
+IREN,2026-10-24,24.905,77.80556,139.0,37.0,18,buy,Financial Services
+JOBY,2026-10-24,4.76,10.00889,18.0,4.0,9,hold,Industrials
+KTOS,2026-10-24,38.68,94.44,150.0,50.0,25,strong_buy,Industrials
+LEU,2026-10-24,102.45,221.54279,337.0,115.0,18,buy,Energy
+LITE,2026-10-24,756.17,1165.0314,1500.0,750.0,27,buy,Technology
+LMT,2026-10-24,604.18,633.6191,756.0,498.0,21,buy,Industrials
+LRCX,2026-10-24,230.1,364.03333,500.0,255.0,30,strong_buy,Technology
+LUNR,2026-10-24,10.52,29.0,43.0,13.0,9,strong_buy,Industrials
+META,2026-10-24,642.62,843.3938,1050.0,600.0,58,strong_buy,Communication Services
+MNST,2026-10-24,46.19,49.78261,57.0,35.0,23,buy,Consumer Defensive
+MP,2026-10-24,38.3,70.9375,100.0,53.0,16,strong_buy,Basic Materials
+MRVL,2026-10-24,228.51,341.43552,450.0,229.95,43,strong_buy,Technology
+MSFT,2026-10-24,524.51,601.7281,870.0,440.0,53,strong_buy,Technology
+MSTR,2026-10-24,146.01,239.26666,435.0,165.0,15,strong_buy,Technology
+MTSI,2026-10-24,236.24,390.33334,475.0,300.0,15,buy,Technology
+MU,2026-10-24,877.55,1561.9111,3000.0,361.0,45,strong_buy,Technology
+MXL,2026-10-24,63.46,93.63636,125.0,40.0,11,buy,Technology
+NBIS,2026-10-24,158.74,281.0,410.0,84.0,20,buy,Communication Services
+NBR,2026-10-24,81.03,107.375,130.0,80.0,8,hold,Energy
+NEE,2026-10-24,82.1,94.57895,110.0,56.0,19,buy,Utilities
+NET,2026-10-24,325.73,343.41934,430.0,160.0,31,buy,Technology
+NOC,2026-10-24,551.44,631.6667,815.0,430.0,24,buy,Industrials
+NPK,2026-10-24,148.93,162.0,162.0,162.0,1,none,Industrials
+NVDA,2026-10-24,210.96,328.95346,515.0,180.0,58,strong_buy,Technology
+OKLO,2026-10-24,26.35,72.0,130.0,14.0,20,buy,Utilities
+ONDS,2026-10-24,6.2,18.875,25.0,13.0,10,strong_buy,Technology
+ORCL,2026-10-24,126.16,236.53513,400.0,110.0,41,buy,Technology
+OUST,2026-10-24,29.69,59.4,75.0,52.0,5,none,Technology
+PANW,2026-10-24,380.55,398.52,525.0,190.0,50,buy,Technology
+PBLS,2026-10-24,24.44,41.4,45.0,40.0,5,strong_buy,Healthcare
+PL,2026-10-24,13.41,30.27273,50.0,17.0,11,buy,Industrials
+PLTR,2026-10-24,196.75,206.65768,265.0,80.0,26,buy,Technology
+QBTS,2026-10-24,11.66,34.6475,43.0,18.36,16,strong_buy,Technology
+QUBT,2026-10-24,6.56,18.66667,32.0,10.0,6,buy,Technology
+RCAT,2026-10-24,4.43,16.28571,25.0,6.0,7,strong_buy,Industrials
+RDDT,2026-10-24,144.25,212.95152,300.0,130.0,33,buy,Communication Services
+RDW,2026-10-24,8.36,14.27778,20.0,8.0,9,buy,Industrials
+RGTI,2026-10-24,11.52,28.525,40.0,17.3,12,none,Technology
+RIOT,2026-10-24,12.53,30.38091,42.0,19.0,22,strong_buy,Financial Services
+RKLB,2026-10-24,52.6,102.15,150.0,64.0,20,buy,Industrials
+RTX,2026-10-24,191.01,229.1739,250.0,200.0,23,buy,Industrials
+SE,2026-10-24,74.63,153.78857,195.0,105.0,28,strong_buy,Consumer Cyclical
+SIMO,2026-10-24,187.39,363.5,450.0,288.0,10,strong_buy,Technology
+SITM,2026-10-24,460.22,840.4545,900.0,730.0,11,strong_buy,Technology
+SKHY,2026-10-24,137.02,247.0,320.0,152.0,14,strong_buy,Technology
+SMCI,2026-10-24,32.94,43.26667,60.0,15.0,15,hold,Technology
+SMR,2026-10-24,5.38,11.06667,20.0,4.0,15,hold,Industrials
+SNA,2026-10-24,357.02,404.1111,485.0,340.0,9,buy,Industrials
+SNDK,2026-10-24,1238.03,2173.0,3600.0,1000.0,24,buy,Technology
+SOFI,2026-10-24,14.615,20.23043,30.0,12.0,23,hold,Financial Services
+SPCX,2026-10-24,147.49,257.48572,800.0,70.0,35,buy,Industrials
+STKE,2026-10-24,1.25,6.2,6.2,6.2,1,none,Financial Services
+STM,2026-10-24,44.02,74.625,98.0,50.0,12,buy,Technology
+STX,2026-10-24,630.49,1116.5834,1600.0,700.0,24,strong_buy,Technology
+TEM,2026-10-24,67.615,74.94444,100.0,35.0,18,buy,Healthcare
+TER,2026-10-24,308.85,445.46667,550.0,350.0,15,buy,Technology
+TLN,2026-10-24,327.91,457.315,560.0,307.0,20,strong_buy,Utilities
+TSLA,2026-10-24,372.22,407.22104,600.0,128.11,39,buy,Consumer Cyclical
+TSM,2026-10-24,418.51,584.39294,1000.0,440.0,20,strong_buy,Technology
+UMAC,2026-10-24,17.02,37.0,45.0,29.0,9,strong_buy,Technology
+UPXI,2026-10-24,0.7656,2.0,2.0,2.0,1,none,Communication Services
+VRT,2026-10-24,194.32,333.0,427.0,236.0,28,strong_buy,Industrials
+VST,2026-10-24,140.16,208.86365,305.0,106.0,22,strong_buy,Utilities
+WDC,2026-10-24,343.67,610.0417,900.0,405.0,24,buy,Technology
+WTI,2026-10-24,4.19,4.225,4.25,4.2,2,none,Energy
