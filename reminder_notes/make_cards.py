@@ -10,6 +10,7 @@ reminder email:
     05-catch-winners.png   a pointer to the 17-step doc, so it is not lost
     06-benter-method.png   a pointer to the expected-value doc
     07-vix-regime.png      the VIX fear-gauge bands, with what the data says
+    08-market-cycle.png    the four-phase Wyckoff cycle, and the tool per phase
 
     .venv/bin/python reminder_notes/make_cards.py
 
@@ -32,6 +33,7 @@ OUT_CHEAP = HERE / "04-buy-cheap.png"
 OUT_WINNERS = HERE / "05-catch-winners.png"
 OUT_BENTER = HERE / "06-benter-method.png"
 OUT_VIX = HERE / "07-vix-regime.png"
+OUT_CYCLE = HERE / "08-market-cycle.png"
 W, H = 1600, 1120
 
 BG = (13, 13, 16)
@@ -243,6 +245,97 @@ def benter() -> Path:
     return OUT_BENTER
 
 
+def market_cycle() -> Path:
+    """The Wyckoff four-phase cycle, from three Smart Money Decode X slides
+    Chakravarti sent on 2026-10-24.
+
+    THREE SCREENSHOTS, ONE IDEA — so one card. The slides were: a BTC chart
+    with the four phases marked; "THE HEARTBEAT — REPEATING ENDLESSLY" showing
+    the same shape across 2018-2024; and a wheel captioned "EVERY CONCEPT = A
+    TOOL FOR THIS CYCLE" assigning one tool to each phase. Pasted as three
+    images they would be three-quarters redundant, and the email already runs
+    seven cards.
+
+    THE REASON IT EARNS A SLOT is the last line, which is ours rather than
+    theirs: his Structure column already names the phase. BULL+BULLISH is
+    markup, BEAR+BEARISH is markdown, and MIXED is the honest answer during
+    the two phases where nobody can tell accumulation from distribution until
+    afterwards. A framework that maps onto a column he already reads every
+    morning is worth more than one that needs new tooling.
+    """
+    w, h = 1600, 860
+    img = Image.new("RGB", (w, h), BG)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, 14, h], fill=VIOLET)
+
+    # 58px ran off the right edge and clipped the final letter. Measured
+    # rather than guessed: the string is long, so the size follows from it.
+    d.text((78, 76), "THE MARKET CYCLE  —  REPEATING ENDLESSLY",
+           font=font(48, True), fill=VIOLET, anchor="lm")
+    d.text((78, 134),
+           "Four phases, always the same order. Every tool you own is a tool "
+           "for ONE of them.",
+           font=font(31), fill=WHITE, anchor="lm")
+
+    QUIET = (148, 163, 184)
+    # The glyph IS the lesson, as with the P/b/D card: flat, up, chop, down.
+    paths = [
+        (QUIET, [(100, 405), (155, 388), (210, 412), (265, 390), (320, 410),
+                 (375, 387), (430, 402), (470, 386)]),
+        (GREEN, [(470, 386), (530, 332), (572, 356), (648, 272), (696, 296),
+                 (768, 236), (810, 226)]),
+        (AMBER, [(810, 226), (852, 203), (894, 247), (942, 208), (990, 252),
+                 (1038, 212), (1086, 256), (1128, 218), (1170, 246)]),
+        (RED,   [(1170, 246), (1228, 302), (1270, 282), (1340, 356),
+                 (1382, 340), (1452, 396), (1500, 412)]),
+    ]
+    for colour, pts in paths:
+        d.line(pts, fill=colour, width=7, joint="curve")
+
+    for x in (470, 810, 1170):
+        for y in range(190, 440, 16):
+            d.line([(x, y), (x, y + 8)], fill=LINE, width=2)
+
+    phases = [("ACCUMULATION", "sideways, quiet", 100, 470, QUIET),
+              ("MARKUP", "the uptrend", 470, 810, GREEN),
+              ("DISTRIBUTION", "choppy, toppy", 810, 1170, AMBER),
+              ("MARKDOWN", "the downtrend", 1170, 1500, RED)]
+    for name, sub, x0, x1, colour in phases:
+        cx = (x0 + x1) // 2
+        d.text((cx, 476), name, font=font(31, True), fill=colour, anchor="mm")
+        d.text((cx, 512), sub, font=font(24), fill=MUTED, anchor="mm")
+
+    d.line([(78, 556), (w - 78, 556)], fill=LINE, width=2)
+    d.text((78, 598), "EVERY CONCEPT IS A TOOL FOR ONE PHASE",
+           font=font(30, True), fill=AMBER, anchor="lm")
+
+    tools = [("ACCUMULATION", "Volume analysis", QUIET),
+             ("MARKUP", "Liquidity sweeps", GREEN),
+             ("DISTRIBUTION", "Order blocks", AMBER),
+             ("MARKDOWN", "Market structure", RED)]
+    x = 78
+    for name, tool, colour in tools:
+        # Taller box and both lines anchored to their MIDDLE, so a descender
+        # cannot drop through the border the way "Volume analysis" did.
+        d.rectangle([x, 630, x + 348, 734], outline=colour, width=3)
+        d.text((x + 20, 662), name, font=font(25, True), fill=colour,
+               anchor="lm")
+        d.text((x + 20, 703), tool, font=font(25), fill=WHITE, anchor="lm")
+        x += 362
+
+    d.text((78, 772),
+           "YOUR SHEET ALREADY NAMES THE PHASE —  Structure: BULLISH = "
+           "markup  ·  BEARISH = markdown",
+           font=font(26, True), fill=TEAL, anchor="lm")
+    d.text((78, 814),
+           "MIXED is the honest answer in the other two: nobody separates "
+           "accumulation from distribution until afterwards.",
+           font=font(24), fill=MUTED, anchor="lm")
+
+    img.save(OUT_CYCLE, optimize=True)
+    return OUT_CYCLE
+
+
 def vix_regime() -> Path:
     """The VIX bands, from Justin Banks (@RealJGBanks) 2026-10-17, plus what
     ten years of data actually says about them.
@@ -305,5 +398,6 @@ def vix_regime() -> Path:
 
 
 if __name__ == "__main__":
-    for p in (main(), buy_cheap(), catch_winners(), benter(), vix_regime()):
+    for p in (main(), buy_cheap(), catch_winners(), benter(), vix_regime(),
+              market_cycle()):
         print(f"wrote {p.name:<24} ({p.stat().st_size/1024:.0f} KB)")
