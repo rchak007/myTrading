@@ -220,6 +220,12 @@ PY_VERBS = {
     # block the poller. Places no orders and moves no money; it recomputes
     # signals and rewrites the read-only tabs.
     "verbs_doc":    (False, False),
+    # Sticky notes. Free text, so the whole of column B after the ticker is
+    # the note — never split into fixed fields.
+    "note":          (True,  False),
+    "note_replace":  (True,  False),
+    "note_delete":   (True,  False),
+    "notes":         (False, False),
     "run_signals":  (False, False),
 }
 
@@ -463,6 +469,39 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
             f"${cash_reserve.outstanding(*key, 'Borrowed'):,.2f} · owed "
             f"${cash_reserve.outstanding(*key, 'Owed'):,.2f}")
         out.append("Run run_signals to refresh the sheet columns.")
+        return 0, "\n".join(out)
+
+    # STICKY NOTES. Free text, so the argument is NOT split beyond the first
+    # token — everything after the ticker is the note, spaces and all.
+    if verb in ("note", "note_replace", "note_delete", "notes"):
+        import ticker_notes
+
+        if verb == "notes":
+            return 0, ticker_notes.summary()
+
+        parts = (arg or "").strip().split(None, 1)
+        if not parts:
+            return 2, (f"need TICKER{' TEXT' if verb != 'note_delete' else ''}\n"
+                       f"  e.g.  {verb}  PBLS"
+                       + ("  20 shares I never sell, only trade the rest"
+                          if verb != "note_delete" else ""))
+        ticker = parts[0]
+        text = parts[1] if len(parts) > 1 else ""
+
+        out = []
+        try:
+            if verb == "note":
+                ticker_notes.add(ticker, text, source="ops_sheet",
+                                 log=out.append)
+            elif verb == "note_replace":
+                ticker_notes.replace(ticker, text, source="ops_sheet",
+                                     log=out.append)
+            else:
+                ticker_notes.delete(ticker, source="ops_sheet", log=out.append)
+        except ValueError as e:
+            return 1, str(e)
+
+        out.append("\nRun run_signals to show it on the Dashboard.")
         return 0, "\n".join(out)
 
     if verb == "fence":
@@ -729,6 +768,10 @@ VERB_DOCS = [
     ("owe", "ACCT TICKER AMOUNT", "owe  171 ALAB 1000", "A NOTE on the ticker you bought with borrowed money. NO cash moves — this only fills the Owed column."),
     ("paid_back", "ACCT TICKER AMOUNT", "paid_back  171 ALAB 1000", "Clear some or all of what a ticker owes. NO cash moves."),
 
+    ("note", "TICKER then free text", "note  PBLS 20 shares I never sell, only trade the rest", "APPEND a dated line to that ticker's note. Today's date is stamped on the new line; older lines keep their own dates."),
+    ("note_replace", "TICKER then free text", "note_replace  PBLS now 25 core shares", "Throw away the existing note and start again. The old text stays in the log — nothing is ever erased."),
+    ("note_delete", "TICKER", "note_delete  PBLS", "Clear a ticker's note. It stays in the archive log and can be read back."),
+    ("notes", "—", "notes", "Every live note, one ticker per block, with the date each line was written."),
     ("verbs_doc", "—", "verbs_doc", "Rebuild this tab from the code. Run it after a new verb is added."),
 ]
 

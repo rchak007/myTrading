@@ -1126,7 +1126,8 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     # unprotected holding should be impossible to scroll past.
     marks = {"ticker": [], "label": [], "header": [], "title": [],
              "warn": [], "rec": [], "warn_row": [], "chitra": [],
-             "intent": [], "option": [], "ind": [], "beth": []}
+             "intent": [], "option": [], "ind": [], "beth": [],
+             "note": []}
 
     # Which (acct, ticker) have a resting BUY — so a seed waiting to be spent
     # by one can be painted yellow rather than looking freely available.
@@ -1194,6 +1195,15 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     # it explicitly means it stays there if the sort ever changes.
     # print, not log: build_dashboard takes no logger, and this is the one
     # line that says how many watchlist blocks got appended.
+    # Sticky notes, folded once rather than per ticker — 60 blocks would
+    # otherwise re-read and re-fold the same file 60 times.
+    try:
+        import ticker_notes
+        notes = ticker_notes.current()
+    except Exception as e:                      # noqa: BLE001
+        print(f"⚠️  ticker notes unavailable: {e}")
+        notes = {}
+
     beth = _beth_tickers()
     watch_only = sorted(beth - set(str(t).upper() for t in order))
     if watch_only:
@@ -1224,6 +1234,14 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         marks["ticker"].append(hdr_row)
         if on_beth:
             marks["beth"].append(hdr_row)
+        # THE NOTE GOES ABOVE THE NUMBERS, not below them.
+        #
+        # "20 shares I never sell" changes how you read the Qty line directly
+        # underneath, so it has to be read first. Below the table it would be
+        # a footnote to a decision already made.
+        for d, txt in notes.get(str(ticker).upper(), []):
+            marks["note"].append(add(["", f"📌 {d}  {txt}"]))
+
         marks["header"].append(add([""] + POS_HDR))
 
         # A watchlist name has no rows here. Say so, rather than leaving a
@@ -1454,6 +1472,16 @@ def _paint(ws, marks, log):
             ws.format([f"A{r}" for r in marks["ticker"]], cyan_link)
         if marks["label"]:
             ws.format([f"B{r}" for r in marks["label"]], yellow)
+        if marks.get("note"):
+            # Warm paper, italic. Distinct from every machine-generated
+            # colour on the tab, because this is the one line a human wrote.
+            ws.format([f"B{r}:{_last_col()}{r}" for r in marks["note"]],
+                      {"backgroundColor": {"red": 1.0, "green": 0.98,
+                                           "blue": 0.88},
+                       "textFormat": {"italic": True,
+                                      "foregroundColor": {"red": 0.35,
+                                                          "green": 0.28,
+                                                          "blue": 0.0}}})
         if marks.get("beth"):
             # The cyan Chakravarti used by hand on SNDK — same shade as the
             # ticker link so the two read as one header rather than competing.
