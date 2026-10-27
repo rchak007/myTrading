@@ -220,6 +220,7 @@ PY_VERBS = {
     # block the poller. Places no orders and moves no money; it recomputes
     # signals and rewrites the read-only tabs.
     "verbs_doc":    (False, False),
+    "orders_doc":   (False, False),
     # Sticky notes. Free text, so the whole of column B after the ticker is
     # the note — never split into fixed fields.
     "note":          (True,  False),
@@ -388,6 +389,13 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
 
     if verb == "verbs_doc":
         return _write_verbs_doc()
+
+    if verb == "orders_doc":
+        import orders_doc
+        out = []
+        orders_doc.write(log=out.append)
+        out.append(f"Open the '{orders_doc.TAB}' tab in the ORDERS book.")
+        return 0, "\n".join(out)
 
     if verb == "seed":
         return _run_seed(arg)
@@ -772,6 +780,7 @@ VERB_DOCS = [
     ("note_replace", "TICKER then free text", "note_replace  PBLS now 25 core shares", "Throw away the existing note and start again. The old text stays in the log — nothing is ever erased."),
     ("note_delete", "TICKER", "note_delete  PBLS", "Clear a ticker's note. It stays in the archive log and can be read back."),
     ("notes", "—", "notes", "Every live note, one ticker per block, with the date each line was written."),
+    ("orders_doc", "—", "orders_doc", "Rebuild the howOrdersWork tab in the ORDERS book — every column, both trigger kinds, all four Qty forms, chaining and the status vocabulary."),
     ("verbs_doc", "—", "verbs_doc", "Rebuild this tab from the code. Run it after a new verb is added."),
 ]
 
