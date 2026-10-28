@@ -105,10 +105,41 @@ def mark_sent() -> None:
     SENT_MARKER.write_text(datetime.now(timezone.utc).isoformat())
 
 
-def compose(st: dict, auth_url: str | None) -> tuple[str, str]:
+def token_is_news(st: dict, warn_days: float) -> bool:
+    """Is the TOKEN worth mentioning, or is it merely fine?
+
+    Chakravarti, 2026-10-27: *"I dont need these reminders these many days
+    before — unless something is broke, the Schwab token starts sending
+    within 2 days of it."*
+
+    He was right about the symptom and the threshold was already 2 days. The
+    bug was elsewhere: this email is sent for FOUR reasons — a dead Pi 1,
+    flagged order rows, header alarms, and token expiry — and compose() wrote
+    a token subject and a page of re-auth steps for all four. So a genuine
+    "Pi 1 has been down for an hour" arrived dressed as a token nag with
+    5.97 days left, which is exactly how a real alert gets trained into
+    background noise.
+
+    A healthy token now says nothing at all.
+    """
+    state = st.get("state", "UNKNOWN")
+    days = st.get("days_left")
+    if state in ("EXPIRED", "MISSING", "UNKNOWN", "RENEW_NOW"):
+        return True
+    return days is not None and days <= warn_days
+
+
+def compose(st: dict, auth_url: str | None,
+            warn_days: float = 2.0) -> tuple[str, str]:
     state = st.get("state", "UNKNOWN")
     days = st.get("days_left")
     expires = st.get("expires", "?")
+
+    if not token_is_news(st, warn_days):
+        # One line of reassurance, not a call to action. The caller prepends
+        # whatever the email is REALLY about.
+        return ("", f"Schwab token OK — {days} day(s) left, expires "
+                    f"{expires}.\nNo action needed on the token.\n")
 
     if state == "EXPIRED":
         subject = "🔴 Schwab token EXPIRED — nothing is trading"
@@ -220,6 +251,11 @@ SMTP_HOST, SMTP_PORT = "smtp.gmail.com", 587
 # said "myTrading on Pi 1", but a phone's inbox list shows the subject and
 # truncates the sender, which is exactly when you need to know what sent it.
 SUBJECT_PREFIX = os.getenv("MAIL_SUBJECT_PREFIX", "[from myTradingPi]")
+
+
+def _join_subject(lead: str, rest: str) -> str:
+    """Glue a reason onto the token subject, which may now be empty."""
+    return f"{lead} — {rest}" if rest else lead
 
 
 def with_prefix(subject: str) -> str:
@@ -683,9 +719,9 @@ def main() -> int:
         except Exception as e:
             print(f"could not build authorize url: {type(e).__name__}: {e}")
 
-    subject, body = compose(st, auth_url)
+    subject, body = compose(st, auth_url, warn_days=args.days)
     if alarms:
-        subject = f"⚠️ {alarms[0][0]} — {subject}"
+        subject = _join_subject(f"⚠️ {alarms[0][0]}", subject)
         head = [f"{len(alarms)} condition(s) flagged in the Orders header:", ""]
         for m, why in alarms:
             head += [f"  ⚠️  {m}", f"      {why}"]
@@ -694,7 +730,7 @@ def main() -> int:
         body = "\n".join(head) + body
     if problems:
         n = len(problems)
-        subject = f"🔴 {n} order row(s) need you — {subject}"
+        subject = _join_subject(f"🔴 {n} order row(s) need you", subject)
         lines = [f"{n} row(s) on the Orders tab are flagged. Pi 1 cannot email,",
                  "so this is how they reach you.", ""]
         for p_ in problems:
@@ -707,7 +743,8 @@ def main() -> int:
                   "", "─" * 60, ""]
         body = "\n".join(lines) + body
     if stale:
-        subject = f"🔴 Pi 1 has not polled in {poll_age:.0f}h — {subject}"
+        subject = _join_subject(
+            f"🔴 Pi 1 has not polled in {poll_age:.0f}h", subject)
         body = (f"LAST POLL on the Orders sheet is {poll_age:.1f} HOURS old.\n"
                 f"Pi 1 writes that header every cycle, so it has stopped "
                 f"running.\nNothing is trading, pricing or reporting.\n\n"

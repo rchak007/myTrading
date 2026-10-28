@@ -88,3 +88,37 @@ if rem.exists():
 
 print(f"\n{'ALL PASS' if not FAILED else str(len(FAILED)) + ' FAILED: ' + ', '.join(FAILED)}")
 raise SystemExit(1 if FAILED else 0)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# A healthy token must not dress up someone else's alert
+# ─────────────────────────────────────────────────────────────────────
+def test_healthy_token_is_silent():
+    """2026-10-27: a "Pi 1 has not polled in 1h" alert arrived with the
+    subject "⚠️ Schwab token expires in 5.97 day(s)" and a page of re-auth
+    instructions. The threshold was already 2 days — compose() just wrote a
+    token email regardless of why it was sending."""
+    import token_watch as tw
+    st = {"state": "OK", "days_left": 5.97, "expires": "2026-11-02"}
+    subject, body = tw.compose(st, None, warn_days=2.0)
+    assert subject == "", "a healthy token must contribute NO subject"
+    assert "WHAT TO DO" not in body, "no re-auth steps for a healthy token"
+    assert "No action needed" in body
+    assert tw._join_subject("🔴 Pi 1 has not polled in 1h", subject) \
+        == "🔴 Pi 1 has not polled in 1h"
+
+
+def test_token_speaks_up_inside_the_window():
+    import token_watch as tw
+    for st in ({"state": "OK", "days_left": 1.9, "expires": "x"},
+               {"state": "RENEW_NOW", "days_left": 0.6, "expires": "x"},
+               {"state": "EXPIRED", "days_left": -0.2, "expires": "x"},
+               {"state": "MISSING", "days_left": None, "expires": "x"}):
+        subject, _ = tw.compose(st, None, warn_days=2.0)
+        assert subject, f"{st['state']} must still produce a subject"
+
+
+def test_join_subject_handles_both_sides():
+    import token_watch as tw
+    assert tw._join_subject("A", "") == "A"
+    assert tw._join_subject("A", "B") == "A — B"
