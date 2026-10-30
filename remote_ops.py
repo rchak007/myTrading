@@ -85,6 +85,13 @@ HEADER = ["Verb", "Args", "Status", "QueuedAt", "StartedAt",
 # dict supplies the path. Add entries here, never in the sheet.
 LOGS = {
     "stocks": REPO / "job_stocks.log",
+    # THE ORDER ENGINE'S OWN LOG. Missing until 2026-10-29, and its absence
+    # cost two days: a PBLS row sat with no Status and no Last_Checked while
+    # the Orders header kept updating, because the HEADER is written by the
+    # signals job and Last_Checked by the engine. Two different jobs, one of
+    # them dead, and no way to read the dead one's log without SSH.
+    "engine": STATE_DIR / "order_engine.log",
+    "prices": STATE_DIR / "prices_cron.log",
     "crypto": REPO / "job_crypto.log",
     "45":     REPO / "job_45.log",
     "ops":    AUDIT_LOG,
@@ -180,6 +187,13 @@ VERBS = {
     "ls":         (_ls, 30, False),
     "tail_log":   (_tail_log, 60, True),
     "cron_check": (lambda a: [["crontab", "-l"]], 30, False),
+    # A stale lock is invisible: flock -n exits 1 and says nothing, so every
+    # scheduled run after it becomes a no-op with no trace anywhere.
+    "locks":      (lambda a: [["ls", "-la", "/tmp/"],
+                              ["bash", "-lc",
+                               "for f in /tmp/*.lock; do printf '%s: ' \"$f\"; "
+                               "fuser \"$f\" 2>/dev/null || echo '(free)'; done"]],
+                   30, False),
     "svc_log":    (lambda a: [["journalctl", "-u", SERVICE, "-n", "80",
                                "--no-pager", "--output=short-iso"]], 60, False),
     # 300s: pip on a Pi builds wheels and is slow. svc_log's 60s cap already
@@ -755,7 +769,8 @@ VERB_DOCS = [
     ("cron_check", "—", "cron_check", "The full crontab — what is scheduled and when."),
     ("svc_log", "—", "svc_log", "Last 80 journal lines for the bot service. Can time out if the box is busy."),
     ("ls", "repo | jobs | bots", "ls  jobs", "Directory listing for one of the three repos."),
-    ("tail_log", "stocks | crypto | 45 | ops", "tail_log  stocks", "Tail a job log. Use this to watch run_signals progress."),
+    ("locks", "—", "locks", "What is holding each flock, and for how long. A stale lock makes every later run exit SILENTLY — `flock -n` is quiet by design."),
+    ("tail_log", "stocks | crypto | 45 | ops | engine | prices", "tail_log  engine", "Tail a job log. Use this to watch run_signals progress."),
     ("pip_upgrade", "package name", "pip_upgrade  yfinance", "Upgrade one allowlisted library in the venv (yfinance, curl_cffi, requests, pandas, gspread). Shows the version before and after."),
 
     ("token_status", "—", "token_status", "Schwab token state and days remaining."),
