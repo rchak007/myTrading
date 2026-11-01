@@ -1057,18 +1057,40 @@ def _rec_rows(ticker, price, signals_df, is_fenced, pos_width,
     # flag says whether an order EXISTS, the level says where one WOULD go.
     at = POS_HDR.index("Has_Stop") + 1          # +1 for the column-A spacer
 
-    def line(label, vals):
+    def line(label, vals, oracle=None):
         row = [""] * pos_width
         row[1] = label
+        # ORACLEVALUE SITS ONE COLUMN LEFT OF Rec_Stop, where Chakravarti
+        # asked for it on 2026-11-01. It is a property of the STOCK like the
+        # levels beside it, and reading "fair value $80-110" immediately
+        # before "stop 45.61" is the comparison that makes both useful.
+        if oracle is not None:
+            row[at - 1] = oracle
         row[at:at + 4] = ["—" if v is None else v for v in vals]
         return row
+
+    # Cached weekly by oracle_value.py; the BAND is recomputed here against
+    # today's price, so a stock that falls during the week reads as cheaper
+    # the same day rather than waiting for Monday.
+    ov_text = ov_band = ""
+    try:
+        import oracle_value
+        ov_text, ov_band = oracle_value.for_sheet(ticker, price)
+    except Exception:                                   # noqa: BLE001
+        pass                                            # cosmetic, never fatal
 
     # Each row says what SIZE it means, because the numbers alone do not. The
     # stop column reads top-to-bottom as a scale-out and the last rung is a
     # full exit, not another third — that asymmetry is the whole point and it
     # has to be legible without the docs.
-    out = [line("RECOMMENDED", list(TIER1)),
-           line("① ⅓ out · ⅓ trim · first bid  ·  " + note, rec.tier(TIER1))]
+    out = [line("RECOMMENDED", list(TIER1), oracle="OracleValue"),
+           line("① ⅓ out · ⅓ trim · first bid  ·  " + note, rec.tier(TIER1),
+                oracle=ov_text)]
+    # The band rides WITH the number rather than on its own row — a
+    # dedicated row would print a rail of dashes across J..M, which the
+    # comment above this function is explicitly against.
+    if ov_band and ov_text:
+        out[1][at - 1] = f"{ov_text}  {ov_band}"
     # Tiers 2 and 3 only when they carry something. A block that is one level
     # deep should not grow two rows of dashes to say so.
     for which, label in (

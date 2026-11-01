@@ -62,6 +62,9 @@ transactions_cache/
 !/reminders.csv
 !/chitra_holdings.csv
 !/chitra_orders.csv
+# Pi 2 computes these weekly, git carries them, Pi 1 only reads. Blocked by
+# the *.csv rule four times now — reminders, chitra_holdings, benter_targets.
+!/oracle_values.csv
 !/chitra_reserves.csv
 !/options_reminders.csv
 # Analyst targets: produced on Pi 2, READ on Pi 1 inside jobStocksSignals.
