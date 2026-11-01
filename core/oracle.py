@@ -169,7 +169,8 @@ def value(price=None, *, shares=None, revenue=None, net_income=None,
           net_margin=None, roe=None, market_cap=None, growth=None,
           beta=None, total_debt=None, total_cash=None,
           share_growth=None, moat=None, forward_eps=None,
-          normalized_margin=None, proj_growth=None, hist_ps=None) -> Oracle:
+          normalized_margin=None, proj_growth=None, hist_ps=None,
+          hist_ps_years=None, hist_ps_dispersion=None) -> Oracle:
     """A conservative fair value per share, plus the range and the reasoning.
 
     Every input is optional. Missing data narrows what can be asserted and is
@@ -309,8 +310,33 @@ def value(price=None, *, shares=None, revenue=None, net_income=None,
         # Weighted 6.0 against the others' 0.05-0.55 so they become sanity
         # checks rather than co-equal votes. Blending them equally pulled TSLA
         # to $199 when this anchor alone said $339 against a published $320.80.
-        anchors.append(("historical P/S", (rev / sh) * hps, 6.00))
-        notes.insert(0, f"own mean P/S {hps:.1f}x")
+        #
+        # HOW MUCH TO TRUST IT. The weight of 6.0 assumes the mean is drawn
+        # from a decent run of years and that those years agree with each
+        # other. Neither is guaranteed, so both are measured and the weight
+        # is cut when they fail:
+        #
+        #   few years   -- a mean of four observations is a guess. NVDA's
+        #                  four were the AI bubble (34x 43x 29x 22x) and
+        #                  valued a $205 stock at $434.
+        #   wide spread -- AAOI's yearly P/S ran 1x to 6x. Its mean is a
+        #                  number, not a level the market agrees on.
+        #
+        # A discounted anchor hands weight to the earnings and cash-flow
+        # models rather than shrinking the answer, because the re-weighting
+        # below normalizes by whatever weight actually remains.
+        w = 6.00
+        n = _n(hist_ps_years)
+        cv = _n(hist_ps_dispersion)
+        if n is not None and n < 8:
+            w *= max(0.45, n / 10.0)
+            notes.append(f"only {int(n)}y of sales history")
+        if cv is not None and cv > 0.35:
+            w *= 0.60
+            notes.append(f"P/S scatters {cv:.0%} — unstable multiple")
+        anchors.append(("historical P/S", (rev / sh) * hps, w))
+        notes.insert(0, f"own mean P/S {hps:.1f}x"
+                        + (f" over {int(n)}y" if n else ""))
 
     if not anchors:
         return Oracle(None, None, None, "", moat, "no revenue, earnings or cash flow", None)

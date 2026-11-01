@@ -1017,6 +1017,29 @@ def _ind_rows(ticker, signals_df, width):
     return out
 
 
+def _oracle_rows(ticker, price, width):
+    """[[label, name...], [.., value..]] x group for the ORACLE section.
+
+    Same shape as _ind_rows so the two sections read alike, and fail-soft for
+    the same reason: the value is confluence beside Chakravarti's own read,
+    never a trade trigger, so a missing cache costs a section and nothing
+    else.
+    """
+    try:
+        import oracle_value
+        groups = oracle_value.panel_for_sheet(ticker, price)
+    except Exception:                                   # noqa: BLE001
+        return []
+
+    out = []
+    for label, names, vals in groups:
+        head = ["", label] + list(names)
+        line = ["", ""] + ["" if v is None else v for v in vals]
+        out.append(head[:width] + [""] * max(0, width - len(head)))
+        out.append(line[:width] + [""] * max(0, width - len(line)))
+    return out
+
+
 def _rec_rows(ticker, price, signals_df, is_fenced, pos_width,
               rec=None, row0=None):
     """The two RECOMMENDED lines for one block: headers, then levels.
@@ -1057,40 +1080,25 @@ def _rec_rows(ticker, price, signals_df, is_fenced, pos_width,
     # flag says whether an order EXISTS, the level says where one WOULD go.
     at = POS_HDR.index("Has_Stop") + 1          # +1 for the column-A spacer
 
-    def line(label, vals, oracle=None):
+    def line(label, vals):
         row = [""] * pos_width
         row[1] = label
-        # ORACLEVALUE SITS ONE COLUMN LEFT OF Rec_Stop, where Chakravarti
-        # asked for it on 2026-11-01. It is a property of the STOCK like the
-        # levels beside it, and reading "fair value $80-110" immediately
-        # before "stop 45.61" is the comparison that makes both useful.
-        if oracle is not None:
-            row[at - 1] = oracle
         row[at:at + 4] = ["—" if v is None else v for v in vals]
         return row
 
-    # Cached weekly by oracle_value.py; the BAND is recomputed here against
-    # today's price, so a stock that falls during the week reads as cheaper
-    # the same day rather than waiting for Monday.
-    ov_text = ov_band = ""
-    try:
-        import oracle_value
-        ov_text, ov_band = oracle_value.for_sheet(ticker, price)
-    except Exception:                                   # noqa: BLE001
-        pass                                            # cosmetic, never fatal
+    # ORACLEVALUE MOVED OUT OF THIS ROW on 2026-11-01. It lived at column I
+    # for a day, but these four columns are ACTIONABLE LEVELS — where a stop
+    # or a bid goes — and a fair value is context, not a level you can place
+    # an order at. Crowding it in also left no room for the things that say
+    # how far to trust it. It is now its own ORACLE section; see
+    # _oracle_rows().
 
     # Each row says what SIZE it means, because the numbers alone do not. The
     # stop column reads top-to-bottom as a scale-out and the last rung is a
     # full exit, not another third — that asymmetry is the whole point and it
     # has to be legible without the docs.
-    out = [line("RECOMMENDED", list(TIER1), oracle="OracleValue"),
-           line("① ⅓ out · ⅓ trim · first bid  ·  " + note, rec.tier(TIER1),
-                oracle=ov_text)]
-    # The band rides WITH the number rather than on its own row — a
-    # dedicated row would print a rail of dashes across J..M, which the
-    # comment above this function is explicitly against.
-    if ov_band and ov_text:
-        out[1][at - 1] = f"{ov_text}  {ov_band}"
+    out = [line("RECOMMENDED", list(TIER1)),
+           line("① ⅓ out · ⅓ trim · first bid  ·  " + note, rec.tier(TIER1))]
     # Tiers 2 and 3 only when they carry something. A block that is one level
     # deep should not grow two rows of dashes to say so.
     for which, label in (
@@ -1406,6 +1414,18 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                 r = add(line)
                 # Even rows are the field NAMES, odd are the values — the
                 # names get the header tint so the pairs stay legible.
+                (marks["header"] if i % 2 == 0 else marks["ind"]).append(r)
+
+        # ORACLE, its own section rather than one cell in RECOMMENDED.
+        # Chakravarti uses it as confluence alongside his own read, not as a
+        # trade trigger, so it gets room to show its working — the value, the
+        # six-factor panel, and how much history the anchor rests on.
+        orc_lines = _oracle_rows(ticker, px, DASH_WIDTH)
+        if orc_lines:
+            add([])
+            marks["label"].append(add(["", "ORACLE"]))
+            for i, line in enumerate(orc_lines):
+                r = add(line)
                 (marks["header"] if i % 2 == 0 else marks["ind"]).append(r)
         add([])
         add([])

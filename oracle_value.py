@@ -42,7 +42,12 @@ from core.oracle import value as oracle_value          # noqa: E402
 # did the model think in November" stays answerable.
 FILE = Path(os.getenv("ORACLE_FILE", HERE / "oracle_values.csv"))
 COLS = ["Ticker", "Fetched", "Price_At_Fetch", "Oracle_Value", "Oracle_Low",
-        "Oracle_High", "Oracle_Band", "Moat", "Oracle_Why", "Oracle_IQ"]
+        "Oracle_High", "Oracle_Band", "Moat", "Oracle_Why", "Oracle_IQ",
+        "Last_Earnings", "Next_Earnings",
+        # The anchor's provenance, stored rather than parsed back out of
+        # Oracle_Why: how many years the mean P/S rests on, and how much
+        # those years agreed. Both decide how far to trust the value.
+        "PS_Mean", "PS_Years", "PS_Spread"]
 
 # Known StockOracle ratings, from the report Chakravarti sent 2026-11-01.
 # Add to this whenever a real rating is seen; never guess into it.
@@ -156,25 +161,77 @@ def mean_ps(tk, shares) -> float | None:
 
     A universal BASE_PE framework cannot reproduce that, which is why the
     first version of this module put TSLA at $22.67 against $320.80.
+
+    REVENUE COMES FROM EDGAR, NOT YFINANCE. yfinance returns four fiscal
+    years, so this was silently a four-year mean wearing a ten-year label —
+    the single cause of every calibration error we had. On NVDA those four
+    years were 34x, 43x, 29x, 22x (the AI bubble, trending down); their mean
+    of 32x against a current 14.6x valued a $205 stock at $434. SEC filings
+    give 18 years for NVDA and 17 for TSLA. See core/edgar.py.
+
+    Returns (mean_ps, n_years, dispersion). Dispersion is the coefficient of
+    variation of the yearly figures — a mean is only worth having if the
+    thing averaged is stable, and this is how the caller knows. MSFT scores
+    0.09 and we value it to within 0%; AAOI scores 0.50 and we do not.
     """
     try:
         import numpy as np
-        fin = tk.income_stmt
-        rev = fin.loc["Total Revenue"].dropna()
-        px = tk.history(period="10y", interval="1mo")["Close"]
-        if px.empty or rev.empty or not shares:
-            return None
+        from core import edgar
+
+        px = tk.history(period="max", interval="1mo")["Close"]
+        if px.empty or not shares:
+            return None, 0, None
+
+        rev = {y: v for y, v in
+               edgar.annual_revenue(getattr(tk, "ticker", "")).items()}
+        if len(rev) < edgar.MIN_YEARS:
+            # Fall back to yfinance's four years rather than nothing. Fewer
+            # years is a worse anchor, not an absent one — n_years travels
+            # with the number so the caller can discount it.
+            fin = tk.income_stmt
+            rev = {ts.year: float(r)
+                   for ts, r in fin.loc["Total Revenue"].dropna().items()
+                   if r and r > 0}
+
         vals = []
-        for ts, r in rev.items():
-            if r and r > 0:
-                yr = px[px.index.year == ts.year]
-                if len(yr):
-                    vals.append(float(yr.mean()) * shares / float(r))
+        for year, r in sorted(rev.items()):
+            if not r or r <= 0:
+                continue
+            yr = px[px.index.year == year]
+            if len(yr):
+                vals.append(float(yr.mean()) * shares / float(r))
         if len(vals) < 3:
-            return None
-        return float(np.mean(vals))
+            return None, 0, None
+
+        # RECENCY-WEIGHTED, not a flat mean. Deep history is what makes the
+        # anchor trustworthy, but a flat mean assumes a company reverts to
+        # what it was worth a decade ago. MSFT's 11-year flat mean P/S is
+        # 9.0x against 11.4x over the last four years, because the move to
+        # cloud genuinely re-rated it — a flat mean reads that re-rating as
+        # an error to be averaged away, and valued MSFT 15% low.
+        #
+        # TESTED AND LEFT OFF BY DEFAULT. On the P/S anchor alone, recency
+        # weighting looked decisive — flat 36% mean error against 23% at a
+        # five-year half-life. Inside the FULL model it is a wash: 24% flat
+        # against 25% weighted, helping MSFT (-15% -> -9%) and SITM while
+        # hurting TSLA (+7% -> -13%) and AAOI (-19% -> -27%). The other
+        # anchors were already doing that work, so it double-counted.
+        #
+        # So it stays available and stays off. With four published anchors,
+        # a knob that buys one point of mean error is a knob fitted to
+        # noise, and flat is both simpler and more conservative where it
+        # matters most: NVDA at $286 rather than $353 against a $205 price.
+        # Revisit when there are a dozen published values to calibrate on.
+        n = len(vals)
+        hl = float(os.getenv("ORACLE_PS_HALFLIFE", "0") or 0) or float(n * 50)
+        w = [0.5 ** ((n - 1 - k) / hl) for k in range(n)]
+        m = float(sum(v * wi for v, wi in zip(vals, w)) / sum(w))
+        # Dispersion stays unweighted: the question it answers is whether the
+        # market ever agreed on a level, not what it thinks lately.
+        cv = float(np.std(vals) / np.mean(vals)) if np.mean(vals) else None
+        return m, n, cv
     except Exception:                                    # noqa: BLE001
-        return None
+        return None, 0, None
 
 
 def compute_one(sym: str, info: dict | None = None, price=None):
@@ -186,6 +243,7 @@ def compute_one(sym: str, info: dict | None = None, price=None):
         return None
     fpe = i.get("forwardPE")
     tk = yf.Ticker(sym)
+    ps, yrs, cv = mean_ps(tk, i.get("sharesOutstanding"))
     return oracle_value(
         px,
         shares=i.get("sharesOutstanding"),
@@ -205,8 +263,79 @@ def compute_one(sym: str, info: dict | None = None, price=None):
         moat=MOAT_OVERRIDE.get(sym.upper()),
         normalized_margin=five_year_margin(tk),
         proj_growth=i.get("earningsGrowth") or i.get("revenueGrowth"),
-        hist_ps=mean_ps(tk, i.get("sharesOutstanding")),
+        hist_ps=ps,
+        hist_ps_years=yrs,
+        hist_ps_dispersion=cv,
     )
+
+
+def earnings_dates(sym: str, tk=None) -> tuple[str, str]:
+    """(last reported, next expected) as ISO dates, or ("", "").
+
+    Each ticker reports on its own schedule, which is the whole point: the
+    value is a quarterly object, and the quarter turns over on a different
+    day for every name.
+    """
+    import yfinance as yf
+    try:
+        tk = tk or yf.Ticker(sym)
+        ed = tk.get_earnings_dates(limit=12)
+        if ed is None or not len(ed):
+            return "", ""
+        today = date.today()
+        past, future = [], []
+        for ts, row in ed.iterrows():
+            d = ts.date() if hasattr(ts, "date") else None
+            if d is None:
+                continue
+            # Reported = an actual EPS exists. A date alone is only a
+            # scheduled event, and scheduled dates move.
+            got = row.get("Reported EPS")
+            if d <= today and got == got and got is not None:
+                past.append(d)
+            elif d > today:
+                future.append(d)
+        return (max(past).isoformat() if past else "",
+                min(future).isoformat() if future else "")
+    except Exception:                                    # noqa: BLE001
+        return "", ""
+
+
+def reported_since_fetch(row) -> bool:
+    """Did this ticker report after we last valued it?
+
+    The trigger for a per-ticker refresh. Revenue per share, the normalized
+    margin and the predictability record all move on earnings and at no
+    other time, so this is when the number is genuinely new.
+    """
+    last, fetched = str(row.get("Last_Earnings", "")), str(row.get("Fetched", ""))
+    if not last or not fetched:
+        return False
+    return last[:10] > fetched[:10]
+
+
+def due_tickers(log=print) -> list[str]:
+    """Which tickers to recompute on this run.
+
+    Two triggers, deliberately different in scope:
+
+      Monday (or a stale cache) -> everything. The cheap heartbeat.
+      Any other day             -> only names that have reported since we
+                                   last valued them, which is usually none
+                                   and occasionally three.
+
+    Chakravarti asked for both: 'weekly update due to price point of view'
+    and 'get data after earnings ... per ticker, each will be different
+    dates'. The band already tracks price on every run via for_sheet(); this
+    is about the value underneath it.
+    """
+    cache = load(log=lambda *_: None)
+    if due_today(log=log):
+        return tickers()
+    fresh = [t for t, r in cache.items() if reported_since_fetch(r)]
+    if fresh:
+        log(f"post-earnings refresh for {len(fresh)}: {', '.join(sorted(fresh))}")
+    return sorted(fresh)
 
 
 def iq_line(sym: str, info: dict, o) -> str:
@@ -274,11 +403,18 @@ def due_today(log=print) -> bool:
 
 
 def refresh(syms=None, log=print) -> int:
-    """Recompute and REPLACE the cache. A failed ticker keeps its old row."""
+    """Recompute and REPLACE the cache. A failed ticker keeps its old row.
+
+    `syms` may be a SUBSET — that is how the post-earnings path works. Rows
+    for tickers not in the subset are carried through untouched, so a
+    one-ticker refresh never silently empties the other 134.
+    """
     import yfinance as yf
-    syms = syms or tickers()
+    syms = list(syms) if syms else tickers()
     prev, out, failed = load(log=lambda *_: None), [], []
     today = date.today().isoformat()
+    asked = {s.upper() for s in syms}
+    carried = [r for t, r in prev.items() if t.upper() not in asked]
 
     for n, s in enumerate(syms, 1):
         try:
@@ -286,6 +422,8 @@ def refresh(syms=None, log=print) -> int:
             o = compute_one(s, i)
             if o is None or o.value is None:
                 raise ValueError(o.why if o else "no price")
+            last_e, next_e = earnings_dates(s)
+            ps, yrs, cv = mean_ps(yf.Ticker(s), i.get("sharesOutstanding"))
             out.append({
                 "Ticker": s, "Fetched": today,
                 "Price_At_Fetch": i.get("currentPrice") or i.get("previousClose") or "",
@@ -293,6 +431,10 @@ def refresh(syms=None, log=print) -> int:
                 "Oracle_High": o.high, "Oracle_Band": o.band,
                 "Moat": o.moat, "Oracle_Why": o.why,
                 "Oracle_IQ": iq_line(s, i, o),
+                "Last_Earnings": last_e, "Next_Earnings": next_e,
+                "PS_Mean": round(ps, 2) if ps else "",
+                "PS_Years": yrs or "",
+                "PS_Spread": round(cv, 3) if cv is not None else "",
             })
         except Exception as e:                           # noqa: BLE001
             failed.append(f"{s} ({type(e).__name__})")
@@ -300,6 +442,9 @@ def refresh(syms=None, log=print) -> int:
                 out.append(prev[s])                      # keep, never drop
         if n % 25 == 0:
             log(f"   …{n}/{len(syms)}")
+
+    out.extend(carried)
+    out.sort(key=lambda r: str(r.get("Ticker", "")))
 
     try:
         FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -357,6 +502,70 @@ def for_sheet(ticker, price=None, cache=None) -> tuple[str, str]:
     return text, band
 
 
+def panel_for_sheet(ticker, price=None, cache=None) -> list[tuple[str, list]]:
+    """The ORACLE section for one Dashboard block, as (label, cells) pairs.
+
+    Three groups, each a name row and a value row, matching how INDICATORS
+    reads. Returns [] when there is nothing cached — an empty section is
+    better than a section of dashes.
+
+    The split is deliberate. VALUE is the answer, QUALITY is the OracleIQ
+    panel saying how the company scores, and BASIS is how much to trust the
+    answer: a mean P/S over 18 years that the market agreed on is a
+    different object from one over 4 years that scattered 50%, and the
+    number alone cannot tell you which you are looking at.
+    """
+    cache = load(log=lambda *_: None) if cache is None else cache
+    r = cache.get(str(ticker).upper())
+    if not r:
+        return []
+    text, band = for_sheet(ticker, price, cache)
+    if not text:
+        return []
+
+    gap = ""
+    try:
+        val = float(r["Oracle_Value"])
+        if price and float(price) > 0 and val > 0:
+            gap = f"{(val / float(price) - 1) * 100:+.1f}%"
+    except (TypeError, ValueError, KeyError):
+        pass
+
+    out = [("VALUE",
+            ["OracleValue", "Band", "Upside_to_Fair", "Moat", "As_Of"],
+            [text, band, gap, r.get("Moat", ""), str(r.get("Fetched", ""))[:10]])]
+
+    iq = str(r.get("Oracle_IQ", ""))
+    if iq:
+        names, vals = [], []
+        for part in iq.split(" · "):
+            k, _, v = part.partition(" ")
+            names.append(k)
+            vals.append(v)
+        out.append(("QUALITY", names, vals))
+
+    yrs, spread = r.get("PS_Years", ""), r.get("PS_Spread", "")
+    # The caveat is spelled out rather than left to the reader. A thin or
+    # scattered history is exactly when this signal should be discounted,
+    # and that is not obvious from a dollar figure.
+    caveat = ""
+    try:
+        if yrs and int(yrs) < 8:
+            caveat = f"thin history — {int(yrs)}y only"
+        elif spread and float(spread) > 0.35:
+            caveat = f"unstable multiple — P/S scattered {float(spread):.0%}"
+    except (TypeError, ValueError):
+        pass
+    out.append(("BASIS",
+                ["Mean_P/S", "Years", "P/S_Spread", "Next_Earnings", "Caveat"],
+                [f"{r['PS_Mean']}x" if r.get("PS_Mean") else "",
+                 yrs,
+                 f"{float(spread):.0%}" if spread not in ("", None) else "",
+                 str(r.get("Next_Earnings", ""))[:10],
+                 caveat]))
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Weekly conservative fair value")
     ap.add_argument("--refresh", action="store_true")
@@ -377,10 +586,13 @@ def main() -> int:
         return 0
 
     if a.weekly:
-        if not due_today():
+        # Monday -> all; any other day -> only names that have reported
+        # since we last valued them. Usually an empty list and a no-op.
+        due = due_tickers()
+        if not due:
             return 0
-        print(f"computing OracleValue → {FILE}")
-        return 0 if refresh() else 1
+        print(f"computing OracleValue for {len(due)} → {FILE}")
+        return 0 if refresh(due) else 1
 
     if a.refresh:
         print(f"computing OracleValue → {FILE}")

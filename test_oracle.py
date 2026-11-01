@@ -92,6 +92,157 @@ def test_the_range_widens_when_the_anchors_disagree():
     assert agree.low < agree.value < agree.high
 
 
+# ── post-earnings refresh ───────────────────────────────────────────────
+# Each ticker reports on its own date, so the per-ticker path has to be able
+# to rewrite ONE row without disturbing the other 134.
+
+def test_reported_since_fetch_spots_a_new_quarter():
+    import oracle_value as ov
+    assert ov.reported_since_fetch(
+        {"Last_Earnings": "2026-10-21", "Fetched": "2026-10-19"})
+    assert not ov.reported_since_fetch(
+        {"Last_Earnings": "2026-10-21", "Fetched": "2026-10-26"})
+
+
+def test_reported_since_fetch_is_quiet_when_dates_are_missing():
+    """A blank must never read as 'it reported'. That would refresh all 135
+    names every single day."""
+    import oracle_value as ov
+    assert not ov.reported_since_fetch({})
+    assert not ov.reported_since_fetch({"Last_Earnings": "", "Fetched": ""})
+    assert not ov.reported_since_fetch({"Last_Earnings": "2026-10-21"})
+
+
+def test_a_one_ticker_refresh_keeps_every_other_row():
+    """THE BUG THIS GUARDS: refresh() rewrites the whole file. Handed a
+    subset it used to emit only that subset, so a single post-earnings
+    refresh would have wiped the other 134 values."""
+    import csv
+    import os
+    import tempfile
+    import importlib
+    import oracle_value as ov
+
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "oracle_values.csv")
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            w = csv.DictWriter(fh, fieldnames=ov.COLS, extrasaction="ignore")
+            w.writeheader()
+            for t in ("AAA", "BBB", "CCC"):
+                w.writerow({"Ticker": t, "Fetched": "2026-10-01",
+                            "Oracle_Value": "10", "Oracle_Band": "FAIR"})
+
+        os.environ["ORACLE_FILE"] = path
+        importlib.reload(ov)
+        # BBB fails to compute, so it must fall back to its old row; AAA and
+        # CCC were never asked for and must survive untouched.
+        ov.refresh(["BBB"], log=lambda *_: None)
+        rows = {r["Ticker"]: r for r in csv.DictReader(open(path))}
+        assert set(rows) == {"AAA", "BBB", "CCC"}, rows.keys()
+        assert rows["AAA"]["Oracle_Value"] == "10"
+        assert rows["CCC"]["Oracle_Value"] == "10"
+    os.environ.pop("ORACLE_FILE", None)
+    importlib.reload(ov)
+
+
+def test_mean_ps_returns_years_and_dispersion():
+    """The anchor now travels with how much history it is built on and how
+    much that history agrees, because a four-year mean of bubble years is
+    what valued NVDA at $434."""
+    import oracle_value as ov
+    import inspect
+    sig = inspect.signature(ov.mean_ps)
+    assert len(sig.parameters) == 2
+    src = inspect.getsource(ov.mean_ps)
+    assert "edgar" in src, "mean_ps must prefer SEC filings over yfinance"
+
+
+def test_a_short_history_is_discounted_not_trusted():
+    """Same inputs, four years of P/S history vs twelve: the short one must
+    not carry the same weight."""
+    from core.oracle import value
+    kw = dict(shares=1e9, revenue=10e9, net_income=1e9, market_cap=100e9,
+              gross_margin=0.5, net_margin=0.10, roe=0.15, moat="NARROW")
+    deep = value(100.0, hist_ps=10.0, hist_ps_years=12, **kw)
+    thin = value(100.0, hist_ps=10.0, hist_ps_years=4, **kw)
+    assert deep.value != thin.value, "years must change the weighting"
+    assert "only 4y" in thin.why
+
+
+def test_an_unstable_multiple_is_discounted():
+    """AAOI's yearly P/S ran 1x to 6x. Its mean is a number, not a level."""
+    from core.oracle import value
+    kw = dict(shares=1e9, revenue=10e9, net_income=1e9, market_cap=100e9,
+              gross_margin=0.5, net_margin=0.10, roe=0.15, moat="NARROW")
+    steady = value(100.0, hist_ps=10.0, hist_ps_years=12,
+                   hist_ps_dispersion=0.10, **kw)
+    noisy = value(100.0, hist_ps=10.0, hist_ps_years=12,
+                  hist_ps_dispersion=0.55, **kw)
+    assert steady.value != noisy.value
+    assert "scatters" in noisy.why
+
+
+# ── the ORACLE dashboard section ────────────────────────────────────────
+
+def _fake_cache(**over):
+    row = {"Ticker": "ZZZ", "Fetched": "2026-11-01", "Price_At_Fetch": "100",
+           "Oracle_Value": "120", "Oracle_Low": "110", "Oracle_High": "130",
+           "Oracle_Band": "UNDERVALUED", "Moat": "WIDE",
+           "Oracle_Why": "own mean P/S 10.0x over 12y",
+           "Oracle_IQ": "Pred High · Profit High · Growth Medium · "
+                        "Moat Wide · Fin High · Val Undervalued",
+           "Last_Earnings": "2026-10-20", "Next_Earnings": "2027-01-28",
+           "PS_Mean": "10.0", "PS_Years": "12", "PS_Spread": "0.12"}
+    row.update(over)
+    return {"ZZZ": row}
+
+
+def test_oracle_section_has_value_quality_and_basis():
+    import oracle_value as ov
+    groups = ov.panel_for_sheet("ZZZ", price=100.0, cache=_fake_cache())
+    assert [g[0] for g in groups] == ["VALUE", "QUALITY", "BASIS"]
+    names, vals = groups[0][1], groups[0][2]
+    assert "OracleValue" in names and "Upside_to_Fair" in names
+    assert "+20.0%" in vals, vals          # 120 fair against a 100 price
+
+
+def test_oracle_section_flags_a_thin_history():
+    """The caveat is the point of the BASIS group. A four-year mean is what
+    valued NVDA at $434, and a dollar figure alone does not show that."""
+    import oracle_value as ov
+    g = ov.panel_for_sheet("ZZZ", 100.0, _fake_cache(PS_Years="4"))
+    assert "thin history" in g[-1][2][-1]
+
+
+def test_oracle_section_flags_an_unstable_multiple():
+    import oracle_value as ov
+    g = ov.panel_for_sheet("ZZZ", 100.0, _fake_cache(PS_Spread="0.55"))
+    assert "unstable" in g[-1][2][-1]
+
+
+def test_a_deep_steady_history_earns_no_caveat():
+    import oracle_value as ov
+    g = ov.panel_for_sheet("ZZZ", 100.0, _fake_cache())
+    assert g[-1][2][-1] == ""
+
+
+def test_no_cached_row_is_an_absent_section_not_an_empty_one():
+    import oracle_value as ov
+    assert ov.panel_for_sheet("NOPE", 100.0, {}) == []
+
+
+def test_oracle_rows_pad_to_the_dashboard_width():
+    """Every emitted row must be exactly DASH_WIDTH or the sheet write
+    ragged-edges and gspread rejects the batch."""
+    import orders_sheet
+    rows = orders_sheet._oracle_rows("NOPE", 100.0, 19)
+    assert rows == []                      # unknown ticker -> no section
+    import oracle_value as ov
+    groups = ov.panel_for_sheet("ZZZ", 100.0, _fake_cache())
+    for _, names, vals in groups:
+        assert len(names) == len(vals), (names, vals)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
