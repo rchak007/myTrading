@@ -20,11 +20,28 @@ StockOracle's actual figure, in the screenshots he sent, is **$26.36 — 161.95%
 OVERVALUED, No Moat**. Backwards, and out by ~3.5x. A plausible paragraph is
 not a valuation, and there is no way to tell one from the other by reading it.
 
-THE THREE CALIBRATION POINTS (2026-10-30/11-01, from the StockOracle report):
+FOUR CALIBRATION POINTS (2026-10-30/11-01, from the StockOracle report):
 
     MSFT   price 521.91   OracleValue 564.54   Wide moat    7.6% under
     SITM   price 488.08   OracleValue 514.02   Narrow moat  5.3% under
+    TSLA   price 399.81   OracleValue 320.80   Narrow moat 24.6% OVER
     AAOI   price  69.05   OracleValue  26.36   No moat    161.9% OVER
+
+WHAT THE TSLA PAGE FINALLY EXPLAINED. Its Valuation Chart lists NINE
+sub-models spanning $57.95 (PEG) to $858.10 (DCF-20), with OracleValue 320.80
+sitting beside the Mean-Price-to-Sales model at 352.76. On MSFT the same
+relationship holds: OracleValue 564.54 against a Mean-PS of 538.82. Better
+still, TSLA's own 10-year average P/S of 10.63 times revenue per share of
+29.25 gives $310.93 — three per cent from the published figure.
+
+So OracleValue is NOT a universal fair multiple applied to everyone. It is
+what THIS stock has historically been worth per dollar of sales, applied to
+today's sales, with the earnings models ignored whenever earnings are
+unreliable. That is their word "adaptive", and it is why SiTime earns 33x
+sales and Applied Optoelectronics 3.8x on identical 3% net margins.
+
+A universal BASE_PE framework cannot reproduce that. The first version of
+this module used one and put TSLA at $22.67.
 
 What those three teach, and what this module is built around:
 
@@ -65,6 +82,12 @@ GROWTH_TO_PE = 28.0        # 130% capped growth -> at most +36 of PE
 # Stacking another haircut on top put MSFT 11% below a figure the rest of the
 # model had already nailed to 1%.
 MARGIN_OF_SAFETY = 1.00
+
+# Discount rate for the compounded anchor. Deliberately ABOVE a risk-free
+# rate and below the WACCs StockOracle shows (TSLA 15.84%, MSFT 6.61%) —
+# a single rate the whole book shares, rather than a per-name WACC we cannot
+# reproduce.
+DISCOUNT = 0.11
 
 # A company whose cash flow and earnings both fail gets valued on sales at a
 # multiple set by the margin it ACTUALLY achieves, floored here so a single
@@ -145,7 +168,8 @@ def value(price=None, *, shares=None, revenue=None, net_income=None,
           operating_cf=None, free_cf=None, gross_margin=None,
           net_margin=None, roe=None, market_cap=None, growth=None,
           beta=None, total_debt=None, total_cash=None,
-          share_growth=None, moat=None, forward_eps=None) -> Oracle:
+          share_growth=None, moat=None, forward_eps=None,
+          normalized_margin=None, proj_growth=None, hist_ps=None) -> Oracle:
     """A conservative fair value per share, plus the range and the reasoning.
 
     Every input is optional. Missing data narrows what can be asserted and is
@@ -189,8 +213,40 @@ def value(price=None, *, shares=None, revenue=None, net_income=None,
     anchors: list[tuple[str, float, float]] = []        # (name, value, weight)
 
     eps = (ni / sh) if ni is not None else None
-    if eps is not None and eps > 0:
-        anchors.append(("earnings", eps * fair_pe, 0.55))
+
+    # NORMALIZED EARNINGS — the single biggest correction in this module.
+    #
+    # StockOracle's TSLA page reports Net Profit Margin TTM 3.11% beside a
+    # 5-year average of 10.50%, ROE 3.80% beside 19.61%, ROIC 3.32% beside
+    # 16.86%. They value the AVERAGE, not the trough. Reproduced exactly from
+    # the income statement: TSLA's last five fiscal years ran 10.3 / 15.4 /
+    # 15.5 / 7.3 / 4.0 %, mean 10.50%.
+    #
+    # This is the cyclical P/E trap out of WALL-STREET-LEVEL-STOCK-ANALYSIS.md
+    # PART D, in code: "for cyclicals, E is a point on a wave, not a stable
+    # number." Valuing TSLA on a $0.91 trough EPS produced $22.67 against a
+    # published $320.80 — not conservative, just wrong.
+    nm5 = _n(normalized_margin)
+    norm_eps = None
+    if nm5 is not None and nm5 > 0 and rev and rev > 0:
+        norm_eps = (rev * nm5) / sh
+        if eps is None or norm_eps > eps:
+            notes.append(f"normalized on 5y margin {100*nm5:.1f}%")
+
+    earn = norm_eps if norm_eps is not None else eps
+    if earn is not None and earn > 0:
+        anchors.append(("earnings", earn * fair_pe, 0.55))
+
+        # COMPOUNDED, because that is what they are paying for. A terminal
+        # multiple on earnings five years out, discounted back — the shape of
+        # every DCF on their valuation-comparison table.
+        gp = _n(proj_growth)
+        if gp is not None and gp > 0:
+            gp = min(gp, 0.60)                   # 60% for five years is already heroic
+            terminal = (BASE_PE + MOAT_BONUS[moat]) * 1.15
+            fwd = earn * (1 + gp) ** 5 * terminal / (1 + DISCOUNT) ** 5
+            anchors.append(("5y compounded", fwd, 0.45))
+            notes.append(f"5y @ {100*gp:.0f}%")
 
     # FORWARD EARNINGS, AS A CEILING — and only for a company already making
     # money. This is the line AAOI must not be allowed to cross: its forward
@@ -235,6 +291,26 @@ def value(price=None, *, shares=None, revenue=None, net_income=None,
         w = 0.05 if (eps is not None and eps > 0) else 1.00
         anchors.append(("sales", (rev / sh) * mult, w))
         notes.append(f"sales {mult:.1f}x")
+
+    # THE DOMINANT ANCHOR — see mean_ps() in oracle_value.py for why.
+    # Weighted above everything else because it is the one thing that
+    # reproduces all four published OracleValues; the rest are now sanity
+    # checks on it rather than the valuation itself.
+    hps = _n(hist_ps)
+    if hps is not None and hps > 0 and rev and rev > 0:
+        # DOMINANT, not one vote among many. TSLA's own sub-model table shows
+        # the four sales/book models clustered at 345-385 while the four
+        # earnings models sit at 95-148, and OracleValue 320.80 lands with the
+        # first group. Their word for this is "adaptive": when earnings are
+        # unreliable — TSLA at 439x trailing, SITM at 798x, AAOI negative —
+        # the multiple the market has actually paid for this company's SALES
+        # is the only stable anchor, and the earnings models get ignored.
+        #
+        # Weighted 6.0 against the others' 0.05-0.55 so they become sanity
+        # checks rather than co-equal votes. Blending them equally pulled TSLA
+        # to $199 when this anchor alone said $339 against a published $320.80.
+        anchors.append(("historical P/S", (rev / sh) * hps, 6.00))
+        notes.insert(0, f"own mean P/S {hps:.1f}x")
 
     if not anchors:
         return Oracle(None, None, None, "", moat, "no revenue, earnings or cash flow", None)

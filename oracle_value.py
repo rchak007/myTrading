@@ -49,6 +49,7 @@ COLS = ["Ticker", "Fetched", "Price_At_Fetch", "Oracle_Value", "Oracle_Low",
 MOAT_OVERRIDE = {
     "MSFT": "WIDE",
     "SITM": "NARROW",
+    "TSLA": "NARROW",
     "AAOI": "NONE",
 }
 
@@ -80,6 +81,60 @@ def load(log=print) -> dict:
         return {}
 
 
+def five_year_margin(tk) -> float | None:
+    """Mean NET MARGIN over the last five FISCAL years — StockOracle's
+    "5-year Average", reproduced exactly on TSLA (10.50%).
+
+    Fiscal years only; the TTM column is excluded, which is the whole point —
+    TTM is the trough being normalized away.
+    """
+    try:
+        fin = tk.income_stmt
+        rev, ni = fin.loc["Total Revenue"], fin.loc["Net Income"]
+        m = (ni / rev).dropna()
+        m = m[:5]
+        return float(m.mean()) if len(m) >= 3 else None
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
+def mean_ps(tk, shares) -> float | None:
+    """The stock's OWN mean price-to-sales over the available fiscal years.
+
+    THE KEY TO THE WHOLE THING. TSLA's Valuation Chart shows nine sub-models
+    spanning $57.95 to $858.10, and OracleValue 320.80 sits at 91% of the
+    Mean-Price-to-Sales model (352.76) — on MSFT it is 105% of it. Better
+    still: TSLA's 10-year average P/S of 10.63 times revenue per share of
+    29.25 gives $310.93 against a published $320.80, 3% out.
+
+    So OracleValue is NOT a universal fair multiple. It is what THIS stock has
+    historically been worth per dollar of sales, applied to today's sales.
+    That is why SiTime earns 33x and Applied Optoelectronics earns 3.8x on
+    identical 3% net margins — the market has always paid those multiples.
+
+    A universal BASE_PE framework cannot reproduce that, which is why the
+    first version of this module put TSLA at $22.67 against $320.80.
+    """
+    try:
+        import numpy as np
+        fin = tk.income_stmt
+        rev = fin.loc["Total Revenue"].dropna()
+        px = tk.history(period="10y", interval="1mo")["Close"]
+        if px.empty or rev.empty or not shares:
+            return None
+        vals = []
+        for ts, r in rev.items():
+            if r and r > 0:
+                yr = px[px.index.year == ts.year]
+                if len(yr):
+                    vals.append(float(yr.mean()) * shares / float(r))
+        if len(vals) < 3:
+            return None
+        return float(np.mean(vals))
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
 def compute_one(sym: str, info: dict | None = None, price=None):
     """One ticker -> Oracle. Returns None when yfinance gives us nothing."""
     import yfinance as yf
@@ -88,6 +143,7 @@ def compute_one(sym: str, info: dict | None = None, price=None):
     if not px:
         return None
     fpe = i.get("forwardPE")
+    tk = yf.Ticker(sym)
     return oracle_value(
         px,
         shares=i.get("sharesOutstanding"),
@@ -105,6 +161,9 @@ def compute_one(sym: str, info: dict | None = None, price=None):
         total_cash=i.get("totalCash"),
         forward_eps=(px / fpe) if fpe and fpe > 0 else None,
         moat=MOAT_OVERRIDE.get(sym.upper()),
+        normalized_margin=five_year_margin(tk),
+        proj_growth=i.get("earningsGrowth") or i.get("revenueGrowth"),
+        hist_ps=mean_ps(tk, i.get("sharesOutstanding")),
     )
 
 
