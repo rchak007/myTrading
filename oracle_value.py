@@ -42,7 +42,7 @@ from core.oracle import value as oracle_value          # noqa: E402
 # did the model think in November" stays answerable.
 FILE = Path(os.getenv("ORACLE_FILE", HERE / "oracle_values.csv"))
 COLS = ["Ticker", "Fetched", "Price_At_Fetch", "Oracle_Value", "Oracle_Low",
-        "Oracle_High", "Oracle_Band", "Moat", "Oracle_Why"]
+        "Oracle_High", "Oracle_Band", "Moat", "Oracle_Why", "Oracle_IQ"]
 
 # Known StockOracle ratings, from the report Chakravarti sent 2026-11-01.
 # Add to this whenever a real rating is seen; never guess into it.
@@ -94,6 +94,48 @@ def five_year_margin(tk) -> float | None:
         m = (ni / rev).dropna()
         m = m[:5]
         return float(m.mean()) if len(m) >= 3 else None
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
+def five_year_roe(tk) -> float | None:
+    """Mean RETURN ON EQUITY over the last five fiscal years.
+
+    Same correction as five_year_margin, for the same reason. TSLA's page
+    prints ROE TTM 3.80% beside a 5-year average of 19.61%, and their
+    OracleIQ ranks profitability HIGH — which only makes sense against the
+    average. yfinance's `returnOnEquity` is the trailing 3.80%, so feeding
+    it straight in ranks a High company Medium.
+    """
+    try:
+        fin, bal = tk.income_stmt, tk.balance_sheet
+        ni = fin.loc["Net Income"]
+        eq = next(bal.loc[k] for k in
+                  ("Stockholders Equity", "Total Stockholder Equity",
+                   "Common Stock Equity") if k in bal.index)
+        r = (ni / eq).dropna()
+        r = r[:5]
+        return float(r.mean()) if len(r) >= 3 else None
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
+def revenue_cagr(tk) -> float | None:
+    """Compound annual revenue growth across the available fiscal years.
+
+    StockOracle ranks TSLA growth HIGH while its trailing year-over-year is
+    flat-to-down. One year against a hard comparison is not a growth rate;
+    the multi-year compound is. Same normalization lesson as the margin.
+    """
+    try:
+        rev = tk.income_stmt.loc["Total Revenue"].dropna()
+        if len(rev) < 3:
+            return None
+        newest, oldest = float(rev.iloc[0]), float(rev.iloc[-1])
+        years = len(rev) - 1
+        if oldest <= 0 or newest <= 0 or years < 2:
+            return None
+        return (newest / oldest) ** (1.0 / years) - 1.0
     except Exception:                                    # noqa: BLE001
         return None
 
@@ -167,6 +209,44 @@ def compute_one(sym: str, info: dict | None = None, price=None):
     )
 
 
+def iq_line(sym: str, info: dict, o) -> str:
+    """The six-factor OracleIQ panel as one sheet-sized line.
+
+    Fail-soft on purpose: the panel is context beside the value, never the
+    value itself, so an earnings-history fetch that 500s must cost us the
+    label and nothing else.
+    """
+    import yfinance as yf
+    from core import oracle_iq
+    try:
+        tk = yf.Ticker(sym)
+        try:
+            ed = tk.get_earnings_dates(limit=24)
+        except Exception:                                # noqa: BLE001
+            ed = None
+        return oracle_iq.summary(oracle_iq.panel(
+            earnings=ed,
+            moat=o.moat,
+            band=o.band,
+            net_margin=info.get("profitMargins"),
+            normalized_margin=five_year_margin(tk),
+            roe=five_year_roe(tk) or info.get("returnOnEquity"),
+            gross_margin=info.get("grossMargins"),
+            revenue_cagr=revenue_cagr(tk),
+            revenue_growth=info.get("revenueGrowth"),
+            earnings_growth=info.get("earningsGrowth"),
+            total_debt=info.get("totalDebt"),
+            total_cash=info.get("totalCash"),
+            free_cf=info.get("freeCashflow"),
+            operating_cf=info.get("operatingCashflow"),
+            market_cap=info.get("marketCap"),
+            ebitda=info.get("ebitda"),
+            current_ratio=info.get("currentRatio"),
+        ))
+    except Exception:                                    # noqa: BLE001
+        return ""
+
+
 def due_today(log=print) -> bool:
     """Monday, or the cache is missing or stale. Chakravarti asked for
     'every Monday 1st run' — so the job is safe to schedule daily and will
@@ -212,6 +292,7 @@ def refresh(syms=None, log=print) -> int:
                 "Oracle_Value": o.value, "Oracle_Low": o.low,
                 "Oracle_High": o.high, "Oracle_Band": o.band,
                 "Moat": o.moat, "Oracle_Why": o.why,
+                "Oracle_IQ": iq_line(s, i, o),
             })
         except Exception as e:                           # noqa: BLE001
             failed.append(f"{s} ({type(e).__name__})")
