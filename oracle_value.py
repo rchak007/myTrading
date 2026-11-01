@@ -548,12 +548,16 @@ def panel_for_sheet(ticker, price=None, cache=None) -> list[tuple[str, list]]:
     # The caveat is spelled out rather than left to the reader. A thin or
     # scattered history is exactly when this signal should be discounted,
     # and that is not obvious from a dollar figure.
+    # Thin history is the caveat that earned its place: across the four
+    # published anchors, error falls monotonically with years (7y -> 54%,
+    # 16y -> 6%). Wide spread is shown as a number but NOT called a warning —
+    # it fired on two thirds of the book and does not track error at all.
     caveat = ""
     try:
         if yrs and int(yrs) < 8:
-            caveat = f"thin history — {int(yrs)}y only"
-        elif spread and float(spread) > 0.35:
-            caveat = f"unstable multiple — P/S scattered {float(spread):.0%}"
+            caveat = f"thin history — {int(yrs)}y only, treat as weak"
+        elif spread and float(spread) > 0.90:
+            caveat = "multiple has ranged widely"
     except (TypeError, ValueError):
         pass
     out.append(("BASIS",

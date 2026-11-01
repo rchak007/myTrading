@@ -316,24 +316,37 @@ def value(price=None, *, shares=None, revenue=None, net_income=None,
         # other. Neither is guaranteed, so both are measured and the weight
         # is cut when they fail:
         #
-        #   few years   -- a mean of four observations is a guess. NVDA's
-        #                  four were the AI bubble (34x 43x 29x 22x) and
-        #                  valued a $205 stock at $434.
-        #   wide spread -- AAOI's yearly P/S ran 1x to 6x. Its mean is a
-        #                  number, not a level the market agrees on.
+        #   few years -- a mean of four observations is a guess. NVDA's four
+        #                were the AI bubble (34x 43x 29x 22x) and valued a
+        #                $205 stock at $434. Across the four published
+        #                anchors the relationship is monotonic:
+        #                   SITM  7y -> 54% error
+        #                   AAOI 10y -> 19%
+        #                   MSFT 11y -> 15%
+        #                   TSLA 16y ->  6%
         #
         # A discounted anchor hands weight to the earnings and cash-flow
         # models rather than shrinking the answer, because the re-weighting
         # below normalizes by whatever weight actually remains.
+        #
+        # DISPERSION IS MEASURED BUT DOES NOT MOVE THE VALUE. On four years
+        # of history it looked decisive -- MSFT scattered 9% and we valued it
+        # exactly, AAOI scattered 50% and we were 42% out -- so an earlier
+        # version cut the weight by 40% above a 0.35 spread. Real history
+        # kills the rule outright: TSLA has the WIDEST spread of the four
+        # (0.76) and the SMALLEST error (6%), while SITM has the narrowest
+        # (0.30) and the largest (54%). It also fired on two thirds of the
+        # book, and a warning that common is not a warning. It stays in the
+        # output as description -- a stock whose multiple has ranged 1x to
+        # 6x is worth knowing about -- and out of the arithmetic.
         w = 6.00
         n = _n(hist_ps_years)
         cv = _n(hist_ps_dispersion)
         if n is not None and n < 8:
             w *= max(0.45, n / 10.0)
             notes.append(f"only {int(n)}y of sales history")
-        if cv is not None and cv > 0.35:
-            w *= 0.60
-            notes.append(f"P/S scatters {cv:.0%} — unstable multiple")
+        if cv is not None and cv > 0.90:        # top quartile; descriptive
+            notes.append(f"P/S has ranged widely (spread {cv:.0%})")
         anchors.append(("historical P/S", (rev / sh) * hps, w))
         notes.insert(0, f"own mean P/S {hps:.1f}x"
                         + (f" over {int(n)}y" if n else ""))

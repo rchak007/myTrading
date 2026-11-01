@@ -169,17 +169,21 @@ def test_a_short_history_is_discounted_not_trusted():
     assert "only 4y" in thin.why
 
 
-def test_an_unstable_multiple_is_discounted():
-    """AAOI's yearly P/S ran 1x to 6x. Its mean is a number, not a level."""
+def test_a_wide_spread_is_reported_but_does_not_move_the_value():
+    """DISPERSION DESCRIBES, IT DOES NOT DISCOUNT. On four years of history
+    the rule looked decisive; on real history it inverts -- TSLA has the
+    widest spread of the four published anchors (0.76) and the smallest
+    error (6%), SITM the narrowest (0.30) and the largest (54%). It also
+    fired on two thirds of the book."""
     from core.oracle import value
     kw = dict(shares=1e9, revenue=10e9, net_income=1e9, market_cap=100e9,
               gross_margin=0.5, net_margin=0.10, roe=0.15, moat="NARROW")
     steady = value(100.0, hist_ps=10.0, hist_ps_years=12,
                    hist_ps_dispersion=0.10, **kw)
     noisy = value(100.0, hist_ps=10.0, hist_ps_years=12,
-                  hist_ps_dispersion=0.55, **kw)
-    assert steady.value != noisy.value
-    assert "scatters" in noisy.why
+                  hist_ps_dispersion=0.95, **kw)
+    assert steady.value == noisy.value, "spread must not move the number"
+    assert "ranged widely" in noisy.why, "but it must still be reported"
 
 
 # ── the ORACLE dashboard section ────────────────────────────────────────
@@ -214,10 +218,13 @@ def test_oracle_section_flags_a_thin_history():
     assert "thin history" in g[-1][2][-1]
 
 
-def test_oracle_section_flags_an_unstable_multiple():
+def test_oracle_section_only_flags_a_truly_extreme_spread():
+    """0.55 is around the median once history is deep -- flagging it made
+    the caveat fire on two thirds of the book."""
     import oracle_value as ov
-    g = ov.panel_for_sheet("ZZZ", 100.0, _fake_cache(PS_Spread="0.55"))
-    assert "unstable" in g[-1][2][-1]
+    assert ov.panel_for_sheet("ZZZ", 100.0, _fake_cache(PS_Spread="0.55"))[-1][2][-1] == ""
+    assert "ranged widely" in ov.panel_for_sheet(
+        "ZZZ", 100.0, _fake_cache(PS_Spread="0.95"))[-1][2][-1]
 
 
 def test_a_deep_steady_history_earns_no_caveat():
