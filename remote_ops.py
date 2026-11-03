@@ -381,10 +381,33 @@ def _run_signals() -> tuple[int, str]:
                    "in progress right now.\n"
                    "Watch it with:   tail_log  stocks")
 
+    # LAUNCH INTO THE LOG, NOT INTO /dev/null.
+    #
+    # This used to send stdout and stderr to DEVNULL and then tell the caller
+    # "Progress: tail_log stocks" — a log that this launch path could never
+    # write. On 2026-11-02 the Dashboard stopped updating after 08:59 and
+    # run_signals reported "started" every time; `tail_log stocks` answered
+    # "No such file or directory", because the file had never existed. A job
+    # that dies on startup looked exactly like a job running fine.
+    #
+    # The lock was free (flock -n succeeded, or we would have said "already
+    # running"), so the job really was launching and really was dying, with
+    # the traceback going straight to /dev/null.
+    out = LOGS["stocks"]
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        fh = out.open("a", buffering=1)
+        bar = "=" * 60
+        fh.write(f"\n{bar}\n{now_str()} run_signals (remote_ops)\n")
+        fh.flush()
+    except Exception:                                    # noqa: BLE001
+        fh = None                       # never block the run over logging
+
     sp.Popen(["setsid", "--fork", "flock", "-n", str(lock),
               str(py), str(job), "--no-push"],
              cwd=str(REPO), stdin=sp.DEVNULL,
-             stdout=sp.DEVNULL, stderr=sp.DEVNULL, start_new_session=True)
+             stdout=(fh or sp.DEVNULL), stderr=sp.STDOUT,
+             start_new_session=True)
     audit(event="signals_started", verb="run_signals")
     return 0, ("started jobStocksSignals in the background.\n\n"
                "It takes 9-10 minutes and rewrites Positions, Cash, Dashboard "
