@@ -840,13 +840,92 @@ def _scrub(v):
     return v
 
 
-def _put(ws, df, cols, log):
+def cash_extras(cash, reserves=None, open_buys=None):
+    """The TOTAL line and the seed breakdown, as raw rows for below the table.
+
+    NOT PART OF THE DATAFRAME, on purpose. build_cash_rows() returns one row
+    per account and several callers sum that frame — a TOTAL row inside it
+    would be added to its own components. That has already happened once
+    here: the upstream cash table carries a TOTAL whose acct_key is "TAL",
+    which matched nothing, counted as a seventh account, and doubled
+    Free_To_Deploy. So the totals are built at WRITE time and never travel.
+
+    The breakdown answers the question the negative cell raises and cannot
+    itself answer: Chakravarti, 2026-11-02, looking at 431 at -$1,657.13 —
+    *"can you identify why i am negative? I need to know which stocks are
+    booked"*. The per-account figure says an account is over-fenced; only
+    the per-ticker list says what to unfence.
+    """
+    rows = [[""] * len(CASH_COLS)]
+    if cash is None or getattr(cash, "empty", True):
+        return []
+
+    total = [""] * len(CASH_COLS)
+    total[0] = TOTAL
+    for i, c in enumerate(("Cash", "Cash_In_Open_Orders",
+                           "Cash_After_Open_Orders", "Seed_Reserved",
+                           "Free_To_Deploy"), start=2):
+        total[i] = round(float(cash[c].sum()), 2)
+    rows.append(total)
+
+    # Per (account, ticker). Floored at zero for the ACCOUNT total the same
+    # way build_cash_rows floors it — a breach is not spendable cash — but
+    # shown raw per ticker, because the negative IS the breach and hiding it
+    # would be the worse bug.
+    by_acct = {}
+    for (a, t), amt in (reserves or {}).items():
+        by_acct.setdefault(str(a), []).append((str(t), _num(amt, 0.0) or 0.0))
+    if not by_acct:
+        return rows
+
+    rows.append([""] * len(CASH_COLS))
+    head = [""] * len(CASH_COLS)
+    head[0] = "SEED DETAIL"
+    head[1] = "which tickers hold each account's reserve"
+    rows.append(head)
+    hdr = [""] * len(CASH_COLS)
+    hdr[0], hdr[1], hdr[5], hdr[6] = "Acct", "Ticker", "Seed_Reserved", "Note"
+    rows.append(hdr)
+
+    avail = {str(r["Acct"]): float(r["Cash_After_Open_Orders"])
+             for _, r in cash.iterrows()}
+    for a in sorted(by_acct):
+        items = sorted(by_acct[a], key=lambda x: -x[1])
+        booked = sum(max(v, 0.0) for _, v in items)
+        for t, v in items:
+            if abs(v) < 0.005:
+                continue
+            r = [""] * len(CASH_COLS)
+            r[0], r[1], r[5] = a, t, round(v, 2)
+            if v < 0:
+                r[6] = "BREACH — bought past the reserve"
+            rows.append(r)
+        sub = [""] * len(CASH_COLS)
+        short = round(booked - avail.get(a, 0.0), 2)
+        sub[0], sub[1], sub[5] = a, "— reserved —", round(booked, 2)
+        sub[6] = (f"SHORT ${short:,.2f} against ${avail.get(a, 0.0):,.2f} free"
+                  if short > 0.005 else
+                  f"covered by ${avail.get(a, 0.0):,.2f} free")
+        rows.append(sub)
+        rows.append([""] * len(CASH_COLS))
+    return rows
+
+
+def _put(ws, df, cols, log, extras=None):
+    """Write a frame under its header, optionally with trailing raw rows.
+
+    `extras` are written below the data and are NOT part of the frame, so
+    nothing that sums the frame can pick them up. See cash_extras().
+    """
     ws.batch_clear([f"A2:{chr(64 + len(cols))}1000"])
     if df is None or df.empty:
         return 0
     body = [[_scrub(v) for v in row] for row in df[cols].values.tolist()]
+    n = len(body)
+    for row in (extras or []):
+        body.append([_scrub(v) for v in row][:len(cols)])
     ws.update(values=body, range_name=f"A2:{chr(64 + len(cols))}{len(body) + 1}")
-    return len(body)
+    return n
 
 
 # Live_Price and Day_% sit next to Avg_Cost on purpose: paid / now / today's
@@ -1683,7 +1762,8 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     cash = build_cash_rows(cash_df, reserves, log=log, open_buys=open_buys)
 
     n_pos = _put(book.worksheet("Positions"), positions, POSITIONS_COLS, log)
-    n_cash = _put(book.worksheet("Cash"), cash, CASH_COLS, log)
+    n_cash = _put(book.worksheet("Cash"), cash, CASH_COLS, log,
+                  extras=cash_extras(cash, reserves, open_buys))
     # Chitra's account: her own tab, plus a CHITRA line in any block whose
     # ticker she shares. Wrapped because it is an addition to the picture and
     # must never be the reason the rest of the write fails.
