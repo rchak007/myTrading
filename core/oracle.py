@@ -59,6 +59,7 @@ What those three teach, and what this module is built around:
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 # ─────────────────────────────────────────────────────────────────────
@@ -100,7 +101,25 @@ P_FCF_BURN = 0.70          # free cash flow negative
 P_LOSS = 0.80              # net income negative
 P_DEBT = 0.85              # net debt > 3x operating cash flow
 P_DILUTION = 0.85          # share count up more than 10% in a year
-P_HIGH_BETA = 0.92         # beta > 2.5
+P_HIGH_BETA = 0.92
+
+# Above this multiple of the share price, the output is a data artefact
+# rather than a valuation.
+#
+# The book itself picks the line. Sorted by value/price there is a clean
+# break: the plausible opinions stop around 2.6x (NVDA 1.22x, META 1.68x,
+# SMCI 2.09x, APLD 2.57x) and past 3x it is all breakage — TSM at 25x on
+# four years of history, SOFI 7x, RDDT 6x, CLSK 3,075x, and RCAT at
+# 8,288,439x the share price. Nearly all of them share one cause: no mean
+# P/S could be built, so the dominant anchor was missing and the earnings
+# anchors ran unchecked on bad inputs.
+#
+# 3.0 suppresses 22 of 116. Between 2.5x and 4.0x only five names change
+# hands, so the exact point is not delicate; what matters is that a
+# CONSERVATIVE model claiming a stock is worth more than three times what
+# the market pays is making an extraordinary claim, and ours was making it
+# by accident.
+MAX_PRICE_MULTIPLE = float(os.getenv("ORACLE_MAX_MULTIPLE", "3.0"))         # beta > 2.5
 
 BANDS = [
     (0.85, "DEEP VALUE"),      # price <= 85% of value
@@ -397,10 +416,20 @@ def value(price=None, *, shares=None, revenue=None, net_income=None,
     # Width reflects how much disagreement the anchors themselves carry. A
     # name whose earnings, cash flow and sales all say the same thing gets a
     # tight range; one that does not, gets an honest wide one.
+    #
+    # CAPPED AT 25%, NOT 45%. A band of +/-45% is not a range, it is a
+    # refusal to answer wearing a number: TSLA printed "$203-$536" around a
+    # $369 point, which rules out nothing a trader could act on. Where the
+    # anchors disagree by more than the cap, that disagreement is now SAID
+    # rather than drawn, because a reader cannot tell a wide honest range
+    # from a wide broken one by looking at it.
     spread = 0.12
     if len(anchors) > 1:
         vals = [v for _, v, _ in anchors]
-        spread = max(0.10, min(0.45, (max(vals) - min(vals)) / (2 * raw)))
+        raw_spread = (max(vals) - min(vals)) / (2 * raw) if raw else 0.0
+        spread = max(0.10, min(0.25, raw_spread))
+        if raw_spread > 0.25:
+            notes.append(f"anchors disagree {raw_spread:.0%} — low confidence")
     low, high = val * (1 - spread), val * (1 + spread)
 
     # A value that rounds to nothing is not a valuation. A pre-revenue
@@ -409,6 +438,26 @@ def value(price=None, *, shares=None, revenue=None, net_income=None,
     if val < 0.01 or val < px * 0.02:
         return Oracle(None, None, None, "", moat,
                       "no honest value — " + " · ".join(notes), None)
+
+    # THE SAME TEST AT THE OTHER END, which was missing. A conservative fair
+    # value cannot be several times the market price; past some multiple the
+    # model has broken, not spotted a bargain the whole market missed.
+    #
+    # SNDK is the case that forced it. SanDisk spun out of Western Digital in
+    # February 2025, so it has 21 months of price history — too little for a
+    # mean P/S, which left the DOMINANT anchor missing. The earnings anchors
+    # then ran unchecked on a yfinance net income of $19.4B against $29.0B of
+    # revenue: a 67% net margin for a memory manufacturer, which is spinoff
+    # accounting, not profit. Result: $13,712 against a $1,151 share price,
+    # printed on the Dashboard with no flag of any kind.
+    #
+    # Blank is the honest output. The same rule already applies at the bottom
+    # end for pre-revenue names, and it should never have applied only there.
+    if val > px * MAX_PRICE_MULTIPLE:
+        return Oracle(None, None, None, "", moat,
+                      f"no honest value — implies {val / px:.0f}x the share "
+                      f"price, so an input is wrong"
+                      + (" · " + " · ".join(notes) if notes else ""), None)
 
     ratio = px / val if val > 0 else 99.0
     band = next(b for lim, b in BANDS if ratio <= lim)

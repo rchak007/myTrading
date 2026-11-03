@@ -97,13 +97,7 @@ def annual_revenue(ticker: str, log=None) -> dict[int, float]:
         if not cik:
             _write_cache(ticker, {})
             return {}
-        best: dict[int, float] = {}
-        for tag in REVENUE_TAGS:
-            series = _concept(cik, tag)
-            if len(series) > len(best):
-                best = series
-            if len(best) >= 10:          # plenty; stop asking
-                break
+        best = _merge(cik, REVENUE_TAGS, instant=False)
         if len(best) < MIN_YEARS:
             best = {}
         _write_cache(ticker, best)
@@ -118,13 +112,69 @@ def annual_revenue(ticker: str, log=None) -> dict[int, float]:
         return {}
 
 
+def annual_series(ticker: str, tags, instant=False) -> dict[int, float]:
+    """{fiscal_year: value} for the first of `tags` that the filer uses.
+
+    `instant=True` for balance-sheet items, which XBRL reports as a point in
+    time (one date, no start) rather than a period. Net income is a period;
+    stockholders' equity is an instant. Asking for the wrong one silently
+    returns nothing, which is how a moat model ends up with no evidence and
+    rates everything NONE.
+    """
+    ticker = ticker.upper().strip()
+    key = "_".join(t[:12] for t in tags) + ("_i" if instant else "")
+    cached = _read_cache(ticker, key)
+    if cached is not None:
+        return cached
+    try:
+        cik = cik_for(ticker)
+        if not cik:
+            _write_cache(ticker, {}, key)
+            return {}
+        _write_cache(ticker, (merged := _merge(cik, tags, instant)), key)
+        return merged
+    except Exception:                                    # noqa: BLE001
+        return {}
+
+
+NET_INCOME_TAGS = ("NetIncomeLoss",
+                   "ProfitLoss",
+                   "NetIncomeLossAvailableToCommonStockholdersBasic")
+EQUITY_TAGS = ("StockholdersEquity",
+               "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
+GROSS_PROFIT_TAGS = ("GrossProfit",)
+
+
 def cik_for(ticker: str) -> int | None:
     """Ticker -> CIK, from SEC's own mapping file (cached)."""
     m = _ticker_map()
     return m.get(ticker.upper().strip())
 
 
-def _concept(cik: int, tag: str) -> dict[int, float]:
+def _merge(cik: int, tags, instant: bool) -> dict[int, float]:
+    """All tags combined into one series, earlier tags winning a tie.
+
+    MERGED, NOT PICKED. Filers change tags as accounting standards change,
+    so no single tag spans a company's history. Visa stopped reporting
+    `StockholdersEquity` after 2011 and switched; taking whichever tag had
+    the most years gave six ancient years of equity against net income from
+    2020-2025 -- no overlap at all in the modern era, and a moat rated off
+    four pre-2012 observations. Revenue has the same break at ASC 606 in
+    2018, where `SalesRevenueNet` gives way to
+    `RevenueFromContractWithCustomerExcludingAssessedTax`.
+
+    Later tags only FILL YEARS the earlier ones lack, so the preferred tag
+    still defines any year it covers and the series cannot mix two
+    definitions for one year.
+    """
+    out: dict[int, float] = {}
+    for tag in tags:
+        for year, val in _concept(cik, tag, instant=instant).items():
+            out.setdefault(year, val)
+    return out
+
+
+def _concept(cik: int, tag: str, instant=False) -> dict[int, float]:
     """One XBRL tag as an annual series, newest restatement winning."""
     url = (f"https://data.sec.gov/api/xbrl/companyconcept/"
            f"CIK{cik:010d}/us-gaap/{tag}.json")
@@ -136,15 +186,22 @@ def _concept(cik: int, tag: str) -> dict[int, float]:
     out: dict[int, tuple[float, str]] = {}
     for x in d.get("units", {}).get("USD", []):
         start, end = x.get("start"), x.get("end")
-        if not start or not end or x.get("form") != "10-K":
+        if not end or x.get("form") != "10-K":
             continue
         try:
-            a, b = date.fromisoformat(start), date.fromisoformat(end)
+            b = date.fromisoformat(end)
+            a = date.fromisoformat(start) if start else None
         except ValueError:
             continue
+        if instant:
+            # A balance-sheet item: one date, no period. Filings also carry
+            # the PRIOR year's balance as a comparative, which is fine —
+            # keyed by its own year, it simply agrees with that year's row.
+            if a is not None:
+                continue
         # A full fiscal year. Excludes quarters, and the 52/53-week
         # retail calendars still land inside this window.
-        if not 350 <= (b - a).days <= 380:
+        elif a is None or not 350 <= (b - a).days <= 380:
             continue
         val, filed = x.get("val"), x.get("filed", "")
         if val is None:
@@ -198,12 +255,12 @@ def _get(url: str):
     return json.loads(data)
 
 
-def _path(ticker: str) -> Path:
-    return CACHE / f"{ticker.upper()}_revenue.json"
+def _path(ticker: str, key: str = "revenue") -> Path:
+    return CACHE / f"{ticker.upper()}_{key}.json"
 
 
-def _read_cache(ticker: str):
-    p = _path(ticker)
+def _read_cache(ticker: str, key: str = "revenue"):
+    p = _path(ticker, key)
     if not _fresh(p):
         return None
     try:
@@ -213,11 +270,11 @@ def _read_cache(ticker: str):
         return None
 
 
-def _write_cache(ticker: str, data: dict) -> None:
+def _write_cache(ticker: str, data: dict, key: str = "revenue") -> None:
     try:
         CACHE.mkdir(parents=True, exist_ok=True)
-        _path(ticker).write_text(json.dumps({str(k): v
-                                             for k, v in data.items()}))
+        _path(ticker, key).write_text(json.dumps({str(k): v
+                                                  for k, v in data.items()}))
     except Exception:                                    # noqa: BLE001
         pass                            # a cache we cannot write is not fatal
 

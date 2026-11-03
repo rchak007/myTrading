@@ -15,10 +15,9 @@ change once a quarter — so recomputing hourly would cost 135 network calls to
 learn nothing. Price is the only fast-moving term, and the sheet already has
 it live, so the BAND is recomputed every cycle against a cached value.
 
-MOAT OVERRIDES. core/oracle.infer_moat() is a proxy; StockOracle's rating is
-community-voted and we cannot read it. Where we DO know the real one, it is
-pinned here rather than guessed — the proxy put SiTime at NONE on a 2% net
-margin while StockOracle rates it Narrow.
+OUR OWN RATINGS, NOT ANYONE ELSE'S. The moat comes from core/moat.py, which
+reads ten years of SEC filings and judges durable excess returns on capital.
+Nothing here is seeded from a published value.
 """
 from __future__ import annotations
 
@@ -49,14 +48,14 @@ COLS = ["Ticker", "Fetched", "Price_At_Fetch", "Oracle_Value", "Oracle_Low",
         # those years agreed. Both decide how far to trust the value.
         "PS_Mean", "PS_Years", "PS_Spread"]
 
-# Known StockOracle ratings, from the report Chakravarti sent 2026-11-01.
-# Add to this whenever a real rating is seen; never guess into it.
-MOAT_OVERRIDE = {
-    "MSFT": "WIDE",
-    "SITM": "NARROW",
-    "TSLA": "NARROW",
-    "AAOI": "NONE",
-}
+# THE HARDCODED MOAT TABLE IS GONE. It held four ratings read off
+# StockOracle's site and fed them straight into our valuation, which made
+# "our" moat theirs. Chakravarti, 2026-11-01: *"i am developing this so we
+# make our own independent ratings and not hardcode from StockOracle"* — he
+# supplied their screens so we could learn WHICH MEASURES MATTER and compute
+# them ourselves, not to copy the outputs. See core/moat.py, which rates on
+# ten years of SEC filings: median return on equity, how often it clears a
+# cost-of-equity hurdle, and the level and steadiness of gross margin.
 
 MAX_AGE_DAYS = int(os.getenv("ORACLE_MAX_AGE_DAYS", "14"))
 
@@ -99,6 +98,22 @@ def five_year_margin(tk) -> float | None:
         m = (ni / rev).dropna()
         m = m[:5]
         return float(m.mean()) if len(m) >= 3 else None
+    except Exception:                                    # noqa: BLE001
+        return None
+
+
+def our_moat(sym: str):
+    """Our own moat rating for one ticker, or None when we cannot judge.
+
+    None is a real answer and must stay distinguishable from NONE: "we have
+    too few filings to say" and "this company has no durable advantage" are
+    different claims, and core/oracle.py treats a missing moat as neutral
+    rather than as a penalty.
+    """
+    try:
+        from core import moat
+        rating, _ = moat.from_edgar(sym)
+        return rating
     except Exception:                                    # noqa: BLE001
         return None
 
@@ -260,7 +275,7 @@ def compute_one(sym: str, info: dict | None = None, price=None):
         total_debt=i.get("totalDebt"),
         total_cash=i.get("totalCash"),
         forward_eps=(px / fpe) if fpe and fpe > 0 else None,
-        moat=MOAT_OVERRIDE.get(sym.upper()),
+        moat=our_moat(sym),
         normalized_margin=five_year_margin(tk),
         proj_growth=i.get("earningsGrowth") or i.get("revenueGrowth"),
         hist_ps=ps,
@@ -411,7 +426,7 @@ def refresh(syms=None, log=print) -> int:
     """
     import yfinance as yf
     syms = list(syms) if syms else tickers()
-    prev, out, failed = load(log=lambda *_: None), [], []
+    prev, out, failed, refused = load(log=lambda *_: None), [], [], []
     today = date.today().isoformat()
     asked = {s.upper() for s in syms}
     carried = [r for t, r in prev.items() if t.upper() not in asked]
@@ -420,8 +435,23 @@ def refresh(syms=None, log=print) -> int:
         try:
             i = yf.Ticker(s).info or {}
             o = compute_one(s, i)
-            if o is None or o.value is None:
-                raise ValueError(o.why if o else "no price")
+            if o is not None and o.value is None:
+                # A DELIBERATE REFUSAL, NOT A FAILURE. The model looked at
+                # this ticker and declined to value it — pre-revenue, or an
+                # answer so far from the share price that an input must be
+                # wrong. Dropping the row is the point.
+                #
+                # This used to raise, and the handler below then restored
+                # yesterday's row "to be safe", which put the very numbers
+                # the guard had just rejected straight back on the sheet:
+                # RCAT at 8,288,439x the share price, ABTC at 191,957x, both
+                # still showing DEEP VALUE after a refresh that had refused
+                # them. A refusal that can be undone by a retry is not a
+                # guard.
+                refused.append(f"{s} ({_short(o.why)})")
+                continue
+            if o is None:
+                raise ValueError("no price")
             last_e, next_e = earnings_dates(s)
             ps, yrs, cv = mean_ps(yf.Ticker(s), i.get("sharesOutstanding"))
             out.append({
@@ -437,9 +467,11 @@ def refresh(syms=None, log=print) -> int:
                 "PS_Spread": round(cv, 3) if cv is not None else "",
             })
         except Exception as e:                           # noqa: BLE001
+            # A TRANSIENT failure — network, a yfinance hiccup. Here, and
+            # only here, yesterday's row is better than a blank.
             failed.append(f"{s} ({type(e).__name__})")
             if s in prev:
-                out.append(prev[s])                      # keep, never drop
+                out.append(prev[s])
         if n % 25 == 0:
             log(f"   …{n}/{len(syms)}")
 
@@ -458,10 +490,18 @@ def refresh(syms=None, log=print) -> int:
 
     fresh = sum(1 for r in out if str(r.get("Fetched", "")).startswith(today))
     log(f"{len(out)} row(s) cached — {fresh} fresh, {len(out) - fresh} kept")
+    if refused:
+        log(f"🚫 declined to value {len(refused)} (row dropped, not kept): "
+            + ", ".join(refused[:8]) + (" …" if len(refused) > 8 else ""))
     if failed:
-        log(f"⚠️  no value for {len(failed)}: {', '.join(failed[:12])}"
-            + (" …" if len(failed) > 12 else ""))
+        log(f"⚠️  fetch failed for {len(failed)} (old row kept): "
+            + ", ".join(failed[:8]) + (" …" if len(failed) > 8 else ""))
     return len(out)
+
+
+def _short(why, n=46):
+    why = str(why or "").replace("no honest value — ", "")
+    return why[:n] + ("…" if len(why) > n else "")
 
 
 def age_days(row) -> int | None:
@@ -489,10 +529,15 @@ def for_sheet(ticker, price=None, cache=None) -> tuple[str, str]:
     if a is None or a > MAX_AGE_DAYS:
         return "", "STALE"
     try:
-        lo, hi, val = float(r["Oracle_Low"]), float(r["Oracle_High"]), float(r["Oracle_Value"])
+        val = float(r["Oracle_Value"])
     except (TypeError, ValueError):
         return "", ""
-    text = (f"${lo:,.0f}–${hi:,.0f}" if hi > lo * 1.02 else f"${val:,.2f}")
+    # THE POINT VALUE IS THE HEADLINE, the range is context beside it.
+    # Printing "$203–$536" in the OracleValue cell made the estimate look
+    # like it said nothing — Chakravarti, seeing exactly that: "oracle
+    # values are too wide man". The spread is real and still shown, but one
+    # number is what a reader compares to the price.
+    text = f"${val:,.2f}"
     band = r.get("Oracle_Band", "")
     try:
         if price and float(price) > 0 and val > 0:
@@ -531,9 +576,17 @@ def panel_for_sheet(ticker, price=None, cache=None) -> list[tuple[str, list]]:
     except (TypeError, ValueError, KeyError):
         pass
 
+    rng = ""
+    try:
+        lo, hi = float(r["Oracle_Low"]), float(r["Oracle_High"])
+        rng = f"${lo:,.0f}–${hi:,.0f}"
+    except (TypeError, ValueError, KeyError):
+        pass
+
     out = [("VALUE",
-            ["OracleValue", "Band", "Upside_to_Fair", "Moat", "As_Of"],
-            [text, band, gap, r.get("Moat", ""), str(r.get("Fetched", ""))[:10]])]
+            ["OracleValue", "Band", "Upside_to_Fair", "Range", "Moat", "As_Of"],
+            [text, band, gap, rng, r.get("Moat", ""),
+             str(r.get("Fetched", ""))[:10]])]
 
     iq = str(r.get("Oracle_IQ", ""))
     if iq:
