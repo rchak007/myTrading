@@ -84,7 +84,18 @@ HEADER = ["Verb", "Args", "Status", "QueuedAt", "StartedAt",
 # Log keys you may pass to tail_log. The sheet supplies the KEY, this
 # dict supplies the path. Add entries here, never in the sheet.
 LOGS = {
-    "stocks": REPO / "job_stocks.log",
+    # WHERE CRON ACTUALLY WRITES IT — $HOME, not the repo. The crontab line
+    # redirects to ~/job_stocks.log and then copies it into the jobMyTrading
+    # repo; it never writes one here. Pointing at REPO meant `tail_log
+    # stocks` answered "No such file or directory" for the whole of
+    # 2026-11-02/03 while a perfectly good log sat in $HOME, which sent the
+    # hunt for a 28-hour sheet freeze off in the wrong direction entirely.
+    #
+    # First existing path wins, so a future crontab that writes into the
+    # repo keeps working without another edit.
+    "stocks": next((p for p in (HOME / "job_stocks.log",
+                                REPO / "job_stocks.log") if p.exists()),
+                   HOME / "job_stocks.log"),
     # THE ORDER ENGINE'S OWN LOG. Missing until 2026-10-29, and its absence
     # cost two days: a PBLS row sat with no Status and no Last_Checked while
     # the Orders header kept updating, because the HEADER is written by the
@@ -189,10 +200,21 @@ VERBS = {
     "cron_check": (lambda a: [["crontab", "-l"]], 30, False),
     # A stale lock is invisible: flock -n exits 1 and says nothing, so every
     # scheduled run after it becomes a no-op with no trace anywhere.
-    "locks":      (lambda a: [["ls", "-la", "/tmp/"],
+    # HOLDERS FIRST, NOISE LAST. This used to run `ls -la /tmp/` first and
+    # the holder check second — and column I keeps only SHEET_OUTPUT_MAX
+    # chars, so a /tmp full of systemd-private-* directories pushed the one
+    # line that mattered off the end. On 2026-11-02 that hid a stale
+    # mytrading_sheet.lock which had silently blocked BOTH the signals job
+    # (flock -w 600, gives up quietly) and the prices job (flock -n, skips
+    # quietly) for 28 hours. The answer was in the verb's output all along,
+    # just past the cut.
+    "locks":      (lambda a: [["bash", "-lc",
+                               "for f in /tmp/*.lock; do printf '%-34s ' \"$f\"; "
+                               "if fuser \"$f\" >/dev/null 2>&1; then "
+                               "printf 'HELD by'; fuser -v \"$f\" 2>&1 | tail -n +2; "
+                               "else echo '(free)'; fi; done"],
                               ["bash", "-lc",
-                               "for f in /tmp/*.lock; do printf '%s: ' \"$f\"; "
-                               "fuser \"$f\" 2>/dev/null || echo '(free)'; done"]],
+                               "echo; echo '-- age --'; ls -la /tmp/*.lock"]],
                    30, False),
     "svc_log":    (lambda a: [["journalctl", "-u", SERVICE, "-n", "80",
                                "--no-pager", "--output=short-iso"]], 60, False),
