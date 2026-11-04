@@ -502,7 +502,12 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
         parts = arg.split()
         if len(parts) < 3:
             return 2, (
-                f"need ACCT TICKER AMOUNT\n  e.g.  {verb}  171 MSTR 1000\n\n"
+                f"need ACCT TICKER AMOUNT [COUNTERPARTY]\n"
+                f"  e.g.  {verb}  171 MSTR 1000 ALAB\n\n"
+                "TICKER is whose reserve moves. COUNTERPARTY is the other "
+                "side — the ticker the money went to (borrow) or came from "
+                "(return_borrow). Optional, but record it: a loan with no "
+                "borrower cannot be paid back to the right place.\n\n"
                 + {"borrow": "Takes cash OUT of that ticker's reserve. The "
                              "reserve falls and Free_To_Deploy rises, so you "
                              "can spend it elsewhere. Borrowed records what is "
@@ -520,10 +525,23 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
         except ValueError:
             return 2, f"{parts[2]!r} is not an amount"
 
+        # EVERYTHING AFTER THE AMOUNT IS THE COUNTERPARTY. The ledger has
+        # carried a Reason column all along and borrow() has always taken a
+        # reason=; the verb simply never passed one, so `borrow 431 SPY
+        # 2254.84` recorded that SPY lent the money and nothing about where
+        # it went. Chakravarti, 2026-11-03: *"i need to choose which TICKER
+        # borrowed right so later i can pay with that?"* — exactly right,
+        # and the half of the transaction that was being thrown away.
+        other = " ".join(parts[3:]).strip()
+        arrow = {"borrow": "lent to", "return_borrow": "returned from",
+                 "owe": "owed to", "paid_back": "paid back to"}[verb]
+        reason = f"{arrow} {other.upper()}" if other else ""
+
         out = []
         fn = getattr(cash_reserve, verb)
         try:
-            fn(acct, ticker, amount, source="ops_sheet", log=out.append)
+            fn(acct, ticker, amount, source="ops_sheet", reason=reason,
+               log=out.append)
         except ValueError as e:
             # The guard messages already say what is wrong and by how much, so
             # pass them through rather than wrapping them in something vaguer.
@@ -535,6 +553,14 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
             f"${cash_reserve.balance_of(*key):,.2f} · borrowed "
             f"${cash_reserve.outstanding(*key, 'Borrowed'):,.2f} · owed "
             f"${cash_reserve.outstanding(*key, 'Owed'):,.2f}")
+        if reason:
+            out.append(f"recorded: {ticker.upper()} {reason}")
+        else:
+            # Say it at the moment it can still be fixed, not later when the
+            # loan is outstanding and nobody remembers who took it.
+            out.append(f"⚠️  no counterparty recorded — rerun as "
+                       f"`{verb} {acct} {ticker.upper()} {amount:g} <TICKER>` "
+                       f"if you want to know who to settle with.")
         out.append("Run run_signals to refresh the sheet columns.")
         return 0, "\n".join(out)
 

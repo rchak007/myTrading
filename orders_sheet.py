@@ -840,6 +840,37 @@ def _scrub(v):
     return v
 
 
+def _loans(acct):
+    """Outstanding borrow/owe lines for one account, with the counterparty.
+
+    A loan whose borrower is not written down cannot be settled back to the
+    right place, so the Reason recorded at `borrow` time is carried through
+    to here and shown beside the amount. Fail-soft: the ledger lives on
+    Pi 1, and a reader that cannot reach it must cost this block and
+    nothing else.
+    """
+    out = []
+    try:
+        import cash_reserve as cr
+        led = cr.read_ledger()
+        if led is None or getattr(led, "empty", True):
+            return out
+        led = led[led["Account"].astype(str).str.strip() == str(acct)]
+        for tkr, grp in led.groupby("Ticker"):
+            for kind, evt in (("Borrowed", "BORROW"), ("Owed", "OWE")):
+                amt = cr.outstanding(acct, str(tkr), kind)
+                if not amt or abs(amt) < 0.005:
+                    continue
+                why = [str(x) for x in
+                       grp[grp["Event"] == evt]["Reason"].tolist() if str(x).strip()]
+                out.append((str(tkr), round(float(amt), 2),
+                            f"{kind.upper()} — " + (why[-1] if why else
+                                                    "counterparty not recorded")))
+    except Exception:                                    # noqa: BLE001
+        pass
+    return sorted(out)
+
+
 def cash_extras(cash, reserves=None, open_buys=None):
     """The TOTAL line and the seed breakdown, as raw rows for below the table.
 
@@ -899,6 +930,10 @@ def cash_extras(cash, reserves=None, open_buys=None):
             r[0], r[1], r[5] = a, t, round(v, 2)
             if v < 0:
                 r[6] = "BREACH — bought past the reserve"
+            rows.append(r)
+        for t, amt, note in _loans(a):
+            r = [""] * len(CASH_COLS)
+            r[0], r[1], r[5], r[6] = a, t, amt, note
             rows.append(r)
         sub = [""] * len(CASH_COLS)
         short = round(booked - avail.get(a, 0.0), 2)
