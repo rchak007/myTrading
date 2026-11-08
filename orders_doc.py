@@ -30,7 +30,10 @@ sys.path.insert(0, str(HERE))
 
 import order_intent as oi                                    # noqa: E402
 
-TAB = os.getenv("GSHEET_ORDERS_DOC_TAB", "howOrdersWork")
+# The tab Chakravarti made for this on 2026-11-08. The old `howOrdersWork`
+# no longer exists in the book, so writing there would have quietly created
+# a second, duplicate tab rather than filling the one he was looking at.
+TAB = os.getenv("GSHEET_ORDERS_DOC_TAB", "OPs-OrderHOW-IT-WORKS")
 
 # Pulled from the code so the tab cannot claim a trigger the parser rejects.
 PRICE = " / ".join(sorted(oi.PRICE_DIRECTIONS))
@@ -176,6 +179,8 @@ def rows() -> list[list[str]]:
         ("TRIGGERED", "the condition was met", "", "Order is being placed."),
         ("SUBMITTED", "the order is AT SCHWAB", "",
          "Done. It is a real resting order now."),
+        ("FILLED", "it executed — see Filled_Qty and Fill_Price", "",
+         "Nothing. A chained child row arms off this."),
         ("BLOCKED", "a guard stopped it", "",
          "Read the Validation column — it says which guard and why."),
         ("EXPIRED", "Expires_On passed before it fired", "",
