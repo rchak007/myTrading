@@ -1251,7 +1251,8 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                     quotes: dict | None = None,
                     fenced: set | None = None,
                     signals_df=None, chitra_rows=None,
-                    intents_df=None, options=None) -> tuple[list, dict]:
+                    intents_df=None, options=None,
+                    token_status=None) -> tuple[list, dict]:
     """
     One block per ticker: the positions mini-table, then the live Schwab orders
     for that ticker.
@@ -1296,7 +1297,19 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         return len(rows)                      # 1-based row number
 
     n_tickers = positions.loc[positions["Acct"] != TOTAL, "Ticker"].nunique()
-    marks["title"].append(add(["DASHBOARD", f"updated {_now()}"]))
+    # THE TOKEN DEADLINE BELONGS WHERE HE LOOKS. It was already computed and
+    # written — to the Orders tab, A1:B6 — but Chakravarti reads the
+    # Dashboard, asked "can you add info when Schwab token expires??" while
+    # looking straight at a header that did not carry it. A status nobody
+    # sees is not a status. Column L, clear of the prices stamp in H.
+    title = ["DASHBOARD", f"updated {_now()}"] + [""] * (DASH_WIDTH - 2)
+    tok = token_status or {}
+    if tok:
+        days = tok.get("days_left")
+        title[11] = (f"Schwab token {tok.get('state', 'UNKNOWN')}"
+                     f" — expires {tok.get('expires', '?')}"
+                     + (f" ({days}d)" if days is not None else ""))
+    marks["title"].append(add(title))
     add(["", f"{n_tickers} ticker(s) · read-only, regenerated every cycle · "
              f"ORDERS shows live Schwab orders AND the Orders-tab intents "
              f"waiting on a close (Type 'CLOSE BELOW/ABOVE', Entered 'sheet') · "
@@ -1704,7 +1717,7 @@ def _paint(ws, marks, log):
 def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
                     quotes: dict | None = None, fenced: set | None = None,
                     log=print, signals_df=None, chitra_rows=None,
-                    intents_df=None, options=None) -> int:
+                    intents_df=None, options=None, token_status=None) -> int:
     if positions is None or positions.empty:
         return 0
     try:
@@ -1713,7 +1726,8 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
         ws = book.add_worksheet(title="Dashboard", rows=1000, cols=DASH_WIDTH + 2)
 
     rows, marks = build_dashboard(positions, orders_df, quotes, fenced,
-                                  signals_df, chitra_rows, intents_df, options)
+                                  signals_df, chitra_rows, intents_df, options,
+                                  token_status=token_status)
 
     # GROW THE TAB BEFORE WRITING. It is created with 1000 rows, and the
     # INDICATORS section added ~10 rows per ticker — 1,350 across the list —
@@ -1828,7 +1842,7 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     n_dash = write_dashboard(book, positions, orders_df, quotes, fenced,
                              log=log, signals_df=signals_df,
                              chitra_rows=chitra_rows, intents_df=intents,
-                             options=opts)
+                             options=opts, token_status=token_status)
 
     # ---- header block. LAST POLL is the health check: if this stops moving,
     # ---- whatever runs this module has died.
