@@ -1913,3 +1913,73 @@ reconcile back into the sheet.
 - Untracked `tokens.json.bak`: `.gitignore` had covered it since line 66, but
   gitignore has no effect on an already-tracked file, and `schwab_auth.py`
   rotates a live token into that exact path on every re-auth (`b7febe8`)
+
+---
+
+## 8. Supply-chain defence for Pi 1
+
+### 💡 OPEN — a guard that inspects code BEFORE Pi 1 runs it
+
+Chakravarti, 2026-11-08: *"What if malicious code comes in? ... i need you to
+develop a program that guards against any program that could take my .env
+keys etc, or code any schwab to transfer money out. or my Crypto ... So it
+will run standalone in pi1 only and cant be re-written."*
+
+**The trust boundary is real and I am inside it.** Pi 2 writes code, he runs
+`git_pull`, Pi 1 executes it with the brokerage credentials. There is no
+review step. The honest list of what could put bad code on that path:
+
+- **My mistakes.** Not hypothetical: on 2026-11-03 a guard I wrote refused to
+  value a ticker and the retry path then restored the rejected number anyway.
+  Same week, `tail_log stocks` pointed at a file nothing writes.
+- **Prompt injection.** I read the ops sheet, EDGAR, web pages and Schwab
+  responses. Text from any of those can try to steer what I write next.
+- **A compromised GitHub account or Pi 2.**
+
+**A SCANNER ALONE CANNOT DO THIS.** Deciding what arbitrary Python will do is
+undecidable, and `getattr(__import__('o'+'s'), 'system')` defeats pattern
+matching. Anything sold as "scans for malicious code" is a speed bump. The
+controls that actually hold are the ones that do not depend on understanding
+the code:
+
+**Layer 1 — egress allowlist (strongest single control, simplest to build).**
+nftables on Pi 1 permitting outbound only to `api.schwabapi.com`,
+`sheets.googleapis.com`, `data.sec.gov`, `query*.finance.yahoo.com` and the
+package mirror. Exfiltrating `.env` requires reaching an attacker's host; if
+that packet cannot leave, the secret cannot either — whatever the code says.
+
+**Layer 2 — least privilege.** `.env` and `tokens.json` readable only by the
+user that trades. The guard runs as a DIFFERENT user that can read the repo
+and cannot read the secrets, so a compromised guard leaks nothing and
+compromised trading code cannot rewrite the guard.
+*Check and record: the Schwab Trader API appears to have no money-movement
+endpoint at all — trading only. If true, "transfer money out" is not
+reachable through that token and the crypto wallets are the real exposure.*
+
+**Layer 3 — verified provenance.** Pi 1 verifies a GPG signature on HEAD
+before fast-forwarding. Stops a GitHub-account compromise; does not stop a
+compromised Pi 2.
+
+**Layer 4 — diff review, not repo scan.** `git fetch` into a temp clone,
+diff `old..new`, and inspect ONLY what changed. High-signal patterns:
+`eval`/`exec`/`compile`, dynamic `__import__`, base64/hex decode feeding
+`exec`, `subprocess`/`os.system`, new network destinations, reads of `.env`
+or `tokens.json`, writes outside the repo, and any change to crontab,
+systemd units, ssh keys or the guard itself. Shell scripts get their own
+rules: `curl … | bash`, `/dev/tcp`, `nc`, `chmod +x` on a download.
+Not clean → quarantine, email the diff, wait for an explicit approval verb.
+
+**Layer 5 — the guard lives outside this repo.** His instinct is right. But
+kept nowhere it can never be fixed either: a SEPARATE private repo Pi 1 does
+not auto-pull, updated by hand.
+
+**The part I cannot be the only check on:** a guard I wrote is one I could in
+principle subvert. Layers 1 and 2 must be built and verified by him (or
+reviewed by something that is not me), because they are the ones that hold
+even if the guard is wrong.
+
+**Also to inventory:** every `.sh` in the repo, every crontab line on Pi 1,
+and `benter_refresh.sh` — currently the only shell script the scheduler runs.
+
+Open until all five layers exist and a deliberately bad commit has been
+caught by a drill.
