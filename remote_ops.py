@@ -251,6 +251,7 @@ PY_VERBS = {
     "paid_back":     (True, False),
     "apply_fills":  (False, False),
     "reserves":     (False, False),
+    "tidy_orders":  (False, False),
     # Rebuild the sheet tabs now instead of waiting for :15 / :50. Launches
     # detached and returns at once — see _run_signals for why it must not
     # block the poller. Places no orders and moves no money; it recomputes
@@ -625,6 +626,17 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
                        .to_string(index=False))
         return 0, "\n".join(out)
 
+    # SORT THE ORDERS TAB. A verb and never automatic: this is the one tab
+    # he types into, and a scheduled rewrite would eventually move a row out
+    # from under the cursor. It takes the ENGINE's lock, because the engine
+    # writes results back by row NUMBER -- sorting between its read and its
+    # write would stamp a FILLED onto someone else's order.
+    if verb == "tidy_orders":
+        import orders_tidy
+        out = []
+        n = orders_tidy.apply(log=out.append)
+        return (1 if n < 0 else 0), "\n".join(out)
+
     if verb == "reserves":
         import cash_reserve
         d = cash_reserve.build_reserves_table(log=lambda *a, **k: None)
@@ -850,6 +862,13 @@ VERB_DOCS = [
 
     ("run_signals", "—", "run_signals", "Rebuild Positions, Cash, Dashboard and the reserve tables now instead of waiting for the next cron. Returns as soon as it LAUNCHES; watch with tail_log stocks."),
     ("reserves", "—", "reserves", "The whole reserve table: what is fenced, deployed and available per ticker."),
+    ("tidy_orders", "—", "tidy_orders",
+     "Sort the Orders tab: live rows (blank/ARMED/WAITING/TRIGGERED/"
+     "SUBMITTED) on top newest-first, finished ones (FILLED/BLOCKED/"
+     "EXPIRED/VOID) below. NEVER automatic — it rewrites the one tab you "
+     "type into, so it runs only when you ask. Skips with a message if the "
+     "order engine is mid-run, because the engine writes results back by "
+     "ROW NUMBER. Also reports how stale the statuses are."),
     ("apply_fills", "—", "apply_fills", "Pull recent Schwab fills into the reserve ledger. Idempotent — already-seen fills are skipped."),
 
     ("seed", "ACCT TICKER AMOUNT", "seed  171 MSTR 5000", "Fence cash for a ticker. It leaves Free_To_Deploy and is held for that name."),
