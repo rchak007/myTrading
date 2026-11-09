@@ -1012,6 +1012,17 @@ def _chitra_line(ticker, chitra_rows, quotes):
         return None
 
 
+def _hyper_lines(ticker, index, width):
+    """hyp-xxxx line(s) for a block. Degrades silently, like Chitra's."""
+    if not index:
+        return []
+    try:
+        import hyperliquid
+        return hyperliquid.dashboard_rows(ticker, index, width)
+    except Exception:                                   # noqa: BLE001
+        return []
+
+
 def _earnings_tickers(signals_df, held: set) -> list:
     """Held tickers with earnings inside the alert window, sorted.
 
@@ -1252,7 +1263,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                     fenced: set | None = None,
                     signals_df=None, chitra_rows=None,
                     intents_df=None, options=None,
-                    token_status=None) -> tuple[list, dict]:
+                    token_status=None, hyper=None) -> tuple[list, dict]:
     """
     One block per ticker: the positions mini-table, then the live Schwab orders
     for that ticker.
@@ -1295,6 +1306,19 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         clean = [_scrub(v) for v in vals]
         rows.append(clean + [""] * (DASH_WIDTH - len(clean)))
         return len(rows)                      # 1-based row number
+
+    # Fetched once for the whole sheet, not per block — three HTTP calls,
+    # not three per ticker.
+    # Which tickers actually got a block, so a perp in a name held ONLY on
+    # Hyperliquid can be listed rather than vanishing.
+    rendered = set()
+    hyper_index = {}
+    if hyper:
+        try:
+            import hyperliquid
+            hyper_index = hyperliquid.by_ticker(hyper)
+        except Exception:                               # noqa: BLE001
+            hyper_index = {}
 
     n_tickers = positions.loc[positions["Acct"] != TOTAL, "Ticker"].nunique()
     # THE TOKEN DEADLINE BELONGS WHERE HE LOOKS. It was already computed and
@@ -1454,6 +1478,17 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
             if crow:
                 marks["chitra"].append(add(crow))
 
+        # HYPERLIQUID sits here for the same structural reason as Chitra and
+        # a different substantive one: her money is not his, these perps ARE
+        # his but are not shares. Leverage, funding and a liquidation price
+        # do not belong in a column of share counts, so they stay outside the
+        # TOTAL — while sitting inside the block, because long NVDA at Schwab
+        # and 2x long NVDA here is ONE exposure and seeing it in two places
+        # is how it gets missed.
+        rendered.add(str(ticker).upper())
+        for hrow in _hyper_lines(ticker, hyper_index, DASH_WIDTH):
+            marks["chitra"].append(add(hrow))
+
         # RECOMMENDED levels, between the holdings and the live orders —
         # deliberately adjacent to both, because the question they answer is
         # "the flag says N; N compared to what?"
@@ -1556,6 +1591,30 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                 (marks["header"] if i % 2 == 0 else marks["ind"]).append(r)
         add([])
         add([])
+
+    # The wallet summary, once, at the foot. The per-ticker lines above say
+    # what is held; this says what each wallet is worth, how levered it is,
+    # and whether there is any room left — none of which belongs on a row
+    # about one ticker.
+    if hyper:
+        try:
+            import hyperliquid
+            srows = hyperliquid.summary_rows(hyper, DASH_WIDTH,
+                                             shown=rendered)
+            for i, line in enumerate(srows):
+                r = add(line)
+                if i == 0:
+                    marks["label"].append(r)
+                elif i == 1:
+                    marks["header"].append(r)
+        except Exception as e:                          # noqa: BLE001
+            # NOT a bare pass. A silent swallow here hid a KeyError during
+            # development and the section simply never appeared, with
+            # nothing anywhere to say why — the same failure shape this
+            # module keeps getting bitten by.
+            rows.append([f"⚠️  Hyperliquid summary failed: "
+                         f"{type(e).__name__}: {e}"]
+                        + [""] * (DASH_WIDTH - 1))
 
     return rows, marks
 
@@ -1717,7 +1776,8 @@ def _paint(ws, marks, log):
 def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
                     quotes: dict | None = None, fenced: set | None = None,
                     log=print, signals_df=None, chitra_rows=None,
-                    intents_df=None, options=None, token_status=None) -> int:
+                    intents_df=None, options=None, token_status=None,
+                    hyper=None) -> int:
     if positions is None or positions.empty:
         return 0
     try:
@@ -1727,7 +1787,7 @@ def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
 
     rows, marks = build_dashboard(positions, orders_df, quotes, fenced,
                                   signals_df, chitra_rows, intents_df, options,
-                                  token_status=token_status)
+                                  token_status=token_status, hyper=hyper)
 
     # GROW THE TAB BEFORE WRITING. It is created with 1000 rows, and the
     # INDICATORS section added ~10 rows per ticker — 1,350 across the list —
@@ -1839,10 +1899,26 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     except Exception as e:
         log(f"⚠️  History tab skipped (everything else is fine): {e}")
 
+    # HYPERLIQUID, once per run. Read-only and keyless, but it is a network
+    # call to a third party, so a slow or dead endpoint must cost the block
+    # and nothing else — the sheet has to write with or without it.
+    hyper = []
+    try:
+        import hyperliquid
+        hyper = hyperliquid.fetch(log=log)
+        live = sum(len(a["positions"]) for a in hyper)
+        bad = [a["label"] for a in hyper if a["error"]]
+        log(f"Hyperliquid: {live} position(s) across "
+            f"{len(hyper) - len(bad)} wallet(s)"
+            + (f" · unreachable: {', '.join(bad)}" if bad else ""))
+    except Exception as e:                               # noqa: BLE001
+        log(f"⚠️  Hyperliquid skipped ({type(e).__name__}: {e})")
+
     n_dash = write_dashboard(book, positions, orders_df, quotes, fenced,
                              log=log, signals_df=signals_df,
                              chitra_rows=chitra_rows, intents_df=intents,
-                             options=opts, token_status=token_status)
+                             options=opts, token_status=token_status,
+                             hyper=hyper)
 
     # ---- header block. LAST POLL is the health check: if this stops moving,
     # ---- whatever runs this module has died.

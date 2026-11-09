@@ -199,6 +199,100 @@ def summary(acct: dict) -> str:
     return s
 
 
+def by_ticker(accounts) -> dict[str, list[dict]]:
+    """{TICKER: [position, ...]} across every wallet, for the Dashboard."""
+    out: dict[str, list[dict]] = {}
+    for a in accounts or []:
+        for p in a["positions"]:
+            out.setdefault(p["ticker"], []).append(dict(p, label=a["label"]))
+    return out
+
+
+def dashboard_rows(ticker: str, index: dict, width: int) -> list[list]:
+    """The hyp-xxxx line(s) for one ticker block on the Dashboard.
+
+    OUTSIDE HIS EQUITY TOTAL, like Chitra's line, but for a different
+    reason. Hers is excluded because the money is not his; these are his,
+    and are excluded because a 2x perp is not a share — it carries
+    leverage, funding and a liquidation price, and adding its notional to a
+    column of share counts would make the total mean nothing.
+
+    Inside the ticker's block all the same, because that is where the
+    question gets answered: long NVDA at Schwab AND 2x long NVDA here is
+    one exposure, and seeing it in two places is how it gets missed.
+
+    Coverage columns stay blank: there is no stop to place on a perp
+    through this system, and asserting a flag would imply there is.
+    """
+    out = []
+    for p in index.get(str(ticker).upper(), []):
+        row = [""] * width
+        # Ticker, Acct, Qty, Avg_Cost, Live_Price, Day_%, Market_Value,
+        # Unrealized_PL — matching POS_HDR's leading columns.
+        row[1:9] = [p["ticker"], p["label"], round(p["size"], 4),
+                    round(p["entry"], 4), "", "",
+                    round(p["notional"], 2), round(p["pnl"], 2)]
+        note = f"{p['leverage']:g}x {p['lev_type'] or 'perp'}"
+        if p["liq"]:
+            note += f" · liq {p['liq']:,.2f}"
+        if p["funding"]:
+            note += f" · funding {p['funding']:+,.2f}"
+        row[9] = note
+        out.append(row)
+    return out
+
+
+def summary_rows(accounts, width: int, shown=None) -> list[list]:
+    """The HYPERLIQUID section: one line per wallet, then a total.
+
+    `shown` is the set of tickers that got a Dashboard block. Any perp in a
+    name NOT in it is listed explicitly, because the per-ticker lines hang
+    off existing blocks and a position in something held ONLY here would
+    otherwise appear nowhere at all — the silent-empty failure this file
+    already warns about for the wrong-dex query.
+    """
+    accounts = [a for a in (accounts or []) if a["positions"] or a["error"]]
+    if not accounts:
+        return []
+    out = [_pad(["", "HYPERLIQUID", "perps — outside the equity total"],
+                width),
+           _pad(["", "Wallet", "Value", "Exposure", "Leverage", "Free",
+                 "Unrealized"], width)]
+    tv = tn = tp = 0.0
+    for a in accounts:
+        if a["error"]:
+            out.append(_pad(["", a["label"], f"unreachable — {a['error']}"],
+                            width))
+            continue
+        tv += a["value"]
+        tn += a["notional"]
+        tp += a["pnl"]
+        out.append(_pad(["", a["label"], round(a["value"], 2),
+                         round(a["notional"], 2), f"{leverage(a):.2f}x",
+                         round(a["free"], 2), round(a["pnl"], 2)], width))
+    out.append(_pad(["", "TOTAL", round(tv, 2), round(tn, 2),
+                     f"{(tn / tv):.2f}x" if tv else "", "",
+                     round(tp, 2)], width))
+
+    if shown is not None:
+        seen = {t.upper() for t in shown}
+        orphan = [(a["label"], p) for a in accounts
+                  for p in a["positions"] if p["ticker"] not in seen]
+        if orphan:
+            out.append(_pad(["", "ONLY ON HYPERLIQUID",
+                             "no equity block for these"], width))
+            for lab, p in sorted(orphan, key=lambda x: x[1]["ticker"]):
+                out.append(_pad(
+                    ["", p["ticker"], lab, round(p["size"], 4),
+                     f"{p['leverage']:g}x", round(p["notional"], 2),
+                     round(p["pnl"], 2)], width))
+    return out
+
+
+def _pad(cells, width):
+    return list(cells)[:width] + [""] * max(0, width - len(cells))
+
+
 def main() -> int:
     for a in fetch(log=print):
         print(summary(a))

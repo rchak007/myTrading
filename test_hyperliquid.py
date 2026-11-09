@@ -88,6 +88,52 @@ def test_the_default_dex_is_xyz_not_the_main_one():
     assert hl.DEX == "xyz"
 
 
+def test_a_perp_in_a_name_with_no_block_is_still_listed():
+    """THE BUG THIS GUARDS. The per-ticker lines hang off existing Dashboard
+    blocks, so a position held ONLY on Hyperliquid appeared nowhere at all.
+    AMZN and SPCX vanished exactly this way."""
+    a = acct(value=100, notional=200, margin=200)
+    a["positions"] = [
+        {"ticker": "AMZN", "size": 4.5, "side": "LONG", "leverage": 1.0,
+         "lev_type": "isolated", "entry": 226.0, "notional": 1195.0,
+         "margin": 1193.0, "pnl": 160.0, "roe": 15.5, "liq": 0.0,
+         "funding": 1.8},
+        {"ticker": "NVDA", "size": 1.0, "side": "LONG", "leverage": 2.0,
+         "lev_type": "isolated", "entry": 180.0, "notional": 200.0,
+         "margin": 100.0, "pnl": 5.0, "roe": 2.5, "liq": 69.4,
+         "funding": -1.0},
+    ]
+    flat = " ".join(str(c) for r in hl.summary_rows([a], 17, shown={"NVDA"})
+                    for c in r)
+    assert "ONLY ON HYPERLIQUID" in flat
+    assert "AMZN" in flat
+    # NVDA has a block of its own, so it must NOT be repeated here.
+    assert flat.count("NVDA") == 0, flat
+
+
+def test_no_orphan_section_when_everything_has_a_block():
+    a = acct(value=100, notional=200, margin=200)
+    a["positions"] = [{"ticker": "NVDA", "size": 1.0, "side": "LONG",
+                       "leverage": 1.0, "lev_type": "", "entry": 1.0,
+                       "notional": 1.0, "margin": 1.0, "pnl": 0.0,
+                       "roe": 0.0, "liq": 0.0, "funding": 0.0}]
+    flat = " ".join(str(c) for r in hl.summary_rows([a], 17, shown={"NVDA"})
+                    for c in r)
+    assert "ONLY ON HYPERLIQUID" not in flat
+
+
+def test_dashboard_rows_carry_leverage_liq_and_funding():
+    idx = hl.by_ticker([{"label": "hyp-236a", "positions": [
+        {"ticker": "NVDA", "size": 11.473, "side": "LONG", "leverage": 2.0,
+         "lev_type": "isolated", "entry": 182.43, "notional": 2070.0,
+         "margin": 1294.0, "pnl": -22.0, "roe": -2.1, "liq": 69.44,
+         "funding": -1.09}]}])
+    r = hl.dashboard_rows("NVDA", idx, 17)[0]
+    assert r[2] == "hyp-236a" and r[7] == 2070.0 and r[8] == -22.0
+    assert "2x isolated" in r[9] and "liq 69.44" in r[9]
+    assert "funding -1.09" in r[9]
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in sorted(globals().items()):
