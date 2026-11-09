@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""
+hyperliquid.py
+==============
+Perp positions from Hyperliquid, read-only, for the Dashboard.
+
+Chakravarti, 2026-11-08, after sending three wallet addresses: *"Yes I want
+these on dashboard & you know we acct number instead say it's hyp-236a for
+last 4 digits of address."*
+
+PUBLIC DATA, NO KEYS. An address is the whole input — `clearinghouseState`
+needs no signature and no API key. Nothing here can move funds, and nothing
+here needs a secret on Pi 1. The addresses are on-chain and public already;
+they are identifiers, not credentials.
+
+THE POSITIONS ARE NOT ON THE MAIN DEX. Querying `clearinghouseState` with
+just an address returns an account value of $0.00 and no positions, which
+looks exactly like "nothing held". They are on **xyz**, one of eleven
+builder-deployed perp DEXes (xyz, flx, vntl, hyna, km, abcd, cash, para,
+mkts, io). The `dex` key is required, and omitting it fails silently with a
+plausible-looking empty answer — the worst shape of bug.
+
+LEVERAGE: SHOW BOTH NUMBERS, NEVER ONE. His question, and the right one:
+*"it's a little complicated when I have a 2x level perpetual... how to still
+show actually only the position value."* Two different quantities, and the
+API gives both, so neither has to be derived:
+
+    positionValue   EXPOSURE — what moves when the price moves.
+                    NVDA 11.473 shares = $2,070.65.
+    marginUsed      CAPITAL — what is actually committed to hold it.
+                    The same position = $1,293.93.
+
+Printing notional beside a Schwab cash balance would overstate how much
+money is deployed; printing margin alone would hide that a 2x position
+moves twice as fast as the capital behind it. Both, labelled, always.
+
+FUNDING IS A REAL COST AND IS INVISIBLE IN PnL. A perp pays or receives
+funding every hour, and `cumFunding.sinceOpen` is what this position has
+paid since it was opened. A spot holding has no equivalent, so it is easy
+to forget it is there; it is carried as its own column.
+"""
+from __future__ import annotations
+
+import json
+import os
+import urllib.request
+
+API = "https://api.hyperliquid.xyz/info"
+DEX = os.getenv("HYPERLIQUID_DEX", "xyz")
+TIMEOUT = int(os.getenv("HYPERLIQUID_TIMEOUT", "30"))
+
+# Public wallet addresses, not secrets. Overridable so a new wallet needs no
+# code change — comma-separated in HYPERLIQUID_ADDRESSES.
+ADDRESSES = [a.strip() for a in os.getenv(
+    "HYPERLIQUID_ADDRESSES",
+    "0xAeE99E63A56FF967F535e736Fa17Fcae29A3236a,"
+    "0x6ae3214643266BD6eD95C863a077763b07690c53,"
+    "0x1d826e8c2461e12f3c3195720f0b0f25e42130a9").split(",") if a.strip()]
+
+
+def label(address: str) -> str:
+    """'hyp-236a' — his naming, the last four of the address.
+
+    Short enough to sit in the Acct column beside 171 and 431, and unique
+    enough in practice; a full 42-character address would not fit anywhere
+    useful.
+    """
+    return f"hyp-{str(address).strip()[-4:].lower()}"
+
+
+def _post(body: dict) -> dict:
+    req = urllib.request.Request(
+        API, data=json.dumps(body).encode(),
+        headers={"Content-Type": "application/json",
+                 "User-Agent": "myTrading research"})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        return json.loads(r.read())
+
+
+def _f(v, d=0.0) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return d
+
+
+def account(address: str, dex: str = DEX, log=None) -> dict:
+    """One wallet: {'label','address','value','notional','margin','free',
+    'positions':[...]}. Raises nothing — a dead API costs the block.
+    """
+    out = {"label": label(address), "address": address, "value": 0.0,
+           "notional": 0.0, "margin": 0.0, "free": 0.0, "pnl": 0.0,
+           "positions": [], "error": ""}
+    try:
+        body = {"type": "clearinghouseState", "user": address}
+        if dex:
+            body["dex"] = dex
+        d = _post(body)
+    except Exception as e:                               # noqa: BLE001
+        out["error"] = f"{type(e).__name__}: {e}"
+        if log:
+            log(f"   hyperliquid {out['label']}: {out['error']}")
+        return out
+
+    m = d.get("marginSummary") or {}
+    out["value"] = _f(m.get("accountValue"))
+    out["notional"] = _f(m.get("totalNtlPos"))
+    out["margin"] = _f(m.get("totalMarginUsed"))
+    out["free"] = _f(d.get("withdrawable"))
+
+    for ap in d.get("assetPositions") or []:
+        p = ap.get("position") or {}
+        sz = _f(p.get("szi"))
+        if not sz:
+            continue
+        lev = (p.get("leverage") or {})
+        pnl = _f(p.get("unrealizedPnl"))
+        out["pnl"] += pnl
+        out["positions"].append({
+            # "xyz:NVDA" -> "NVDA". The dex prefix is the same for every row
+            # in the block and only costs width.
+            "ticker": str(p.get("coin", "")).split(":")[-1].upper(),
+            "size": sz,
+            "side": "LONG" if sz > 0 else "SHORT",
+            "leverage": _f(lev.get("value"), 1.0),
+            "lev_type": str(lev.get("type", "")),
+            "entry": _f(p.get("entryPx")),
+            "notional": _f(p.get("positionValue")),
+            "margin": _f(p.get("marginUsed")),
+            "pnl": pnl,
+            "roe": _f(p.get("returnOnEquity")) * 100.0,
+            "liq": _f(p.get("liquidationPx")),
+            "funding": _f((p.get("cumFunding") or {}).get("sinceOpen")),
+        })
+    out["positions"].sort(key=lambda r: -abs(r["notional"]))
+    return out
+
+
+def fetch(addresses=None, dex: str = DEX, log=None) -> list[dict]:
+    return [account(a, dex, log) for a in (addresses or ADDRESSES)]
+
+
+def leverage(acct: dict) -> float:
+    """Exposure as a multiple of account value. 1.0 means no borrowing.
+
+    NOT margin-used-over-value, which was the first version and was wrong.
+    Chakravarti, 2026-11-08: *"when I buy 1x leverage, I don't have any
+    margin."* Exactly — at 1x the API still reports marginUsed, but it
+    equals the notional (SPCX: $2,041.01 notional against $2,035.91
+    margin), because the full value is posted and nothing is borrowed.
+
+    So margin utilisation reads 100% on a wholly unlevered account and the
+    first draft of this file printed "almost no margin left" on two
+    accounts carrying no leverage whatsoever. Notional over value is the
+    honest number: 1.0x is fully invested cash, and only above that is
+    anything actually borrowed.
+    """
+    v = _f(acct.get("value"))
+    return (_f(acct.get("notional")) / v) if v > 0 else 0.0
+
+
+HDR = ["Ticker", "Side", "Size", "Lev", "Entry", "Notional", "Margin",
+       "PnL", "ROE_%", "Liq", "Funding"]
+
+
+def rows(acct: dict) -> list[list]:
+    """[[header], [position...], [TOTAL]] for one wallet."""
+    out = [list(HDR)]
+    for p in acct["positions"]:
+        out.append([
+            p["ticker"], p["side"], round(p["size"], 4),
+            f"{p['leverage']:g}x", round(p["entry"], 2),
+            round(p["notional"], 2), round(p["margin"], 2),
+            round(p["pnl"], 2), round(p["roe"], 1),
+            round(p["liq"], 2) if p["liq"] else "",
+            round(p["funding"], 2),
+        ])
+    if acct["positions"]:
+        out.append(["TOTAL", "", "", "", "",
+                    round(acct["notional"], 2), round(acct["margin"], 2),
+                    round(acct["pnl"], 2), "", "", ""])
+    return out
+
+
+def summary(acct: dict) -> str:
+    if acct.get("error"):
+        return f"{acct['label']}: unreachable — {acct['error']}"
+    lev = leverage(acct)
+    s = (f"{acct['label']}  value ${acct['value']:,.2f} · "
+         f"exposure ${acct['notional']:,.2f} ({lev:.2f}x) · "
+         f"free ${acct['free']:,.2f} · "
+         f"unrealized ${acct['pnl']:+,.2f}")
+    # Only borrowed money gets a warning. Being fully invested is a choice;
+    # being fully invested with leverage on top is a risk.
+    if lev > 1.25 and _f(acct.get("free")) < 0.02 * _f(acct.get("value")):
+        s += f"  ⚠️ {lev:.2f}x leveraged with no free margin"
+    elif lev > 1.25:
+        s += f"  · {lev:.2f}x leveraged"
+    return s
+
+
+def main() -> int:
+    for a in fetch(log=print):
+        print(summary(a))
+        for r in rows(a):
+            print("   " + " ".join(f"{str(c):>10}" for c in r))
+        print()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
