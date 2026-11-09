@@ -46,7 +46,14 @@ COLS = ["Ticker", "Fetched", "Price_At_Fetch", "Oracle_Value", "Oracle_Low",
         # The anchor's provenance, stored rather than parsed back out of
         # Oracle_Why: how many years the mean P/S rests on, and how much
         # those years agreed. Both decide how far to trust the value.
-        "PS_Mean", "PS_Years", "PS_Spread"]
+        "PS_Mean", "PS_Years", "PS_Spread",
+        # FUNDAMENTALS RIDE ALONG. The weekly refresh already fetches
+        # .info for every ticker, so these cost nothing extra here and
+        # save 100+ API calls per sheet rebuild. Chakravarti, 2026-11-09:
+        # "can you add PE ratio and PEG too. slowly i want to build some
+        # more fundamental analysis" — so the column list is meant to grow.
+        "PE", "Fwd_PE", "PEG", "EPS", "Net_Margin", "ROE", "Rev_Growth",
+        "Debt_Equity", "Mkt_Cap_M", "Div_Yield"]
 
 # THE HARDCODED MOAT TABLE IS GONE. It held four ratings read off
 # StockOracle's site and fed them straight into our valuation, which made
@@ -284,6 +291,38 @@ def compute_one(sym: str, info: dict | None = None, price=None):
     )
 
 
+def _fundamentals(i: dict) -> dict:
+    """The plain ratios, straight from .info, rounded for the sheet.
+
+    Blank where the figure does not exist rather than zero: an ETF has no
+    PEG and a loss-maker has no meaningful P/E, and printing 0.00 would
+    assert a number nobody computed. Same rule as everywhere else here.
+    """
+    def n(key, mult=1.0, places=2):
+        v = i.get(key)
+        try:
+            v = float(v)
+        except (TypeError, ValueError):
+            return ""
+        if v != v:                       # NaN
+            return ""
+        return round(v * mult, places)
+
+    cap = i.get("marketCap")
+    return {
+        "PE": n("trailingPE"),
+        "Fwd_PE": n("forwardPE"),
+        "PEG": n("trailingPegRatio"),
+        "EPS": n("trailingEps"),
+        "Net_Margin": n("profitMargins", 100.0, 1),
+        "ROE": n("returnOnEquity", 100.0, 1),
+        "Rev_Growth": n("revenueGrowth", 100.0, 1),
+        "Debt_Equity": n("debtToEquity", 1.0, 1),
+        "Mkt_Cap_M": round(float(cap) / 1e6, 0) if cap else "",
+        "Div_Yield": n("dividendYield", 1.0, 2),
+    }
+
+
 def earnings_dates(sym: str, tk=None) -> tuple[str, str]:
     """(last reported, next expected) as ISO dates, or ("", "").
 
@@ -465,6 +504,7 @@ def refresh(syms=None, log=print) -> int:
                 "PS_Mean": round(ps, 2) if ps else "",
                 "PS_Years": yrs or "",
                 "PS_Spread": round(cv, 3) if cv is not None else "",
+                **_fundamentals(i),
             })
         except Exception as e:                           # noqa: BLE001
             # A TRANSIENT failure — network, a yfinance hiccup. Here, and
@@ -620,6 +660,41 @@ def panel_for_sheet(ticker, price=None, cache=None) -> list[tuple[str, list]]:
                  f"{float(spread):.0%}" if spread not in ("", None) else "",
                  str(r.get("Next_Earnings", ""))[:10],
                  caveat]))
+    return out
+
+
+FIN_GROUPS = [
+    ("VALUATION", [("PE", "PE"), ("Fwd_PE", "Fwd_PE"), ("PEG", "PEG"),
+                   ("EPS", "EPS"), ("Mkt_Cap_M", "Mkt_Cap_M")]),
+    ("QUALITY", [("Net_Margin_%", "Net_Margin"), ("ROE_%", "ROE"),
+                 ("Rev_Growth_%", "Rev_Growth"),
+                 ("Debt/Equity", "Debt_Equity"), ("Div_Yield_%", "Div_Yield")]),
+]
+
+
+def financial_rows(ticker, cache=None) -> list[tuple[str, list, list]]:
+    """The FINANCIALS section for one block, as (label, names, values).
+
+    Read from the weekly cache, not from the network. The sheet rebuilds
+    every half hour and there are 135 tickers; fetching .info per block
+    would add thousands of calls a day to learn figures that change once a
+    quarter. The cost is that these are as of `Fetched`, which the ORACLE
+    section directly above already states.
+
+    A field with no value is DROPPED, not shown blank — an ETF has no PEG
+    and a loss-maker has no meaningful P/E, and a rail of empties reads as
+    broken rather than as inapplicable.
+    """
+    cache = load(log=lambda *_: None) if cache is None else cache
+    r = cache.get(str(ticker).upper())
+    if not r:
+        return []
+    out = []
+    for label, fields in FIN_GROUPS:
+        pairs = [(nice, r.get(col)) for nice, col in fields
+                 if str(r.get(col, "")).strip() not in ("", "nan", "None")]
+        if pairs:
+            out.append((label, [n for n, _ in pairs], [v for _, v in pairs]))
     return out
 
 

@@ -252,6 +252,7 @@ PY_VERBS = {
     "apply_fills":  (False, False),
     "reserves":     (False, False),
     "tidy_orders":  (False, False),
+    "dash_doc":     (False, False),
     # Rebuild the sheet tabs now instead of waiting for :15 / :50. Launches
     # detached and returns at once — see _run_signals for why it must not
     # block the poller. Places no orders and moves no money; it recomputes
@@ -631,6 +632,12 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
     # from under the cursor. It takes the ENGINE's lock, because the engine
     # writes results back by row NUMBER -- sorting between its read and its
     # write would stamp a FILLED onto someone else's order.
+    if verb == "dash_doc":
+        import dashboard_doc
+        out = []
+        dashboard_doc.write(log=out.append)
+        return 0, "\n".join(out)
+
     if verb == "tidy_orders":
         import orders_tidy
         out = []
@@ -862,6 +869,12 @@ VERB_DOCS = [
 
     ("run_signals", "—", "run_signals", "Rebuild Positions, Cash, Dashboard and the reserve tables now instead of waiting for the next cron. Returns as soon as it LAUNCHES; watch with tail_log stocks."),
     ("reserves", "—", "reserves", "The whole reserve table: what is fenced, deployed and available per ticker."),
+    ("dash_doc", "—", "dash_doc",
+     "Fill the DASHBOARD-DOC tab: what every INDICATORS, ORACLE and "
+     "FINANCIALS field means, how to read them together, and the common "
+     "traps. Generated from the same structures the Dashboard renders "
+     "from, so it cannot drift; undocumented fields are listed at the "
+     "bottom."),
     ("tidy_orders", "—", "tidy_orders",
      "Sort the Orders tab: live rows (blank/ARMED/WAITING/TRIGGERED/"
      "SUBMITTED) on top newest-first, finished ones (FILLED/BLOCKED/"

@@ -1165,6 +1165,22 @@ def _oracle_rows(ticker, price, width):
     return out
 
 
+def _financial_rows(ticker, width):
+    """FINANCIALS section rows. Fail-soft like the ORACLE block above it."""
+    try:
+        import oracle_value
+        groups = oracle_value.financial_rows(ticker)
+    except Exception:                                   # noqa: BLE001
+        return []
+    out = []
+    for label, names, vals in groups:
+        head = ["", label] + list(names)
+        line = ["", ""] + ["" if v is None else v for v in vals]
+        out.append(head[:width] + [""] * max(0, width - len(head)))
+        out.append(line[:width] + [""] * max(0, width - len(line)))
+    return out
+
+
 def _rec_rows(ticker, price, signals_df, is_fenced, pos_width,
               rec=None, row0=None):
     """The two RECOMMENDED lines for one block: headers, then levels.
@@ -1587,6 +1603,19 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
             add([])
             marks["label"].append(add(["", "ORACLE"]))
             for i, line in enumerate(orc_lines):
+                r = add(line)
+                (marks["header"] if i % 2 == 0 else marks["ind"]).append(r)
+
+        # FINANCIALS, directly under ORACLE. He asked for PE and PEG to
+        # start with and said plainly it is meant to grow: "slowly i want
+        # to build some more fundamental analysis". Separate from ORACLE
+        # because these are raw reported figures, not a model's output,
+        # and the difference matters when one of them looks wrong.
+        fin_lines = _financial_rows(ticker, DASH_WIDTH)
+        if fin_lines:
+            add([])
+            marks["label"].append(add(["", "FINANCIALS"]))
+            for i, line in enumerate(fin_lines):
                 r = add(line)
                 (marks["header"] if i % 2 == 0 else marks["ind"]).append(r)
         add([])
