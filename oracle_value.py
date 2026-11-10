@@ -53,7 +53,14 @@ COLS = ["Ticker", "Fetched", "Price_At_Fetch", "Oracle_Value", "Oracle_Low",
         # "can you add PE ratio and PEG too. slowly i want to build some
         # more fundamental analysis" — so the column list is meant to grow.
         "PE", "Fwd_PE", "PEG", "EPS", "Net_Margin", "ROE", "Rev_Growth",
-        "Debt_Equity", "Mkt_Cap_M", "Div_Yield"]
+        "Debt_Equity", "Mkt_Cap_M", "Div_Yield",
+        # THE FIVE-YEAR NORMALISED FIGURES, SHOWN not just used. The doc
+        # told him to "compare against the five-year average margin in the
+        # ORACLE section" — and that section never displayed it. He read
+        # BASIS/Years 18 as the answer, which is years of SALES history for
+        # the P/S anchor, an entirely different number. Advice that points
+        # at something invisible is a bug in the advice.
+        "Net_Margin_5y", "ROE_5y"]
 
 # THE HARDCODED MOAT TABLE IS GONE. It held four ratings read off
 # StockOracle's site and fed them straight into our valuation, which made
@@ -505,6 +512,12 @@ def refresh(syms=None, log=print) -> int:
                 "PS_Years": yrs or "",
                 "PS_Spread": round(cv, 3) if cv is not None else "",
                 **_fundamentals(i),
+                "Net_Margin_5y": (round(m5 * 100, 1)
+                                  if (m5 := five_year_margin(yf.Ticker(s)))
+                                  is not None else ""),
+                "ROE_5y": (round(r5 * 100, 1)
+                           if (r5 := five_year_roe(yf.Ticker(s)))
+                           is not None else ""),
             })
         except Exception as e:                           # noqa: BLE001
             # A TRANSIENT failure — network, a yfinance hiccup. Here, and
@@ -666,10 +679,74 @@ def panel_for_sheet(ticker, price=None, cache=None) -> list[tuple[str, list]]:
 FIN_GROUPS = [
     ("VALUATION", [("PE", "PE"), ("Fwd_PE", "Fwd_PE"), ("PEG", "PEG"),
                    ("EPS", "EPS"), ("Mkt_Cap_M", "Mkt_Cap_M")]),
-    ("QUALITY", [("Net_Margin_%", "Net_Margin"), ("ROE_%", "ROE"),
+    # TTM AND THE FIVE-YEAR AVERAGE SIDE BY SIDE. The gap between them is
+    # the whole cyclical story: MU's trailing net margin is 63.8% and its
+    # five-year mean is a fraction of that. Printing only the trailing
+    # figure is how a peak gets mistaken for a level.
+    ("QUALITY", [("Net_Margin_%", "Net_Margin"),
+                 ("Margin_5y_%", "Net_Margin_5y"),
+                 ("ROE_%", "ROE"), ("ROE_5y_%", "ROE_5y"),
                  ("Rev_Growth_%", "Rev_Growth"),
                  ("Debt/Equity", "Debt_Equity"), ("Div_Yield_%", "Div_Yield")]),
 ]
+
+
+def verdict(ticker, cache=None) -> tuple[str, str]:
+    """('GOOD'|'BAD'|'NEUTRAL', why) for the FINANCIALS block as a whole.
+
+    His ask, 2026-11-09: green when the financials look really good, red
+    when bad, blue when neutral. A single colour is a strong claim, so the
+    rule is deliberately plain and the reasons travel with it — a verdict
+    you cannot interrogate is just a mood.
+
+    Scored on durable things, not on the multiple: a cheap P/E is not a
+    good business, and the cyclical trap is exactly a low P/E on a peak.
+    """
+    cache = load(log=lambda *_: None) if cache is None else cache
+    r = (cache or {}).get(str(ticker).upper())
+    if not r:
+        return "", ""
+
+    def f(k):
+        try:
+            return float(str(r.get(k, "")).strip())
+        except (TypeError, ValueError):
+            return None
+
+    good, bad = [], []
+    # Prefer the normalised margin; fall back to trailing when absent.
+    m = f("Net_Margin_5y")
+    m = m if m is not None else f("Net_Margin")
+    if m is not None:
+        (good if m >= 12 else bad if m < 0 else []).append(
+            f"margin {m:.0f}%")
+    roe = f("ROE_5y")
+    roe = roe if roe is not None else f("ROE")
+    if roe is not None:
+        (good if roe >= 15 else bad if roe < 0 else []).append(
+            f"ROE {roe:.0f}%")
+    g = f("Rev_Growth")
+    if g is not None:
+        (good if g >= 10 else bad if g < 0 else []).append(
+            f"growth {g:+.0f}%")
+    de = f("Debt_Equity")
+    if de is not None:
+        (good if de < 80 else bad if de > 200 else []).append(
+            f"D/E {de:.0f}")
+    peg = f("PEG")
+    if peg is not None and 0 < peg < 1:
+        good.append(f"PEG {peg:.2f}")
+    fpe, pe = f("Fwd_PE"), f("PE")
+    if fpe and pe and fpe < pe:
+        good.append("earnings rising")
+
+    if not good and not bad:
+        return "", ""
+    if len(bad) >= 2 or (bad and not good):
+        return "BAD", " · ".join(bad)
+    if len(good) >= 3 and not bad:
+        return "GOOD", " · ".join(good)
+    return "NEUTRAL", " · ".join(good + [f"but {b}" for b in bad])
 
 
 def financial_rows(ticker, cache=None) -> list[tuple[str, list, list]]:

@@ -176,9 +176,17 @@ MEANINGS = {
             "Under 1 is the classic 'growth is cheap' marker. Breaks down "
             "when growth is erratic or negative."),
     "EPS": ("Trailing 12-month earnings per share", ""),
-    "Net_Margin_%": ("Net income as a share of revenue",
-                     "Trailing. The ORACLE section normalises this over "
-                     "five years; this is the raw figure."),
+    "Net_Margin_%": ("Net income as a share of revenue, trailing 12 months",
+                     "Read it beside Margin_5y_%. A wide gap means you are "
+                     "looking at a point in a cycle, not a level."),
+    "Margin_5y_%": ("Net margin averaged over five FISCAL years",
+                    "The normalised figure. This is what the valuation and "
+                    "the FINANCIALS verdict use — a trough is not the "
+                    "absence of profitability and a peak is not its "
+                    "presence."),
+    "ROE_5y_%": ("Return on equity over five fiscal years",
+                 "Same reason as the margin. MU: 88.3% trailing, 16.4% "
+                 "normalised."),
     "ROE_%": ("Return on equity, trailing", ""),
     "Rev_Growth_%": ("Revenue growth, most recent year over year", ""),
     "Debt/Equity": ("Total debt against shareholders' equity",
@@ -225,6 +233,23 @@ def build() -> list[list]:
              ("BASIS", ["Mean_P/S", "Years", "P/S_Spread", "Next_Earnings",
                         "Caveat"])])
 
+    add([])
+    add(["FINANCIALS COLOURS", "the label row is coloured by an overall "
+         "verdict, with its reasons printed beside it", "", ""])
+    for c, meaning in [
+        ("GREEN — GOOD", "Three or more positives and nothing negative."),
+        ("RED — BAD", "Two negatives, or negatives with nothing good."),
+        ("BLUE — NEUTRAL", "Mixed. The reasons end with 'but ...' naming "
+                           "what is dragging."),
+        ("ORANGE cell", "PEG is between 0 and 1 — growth is cheap on that "
+                        "measure. Check the growth is repeatable first."),
+    ]:
+        add(["", c, meaning, ""])
+    add(["", "Scored on DURABLE things", "Normalised margin and ROE, "
+         "revenue growth, debt/equity, PEG, and forward P/E below "
+         "trailing. Deliberately NOT on how cheap the multiple is — a low "
+         "P/E is the cyclical trap, not evidence of quality.", ""])
+
     section("FINANCIALS", "reported figures, as of the ORACLE As_Of date",
             [(lbl, [n for n, _ in f]) for lbl, f in oracle_value.FIN_GROUPS])
 
@@ -246,8 +271,11 @@ def build() -> list[list]:
          "in P/E is at a peak that will not last. MU shows a 9.9x trailing "
          "P/E and 3.5x forward on a 379% revenue jump — that is a boom, "
          "not a bargain.",
-         "Compare against the FIVE-YEAR average margin in the ORACLE "
-         "section, not the trailing one."],
+         "Compare Net_Margin_% against Margin_5y_% in the QUALITY row "
+         "right below. MU: 63.8% trailing vs 13.1% over five years — the "
+         "trailing figure is the peak, the five-year one is the business. "
+         "(BASIS/Years is NOT this: that is how many years of SALES data "
+         "sit behind the price-to-sales anchor.)"],
         ["P/E and PEG disagree",
          "High P/E, low PEG",
          "You are paying up, but growth is covering it. PEG under 1 is the "

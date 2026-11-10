@@ -1166,19 +1166,33 @@ def _oracle_rows(ticker, price, width):
 
 
 def _financial_rows(ticker, width):
-    """FINANCIALS section rows. Fail-soft like the ORACLE block above it."""
+    """(rows, verdict, why, peg_col). Fail-soft like the ORACLE block above.
+
+    `peg_col` is the column letter holding PEG on its value row, so the
+    painter can colour that one cell when PEG is under 1 — he asked for
+    orange there specifically, and it is the single most quoted "growth is
+    cheap" marker on the sheet.
+    """
     try:
         import oracle_value
         groups = oracle_value.financial_rows(ticker)
+        verdict, why = oracle_value.verdict(ticker)
     except Exception:                                   # noqa: BLE001
-        return []
-    out = []
+        return [], "", "", None
+    out, peg_col = [], None
     for label, names, vals in groups:
         head = ["", label] + list(names)
         line = ["", ""] + ["" if v is None else v for v in vals]
+        if "PEG" in names:
+            try:
+                peg = float(vals[names.index("PEG")])
+                if 0 < peg < 1:
+                    peg_col = chr(65 + 2 + names.index("PEG"))
+            except (TypeError, ValueError):
+                pass
         out.append(head[:width] + [""] * max(0, width - len(head)))
         out.append(line[:width] + [""] * max(0, width - len(line)))
-    return out
+    return out, verdict, why, peg_col
 
 
 def _rec_rows(ticker, price, signals_df, is_fenced, pos_width,
@@ -1299,7 +1313,8 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     marks = {"ticker": [], "label": [], "header": [], "title": [],
              "warn": [], "rec": [], "warn_row": [], "chitra": [],
              "intent": [], "option": [], "ind": [], "beth": [],
-             "note": []}
+             "note": [], "fin_good": [], "fin_bad": [], "fin_neutral": [],
+             "peg": []}
 
     # Which (acct, ticker) have a resting BUY — so a seed waiting to be spent
     # by one can be painted yellow rather than looking freely available.
@@ -1611,13 +1626,25 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         # to build some more fundamental analysis". Separate from ORACLE
         # because these are raw reported figures, not a model's output,
         # and the difference matters when one of them looks wrong.
-        fin_lines = _financial_rows(ticker, DASH_WIDTH)
+        fin_lines, fin_verdict, fin_why, peg_col = _financial_rows(
+            ticker, DASH_WIDTH)
         if fin_lines:
             add([])
-            marks["label"].append(add(["", "FINANCIALS"]))
+            hdr = ["", "FINANCIALS"]
+            if fin_verdict:
+                hdr += [fin_verdict, fin_why]
+            r = add(hdr)
+            # The verdict colours the LABEL, not every cell: one strong
+            # claim in one place, with its reasons beside it, rather than a
+            # wash of colour that makes each figure look judged.
+            marks[{"GOOD": "fin_good", "BAD": "fin_bad",
+                   "NEUTRAL": "fin_neutral"}.get(fin_verdict, "label")
+                  ].append(r)
             for i, line in enumerate(fin_lines):
                 r = add(line)
                 (marks["header"] if i % 2 == 0 else marks["ind"]).append(r)
+                if peg_col and i % 2 == 1:
+                    marks["peg"].append(f"{peg_col}{r}")
         add([])
         add([])
 
@@ -1749,6 +1776,24 @@ def _paint(ws, marks, log):
                                       "foregroundColor": {"red": 0.0,
                                                           "green": 0.20,
                                                           "blue": 0.35}}})
+
+        # FINANCIALS verdict and the PEG cell. His colours, 2026-11-09:
+        # green when the financials look really good, red when bad, blue
+        # when neutral, and orange on PEG below 1.
+        for key, rgb in (("fin_good", (0.72, 0.93, 0.72)),
+                         ("fin_bad", (0.98, 0.76, 0.76)),
+                         ("fin_neutral", (0.78, 0.87, 0.98))):
+            if marks.get(key):
+                ws.format([f"B{r}:{_last_col()}{r}" for r in marks[key]],
+                          {"backgroundColor": dict(zip(
+                               ("red", "green", "blue"), rgb)),
+                           "textFormat": {"bold": True}})
+        if marks.get("peg"):
+            ws.format(marks["peg"],
+                      {"backgroundColor": {"red": 0.98, "green": 0.65,
+                                           "blue": 0.25},
+                       "textFormat": {"bold": True}})
+
         if marks["header"]:
             ws.format([f"B{r}:{_last_col()}{r}" for r in marks["header"]], bold)
         if marks.get("warn_row"):
