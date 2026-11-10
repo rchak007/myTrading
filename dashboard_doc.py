@@ -192,6 +192,20 @@ MEANINGS = {
     "Debt/Equity": ("Total debt against shareholders' equity",
                     "As a percentage. Over ~200 is leveraged."),
     "Div_Yield_%": ("Dividend yield", ""),
+    "Margin_Shape": ("Which way net margin has been going",
+                     "RISING / FALLING / CYCLICAL / STEADY over the last "
+                     "four fiscal years. A business stepping UP reads "
+                     "nothing like one oscillating, and the five-year "
+                     "average cannot tell them apart."),
+    "Margin_By_Year_%": ("The actual margins, oldest to newest",
+                         "The evidence behind the shape. MU reads "
+                         "-38 → 3 → 23 → 64: four straight years of "
+                         "improvement, which is not what a cycle looks "
+                         "like. Not proof the cycle is dead — supply "
+                         "response is what ends memory cycles, and "
+                         "competitors are adding capacity — but it is "
+                         "the case FOR a regime change, printed beside "
+                         "the five-year mean that argues against."),
     "Mkt_Cap_M": ("Market capitalisation, $ millions", ""),
 }
 
@@ -265,6 +279,15 @@ def build() -> list[list]:
     add(["TRAP / PATTERN", "WHAT YOU SEE", "WHAT IT USUALLY MEANS",
          "WHAT TO DO"])
     for row in [
+        ["Is it still cyclical?",
+         "A low five-year average next to a high trailing figure",
+         "The average says 'cycle', the trailing says 'boom'. Neither "
+         "settles it. Read Margin_Shape: four straight years of "
+         "improvement is a step-up, an alternating series is a cycle.",
+         "Deliberately NOT in the verdict — it is evidence for you to "
+         "weigh, not a thesis the model adopts. By construction the "
+         "five-year mean LAGS a real regime change by years; that is "
+         "the price of not being fooled by a peak."],
         ["The cyclical P/E trap",
          "A very LOW P/E on a semi or a miner",
          "Cyclicals look cheapest at the TOP of the cycle, because the E "

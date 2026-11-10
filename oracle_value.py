@@ -60,7 +60,7 @@ COLS = ["Ticker", "Fetched", "Price_At_Fetch", "Oracle_Value", "Oracle_Low",
         # BASIS/Years 18 as the answer, which is years of SALES history for
         # the P/S anchor, an entirely different number. Advice that points
         # at something invisible is a bug in the advice.
-        "Net_Margin_5y", "ROE_5y"]
+        "Net_Margin_5y", "ROE_5y", "Margin_Shape", "Margin_Series"]
 
 # THE HARDCODED MOAT TABLE IS GONE. It held four ratings read off
 # StockOracle's site and fed them straight into our valuation, which made
@@ -518,6 +518,8 @@ def refresh(syms=None, log=print) -> int:
                 "ROE_5y": (round(r5 * 100, 1)
                            if (r5 := five_year_roe(yf.Ticker(s)))
                            is not None else ""),
+                **dict(zip(("Margin_Shape", "Margin_Series"),
+                           margin_trend(s))),
             })
         except Exception as e:                           # noqa: BLE001
             # A TRANSIENT failure — network, a yfinance hiccup. Here, and
@@ -688,7 +690,68 @@ FIN_GROUPS = [
                  ("ROE_%", "ROE"), ("ROE_5y_%", "ROE_5y"),
                  ("Rev_Growth_%", "Rev_Growth"),
                  ("Debt/Equity", "Debt_Equity"), ("Div_Yield_%", "Div_Yield")]),
+    ("TREND", [("Margin_Shape", "Margin_Shape"),
+               ("Margin_By_Year_%", "Margin_Series")]),
 ]
+
+
+def margin_trend(sym: str, years: int = 4) -> tuple[str, str]:
+    """(shape, series) for net margin over the last few fiscal years.
+
+    ADDS INFORMATION, DOES NOT PICK A SIDE — which is why it stays out of
+    the verdict. Chakravarti, 2026-11-09: *"i don't agree that MU is cyclic
+    anymore ... now with AI all compute is reserved in future years."* He
+    may well be right, and the five-year average cannot tell him either
+    way: by construction it lags a genuine regime change by years, which is
+    the price of not being fooled by a peak.
+
+    What IS measurable is the SHAPE. A business stepping up reads nothing
+    like one oscillating, and the series says which without anyone having
+    to assert a thesis:
+
+        MU   -37 -> 3 -> 23 -> 64    RISING 4y
+        a true cycle would alternate instead
+
+    Four consecutive years of improvement is not proof the cycle is dead.
+    It is evidence, shown plainly, next to the five-year mean that argues
+    the other way. He reads both and decides.
+    """
+    try:
+        from core import edgar
+        rev = edgar.annual_revenue(sym)
+        ni = edgar.annual_series(sym, edgar.NET_INCOME_TAGS)
+        yrs = [y for y in sorted(set(rev) & set(ni)) if rev.get(y)][-years:]
+        m = [(y, ni[y] / rev[y]) for y in yrs]
+        if len(m) < 3:
+            return "", ""
+        vals = [v for _, v in m]
+        series = " → ".join(f"{v * 100:.0f}" for v in vals)
+        # A MOVE SMALLER THAN THE DISPLAY IS NOT A MOVE. Comparing raw
+        # floats made NVDA's "56 → 56" a turn, because underneath it is
+        # 56.4 → 55.9 — and a shape that contradicts the series printed
+        # beside it is worse than no shape at all. One percentage point is
+        # the resolution the reader actually sees.
+        TOL = 0.01
+        ups = sum(1 for a, b in zip(vals, vals[1:]) if b - a > TOL)
+        downs = sum(1 for a, b in zip(vals, vals[1:]) if a - b > TOL)
+        spread = max(vals) - min(vals)
+        # A FLAT YEAR MUST NOT BREAK MONOTONICITY. Requiring every step to
+        # move strictly called NVDA (16 -> 49 -> 56 -> 56) cyclical because
+        # of one tie at the end, and TSLA (15 -> 15 -> 7 -> 4) cyclical
+        # because of one at the start — when one is plainly rising and the
+        # other plainly falling. What matters is whether the series ever
+        # turns, not whether every step moves.
+        if ups and not downs:
+            shape = f"RISING {len(vals)}y"
+        elif downs and not ups:
+            shape = f"FALLING {len(vals)}y"
+        elif spread < 0.05:
+            shape = "STEADY"
+        else:
+            shape = "CYCLICAL"
+        return shape, series
+    except Exception:                                    # noqa: BLE001
+        return "", ""
 
 
 def verdict(ticker, cache=None) -> tuple[str, str]:
