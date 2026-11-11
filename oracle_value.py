@@ -99,6 +99,21 @@ def load(log=print) -> dict:
         return {}
 
 
+# A MARGIN ON ALMOST NO REVENUE IS NOISE, NOT INFORMATION. Lightwave Logic
+# loses $24M on $0.3M of sales; the arithmetic says -7,900% and the limit
+# says -inf. Neither is a fact about the business, and `inf` is worse than
+# useless — the Sheets API rejects non-finite floats and can blank a whole
+# write. Past this bound the number is suppressed.
+MARGIN_SANE = 10.0          # -1000%
+
+
+def _sane_margin(v):
+    """None unless the figure is finite and within MARGIN_SANE."""
+    if v is None or v != v or abs(v) == float("inf"):
+        return None
+    return v if abs(v) <= MARGIN_SANE else None
+
+
 def five_year_margin(tk) -> float | None:
     """Mean NET MARGIN over the last five FISCAL years — StockOracle's
     "5-year Average", reproduced exactly on TSLA (10.50%).
@@ -111,7 +126,7 @@ def five_year_margin(tk) -> float | None:
         rev, ni = fin.loc["Total Revenue"], fin.loc["Net Income"]
         m = (ni / rev).dropna()
         m = m[:5]
-        return float(m.mean()) if len(m) >= 3 else None
+        return _sane_margin(float(m.mean())) if len(m) >= 3 else None
     except Exception:                                    # noqa: BLE001
         return None
 
@@ -149,7 +164,7 @@ def five_year_roe(tk) -> float | None:
                    "Common Stock Equity") if k in bal.index)
         r = (ni / eq).dropna()
         r = r[:5]
-        return float(r.mean()) if len(r) >= 3 else None
+        return _sane_margin(float(r.mean())) if len(r) >= 3 else None
     except Exception:                                    # noqa: BLE001
         return None
 
@@ -311,17 +326,35 @@ def _fundamentals(i: dict) -> dict:
             v = float(v)
         except (TypeError, ValueError):
             return ""
-        if v != v:                       # NaN
+        if v != v or abs(v) == float("inf"):
             return ""
+        if key in ("profitMargins", "returnOnEquity", "revenueGrowth") \
+                and abs(v) > MARGIN_SANE:
+            return ""                    # see MARGIN_SANE
         return round(v * mult, places)
+
+    # DO NOT TRUST profitMargins. yfinance returns a flat 0.0 for all four
+    # robotics names — ARBE lost $41M on $1.9M of revenue and the field says
+    # zero. A 0.0 on a company bleeding tens of millions is worse than a
+    # blank: it reads as "breakeven" rather than "unknown". Derived from net
+    # income over revenue instead, and suppressed when the ratio is noise.
+    nm = n("profitMargins", 100.0, 1)
+    try:
+        rev, ni = float(i.get("totalRevenue") or 0), float(
+            i.get("netIncomeToCommon") or 0)
+        if rev > 0 and (nm == "" or (nm == 0.0 and abs(ni) > 1e5)):
+            calc = _sane_margin(ni / rev)
+            nm = round(calc * 100, 1) if calc is not None else ""
+    except (TypeError, ValueError):
+        pass
 
     cap = i.get("marketCap")
     return {
+        "Net_Margin": nm,
         "PE": n("trailingPE"),
         "Fwd_PE": n("forwardPE"),
         "PEG": n("trailingPegRatio"),
         "EPS": n("trailingEps"),
-        "Net_Margin": n("profitMargins", 100.0, 1),
         "ROE": n("returnOnEquity", 100.0, 1),
         "Rev_Growth": n("revenueGrowth", 100.0, 1),
         "Debt_Equity": n("debtToEquity", 1.0, 1),
