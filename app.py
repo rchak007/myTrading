@@ -118,7 +118,9 @@ STOCK_TICKERS = [
     "PANW", "PBLS", "PL", "PLTR",
     "QBTS","QUBT","RCAT", "RDDT", "RDW", "RGTI", "RIOT", "RKLB", "RTX",
     "ECHO", "SE", "SIMO", "SITM", "SKHY", "SLV", "SOFI", "SPCX", "SPY", "SMCI", "SMR", "SNA", "SNDK", "SSK","STKE", "STM", "STRC", "STX",
-    "TEM",  "TER", "TLN",  "TSLA","TSM","UMAC", "UPXI","VCX", "VRT", "VST", "VUG", "WDC", "WTI", "XLE"  
+    "TEM",  "TER", "TLN",  "TSLA","TSM","UMAC", "UPXI","VCX", "VRT", "VST", "VUG", "WDC", "WTI", "XLE",
+    # robotics / photonics — see ROBOTICS below
+    "ARBE", "SERV", "LWLG", "POET",
 ]
 
 
@@ -187,6 +189,21 @@ BETH_REMOVED = [
     # request. Still not one of her picks; see the note above.
     "ARM", "CEG", "CRDO", "GLW", "GOOG", "META", "MRVL", "NEE",
     "RDDT", "VRT", "VST", "WDC",
+]
+
+# Early-stage robotics, photonics and sensing. Chakravarti, 2026-11-10.
+#
+# READ THE REPORTS BEFORE SIZING ANY OF THESE. All four are pre-revenue or
+# near it and every one of them burns cash: ARBE sells at a NEGATIVE gross
+# margin, SERV at zero, and Lightwave Logic carries a $677M market value on
+# $0.3M of revenue. They are option-like positions, not holdings, and the
+# valuation model will decline to price most of them for exactly that
+# reason — which is the model working, not failing.
+ROBOTICS = [
+    "ARBE",      # Arbe Robotics — 4D imaging radar chipsets
+    "SERV",      # Serve Robotics — sidewalk delivery robots
+    "LWLG",      # Lightwave Logic — electro-optic polymer modulators
+    "POET",      # POET Technologies — photonic integration (Optical Interposer)
 ]
 
 INVESTANSWERS = [

@@ -1916,7 +1916,7 @@ reconcile back into the sheet.
 
 ---
 
-## 8. Supply-chain defence for Pi 1
+## 9. Supply-chain defence for Pi 1
 
 ### 💡 OPEN — a guard that inspects code BEFORE Pi 1 runs it
 
