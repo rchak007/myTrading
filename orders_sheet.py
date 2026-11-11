@@ -996,6 +996,7 @@ def _last_col() -> str:
 ORD_HDR = ["Acct", "Side", "Type", "Qty", "Limit_Price", "Stop_Price",
            "Status", "Entered", "Order_ID"]
 DASH_WIDTH = 1 + len(POS_HDR)          # column A holds the ticker label
+REST_TAB = os.getenv("GSHEET_REST_DASHBOARD_TAB", "REST-DASHBOARD")
 
 
 def _chitra_line(ticker, chitra_rows, quotes):
@@ -1293,7 +1294,8 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                     fenced: set | None = None,
                     signals_df=None, chitra_rows=None,
                     intents_df=None, options=None,
-                    token_status=None, hyper=None) -> tuple[list, dict]:
+                    token_status=None, hyper=None,
+                    only=None, title="DASHBOARD") -> tuple[list, dict]:
     """
     One block per ticker: the positions mini-table, then the live Schwab orders
     for that ticker.
@@ -1357,14 +1359,14 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     # Dashboard, asked "can you add info when Schwab token expires??" while
     # looking straight at a header that did not carry it. A status nobody
     # sees is not a status. Column L, clear of the prices stamp in H.
-    title = ["DASHBOARD", f"updated {_now()}"] + [""] * (DASH_WIDTH - 2)
+    title_row = [title, f"updated {_now()}"] + [""] * (DASH_WIDTH - 2)
     tok = token_status or {}
     if tok:
         days = tok.get("days_left")
-        title[11] = (f"Schwab token {tok.get('state', 'UNKNOWN')}"
-                     f" — expires {tok.get('expires', '?')}"
-                     + (f" ({days}d)" if days is not None else ""))
-    marks["title"].append(add(title))
+        title_row[11] = (f"Schwab token {tok.get('state', 'UNKNOWN')}"
+                         f" — expires {tok.get('expires', '?')}"
+                         + (f" ({days}d)" if days is not None else ""))
+    marks["title"].append(add(title_row))
     add(["", f"{n_tickers} ticker(s) · read-only, regenerated every cycle · "
              f"ORDERS shows live Schwab orders AND the Orders-tab intents "
              f"waiting on a close (Type 'CLOSE BELOW/ABOVE', Entered 'sheet') · "
@@ -1421,6 +1423,14 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     if watch_only:
         print(f"{len(watch_only)} Beth ticker(s) not held, listed as "
               f"watchlist: {', '.join(watch_only)}")
+
+    # `only` renders EXACTLY these tickers and nothing else — the mechanism
+    # behind REST-DASHBOARD. Every one of them is unheld by construction, so
+    # they take the same path a Beth watchlist name already took: a block
+    # with no position rows, carrying indicators, levels, ORACLE and
+    # FINANCIALS. Nothing new had to be invented for it.
+    if only is not None:
+        order, watch_only = [], [str(t).upper() for t in only]
 
     fenced = fenced or set()
     for ticker in list(order) + watch_only:
@@ -1847,6 +1857,64 @@ def _paint(ws, marks, log):
         log(f"⚠️  dashboard formatting skipped (data is fine): {e}")
 
 
+def all_tickers() -> list:
+    """STOCK_TICKERS from app.py by AST — same approach as oracle_value."""
+    import ast
+    tree = ast.parse((Path(__file__).resolve().parent / "app.py").read_text())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+                getattr(t, "id", "") == "STOCK_TICKERS" for t in node.targets):
+            return [str(e.value).upper() for e in node.value.elts
+                    if isinstance(e, ast.Constant)]
+    return []
+
+
+def write_rest_dashboard(book, positions, shown, log=print, **kw) -> int:
+    """REST-DASHBOARD: every ticker in app.py that the Dashboard does not show.
+
+    Chakravarti, 2026-11-10: *"i added a sheet called REST-DASHBOARD; here i
+    want same as Dashboard from rest of the tickers in App.py tickers list."*
+
+    The main Dashboard shows what he HOLDS plus the Beth watchlist — about
+    fifty names. The other ninety are tracked by the signals job, scored by
+    Benter, valued weekly, and had nowhere to be read. The same block
+    renderer does the work; only the ticker list differs.
+
+    `shown` is what the Dashboard already rendered, passed in rather than
+    recomputed — deriving it twice is how the two tabs would quietly start
+    disagreeing about which names are covered.
+    """
+    rest = [t for t in all_tickers() if t not in {str(x).upper()
+                                                  for x in (shown or [])}]
+    if not rest:
+        log("REST-DASHBOARD: every ticker is already on the Dashboard")
+        return 0
+    try:
+        ws = book.worksheet(REST_TAB)
+    except Exception:                                    # noqa: BLE001
+        log(f"REST-DASHBOARD: no '{REST_TAB}' tab — skipping")
+        return 0
+
+    rows, marks = build_dashboard(positions, quotes=kw.get("quotes"),
+                                  signals_df=kw.get("signals_df"),
+                                  intents_df=kw.get("intents_df"),
+                                  options=kw.get("options"),
+                                  hyper=kw.get("hyper"),
+                                  only=rest, title=REST_TAB)
+    # Same growth rule as the Dashboard: a write past the end TRUNCATES
+    # rather than failing, leaving the tab stopped partway through a ticker
+    # with nothing to say why.
+    need = len(rows) + 50
+    if int(getattr(ws, "row_count", 0) or 0) < need:
+        ws.resize(rows=need)
+    ws.batch_clear([f"A1:{_last_col()}{ws.row_count}"])
+    ws.update(values=rows, range_name=f"A1:{_last_col()}{len(rows)}",
+              value_input_option="USER_ENTERED")
+    _paint(ws, marks, log)
+    log(f"REST-DASHBOARD: {len(rest)} ticker(s) not on the Dashboard")
+    return len(rest)
+
+
 def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
                     quotes: dict | None = None, fenced: set | None = None,
                     log=print, signals_df=None, chitra_rows=None,
@@ -1993,6 +2061,19 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
                              chitra_rows=chitra_rows, intents_df=intents,
                              options=opts, token_status=token_status,
                              hyper=hyper)
+
+    # REST-DASHBOARD. Wrapped because it is an ADDITION to the picture: a
+    # second tab failing must never cost the Dashboard, the Positions tab or
+    # the cash tables that were written above it.
+    try:
+        shown = set(positions.loc[positions["Acct"] != TOTAL,
+                                  "Ticker"].astype(str).str.upper())
+        shown |= _beth_tickers(log=lambda *_: None)
+        write_rest_dashboard(book, positions, shown, log=log, quotes=quotes,
+                             signals_df=signals_df, intents_df=intents,
+                             options=opts, hyper=hyper)
+    except Exception as e:                               # noqa: BLE001
+        log(f"⚠️  REST-DASHBOARD skipped ({type(e).__name__}: {e})")
 
     # ---- header block. LAST POLL is the health check: if this stops moving,
     # ---- whatever runs this module has died.
