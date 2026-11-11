@@ -1983,3 +1983,23 @@ and `benter_refresh.sh` — currently the only shell script the scheduler runs.
 
 Open until all five layers exist and a deliberately bad commit has been
 caught by a drill.
+
+### 💡 OPEN — EDGAR cannot read foreign filers (20-F)
+
+`core/edgar.py` filters to `form == "10-K"`. Foreign private issuers file a
+**20-F** instead, so the reader returns ZERO years for them and the model
+silently falls back to yfinance's four — which is the sample size that
+produced every calibration error we have had.
+
+TSM is the case in the book: four years of history gave an OracleValue of
+**26x the share price**, so the sanity guard refused it and TSM carries no
+fair value at all. Its FINANCIALS are fine (PE 25.7, PEG 0.71, five-year
+margin 42.0%) now that a refusal keeps the row; it is only the valuation
+that is missing, and it is missing for a reason we can fix rather than a
+limit of the data.
+
+Fix: accept `20-F` alongside `10-K` in `_concept()`, and check the fiscal
+period filter still holds — a 20-F uses the same XBRL tags but the
+submission shape differs. Worth auditing which other holdings are foreign
+filers at the same time.
+

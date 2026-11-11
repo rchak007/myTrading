@@ -480,33 +480,43 @@ def refresh(syms=None, log=print) -> int:
     for n, s in enumerate(syms, 1):
         try:
             i = yf.Ticker(s).info or {}
+            why_refused = ""
             o = compute_one(s, i)
             if o is not None and o.value is None:
                 # A DELIBERATE REFUSAL, NOT A FAILURE. The model looked at
                 # this ticker and declined to value it — pre-revenue, or an
                 # answer so far from the share price that an input must be
-                # wrong. Dropping the row is the point.
+                # wrong.
                 #
-                # This used to raise, and the handler below then restored
-                # yesterday's row "to be safe", which put the very numbers
-                # the guard had just rejected straight back on the sheet:
-                # RCAT at 8,288,439x the share price, ABTC at 191,957x, both
-                # still showing DEEP VALUE after a refresh that had refused
-                # them. A refusal that can be undone by a retry is not a
-                # guard.
+                # IT BLANKS THE VALUE, IT DOES NOT DELETE THE ROW. That was
+                # the first version and it was wrong at a level I had not
+                # thought about: FINANCIALS reads from this same cache, so
+                # dropping the row took PE, PEG, the five-year margin and
+                # the margin series with it. TSM and SNDK vanished from the
+                # Dashboard entirely — two companies that report perfectly
+                # well and simply cannot be PRICED by this method. Refusing
+                # to assert a fair value is not a reason to withhold the
+                # reported facts.
+                #
+                # The value stays empty and Oracle_Why says why, so nothing
+                # the guard rejected can reappear: RCAT at 8,288,439x the
+                # share price came back once already, restored from cache by
+                # a retry, and must not again.
                 refused.append(f"{s} ({_short(o.why)})")
-                continue
-            if o is None:
-                raise ValueError("no price")
+                why_refused = o.why
+                o = None            # fall through, writing a valueless row
             last_e, next_e = earnings_dates(s)
             ps, yrs, cv = mean_ps(yf.Ticker(s), i.get("sharesOutstanding"))
             out.append({
                 "Ticker": s, "Fetched": today,
                 "Price_At_Fetch": i.get("currentPrice") or i.get("previousClose") or "",
-                "Oracle_Value": o.value, "Oracle_Low": o.low,
-                "Oracle_High": o.high, "Oracle_Band": o.band,
-                "Moat": o.moat, "Oracle_Why": o.why,
-                "Oracle_IQ": iq_line(s, i, o),
+                "Oracle_Value": o.value if o else "",
+                "Oracle_Low": o.low if o else "",
+                "Oracle_High": o.high if o else "",
+                "Oracle_Band": o.band if o else "",
+                "Moat": (o.moat if o else "") or our_moat(s),
+                "Oracle_Why": o.why if o else why_refused,
+                "Oracle_IQ": iq_line(s, i, o) if o else "",
                 "Last_Earnings": last_e, "Next_Earnings": next_e,
                 "PS_Mean": round(ps, 2) if ps else "",
                 "PS_Years": yrs or "",
@@ -546,7 +556,8 @@ def refresh(syms=None, log=print) -> int:
     fresh = sum(1 for r in out if str(r.get("Fetched", "")).startswith(today))
     log(f"{len(out)} row(s) cached — {fresh} fresh, {len(out) - fresh} kept")
     if refused:
-        log(f"🚫 declined to value {len(refused)} (row dropped, not kept): "
+        log(f"🚫 declined to value {len(refused)} (value blank, "
+            f"fundamentals kept): "
             + ", ".join(refused[:8]) + (" …" if len(refused) > 8 else ""))
     if failed:
         log(f"⚠️  fetch failed for {len(failed)} (old row kept): "

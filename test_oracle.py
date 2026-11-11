@@ -336,7 +336,15 @@ def test_a_refusal_drops_the_row_instead_of_restoring_the_old_one():
 
     os.environ.pop("ORACLE_FILE", None)
     importlib.reload(ov)
-    assert "JUNK" not in rows, "the refused row was restored from cache"
+    # The ROW survives so PE, PEG and the margin series stay readable --
+    # FINANCIALS reads this same cache, and dropping the row took TSM and
+    # SNDK off the Dashboard entirely. But the VALUE must be blank, or the
+    # figure the guard rejected is simply back.
+    assert "JUNK" in rows, "a refused ticker lost its fundamentals too"
+    assert rows["JUNK"]["Oracle_Value"] == "", rows["JUNK"]["Oracle_Value"]
+    assert "8288439" not in str(rows["JUNK"]), "the rejected value returned"
+    assert "share price" in rows["JUNK"]["Oracle_Why"] or \
+           "refused" in rows["JUNK"]["Oracle_Why"]
     assert rows["KEEP"]["Oracle_Value"] == "50", "an untouched row was lost"
 
 
