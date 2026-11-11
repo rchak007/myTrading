@@ -47,3 +47,4 @@ was fixed is worth as much as the list of what is left.
 Knowing what was tried and rejected is how the same wrong turn gets avoided
 twice.
 - **ROBOTICS-ANALYSIS-2026-11-10.md** — ARBE, SERV, LWLG, POET against the Wall-Street, catch-a-winner and Benter frameworks. All four are pre-revenue or near it; the report says plainly where each framework cannot be applied rather than guessing.
+- **FINANCIALS.md** — what the FINANCIALS section retrieves, how the green/red/blue verdict is scored, which yfinance fields are not trusted and why, and the traps in the order they bite.
