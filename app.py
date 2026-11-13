@@ -116,7 +116,7 @@ STOCK_TICKERS = [
     "META","MNST", "MP","MRVL", "MSFT","MSTR","MSTX", "MTSI",  "MU", "MXL",
     "NBIS", "NBR", "NEE", "NET", "NOC", "NPK", "NPPTF","NVDA", "OKLO", "ONDS", "ORCL", "OUST",
     "PANW", "PBLS", "PL", "PLTR",
-    "QBTS","QUBT","RCAT", "RDDT", "RDW", "RGTI", "RIOT", "RKLB", "RTX",
+    "QBTS","QQQ","QUBT","RCAT", "RDDT", "RDW", "RGTI", "RIOT", "RKLB", "RTX",
     "ECHO", "SE", "SIMO", "SITM", "SKHY", "SLV", "SOFI", "SPCX", "SPY", "SMCI", "SMR", "SNA", "SNDK", "SSK","STKE", "STM", "STRC", "STX",
     "TEM",  "TER", "TLN",  "TSLA","TSM","UMAC", "UPXI","VCX", "VRT", "VST", "VUG", "WDC", "WTI", "XLE",
     # robotics / photonics — see ROBOTICS below

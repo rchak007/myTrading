@@ -252,6 +252,9 @@ PY_VERBS = {
     "apply_fills":  (False, False),
     "reserves":     (False, False),
     "tidy_orders":  (False, False),
+    "park":         (True,  False),
+    "unpark":       (True,  False),
+    "parked":       (False, False),
     "dash_doc":     (False, False),
     # Rebuild the sheet tabs now instead of waiting for :15 / :50. Launches
     # detached and returns at once — see _run_signals for why it must not
@@ -638,6 +641,46 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
         dashboard_doc.write(log=out.append)
         return 0, "\n".join(out)
 
+    # PARKED RESERVES. A reserve that is sitting in a stock rather than in
+    # cash: "I sold NEE, bought 1 QQQ with the money, and that QQQ belongs
+    # to NEE until I buy NEE back."
+    if verb in ("park", "unpark"):
+        import parked
+        parts = arg.split()
+        if len(parts) < 4:
+            return 2, (
+                f"need ACCT OWNER VEHICLE QTY\n"
+                f"  e.g.  {verb}  922 NEE QQQ 1\n\n"
+                "OWNER is whose reserve this is — the ticker you intend to "
+                "buy back. VEHICLE is what the money is sitting in. QTY is "
+                "SHARES of the vehicle, not dollars: $426 parked in QQQ is "
+                "not $426 later, and shares are the honest unit.")
+        acct, owner, vehicle = parts[0], parts[1], parts[2]
+        try:
+            qty = float(parts[3].replace(",", ""))
+        except ValueError:
+            return 2, f"{parts[3]!r} is not a quantity"
+        out = []
+        try:
+            fn = parked.park if verb == "park" else parked.unpark
+            fn(acct, owner, vehicle, qty, reason=" ".join(parts[4:]),
+               log=out.append)
+        except ValueError as e:
+            return 1, str(e)
+        out.append(
+            f"\n{parked.acct(acct)}/{parked.tkr(owner)} now holds "
+            f"{parked.for_owner(acct, owner) or 'nothing'}")
+        out.append(
+            f"{parked.tkr(vehicle)} is carrying "
+            f"{parked.for_vehicle(acct, vehicle) or 'nothing'} "
+            f"({parked.owed_qty(acct, vehicle):g} share(s) spoken for)")
+        out.append("Run run_signals to refresh the sheet columns.")
+        return 0, "\n".join(out)
+
+    if verb == "parked":
+        import parked
+        return 0, "\n".join(parked.render())
+
     if verb == "tidy_orders":
         import orders_tidy
         out = []
@@ -869,6 +912,17 @@ VERB_DOCS = [
 
     ("run_signals", "—", "run_signals", "Rebuild Positions, Cash, Dashboard and the reserve tables now instead of waiting for the next cron. Returns as soon as it LAUNCHES; watch with tail_log stocks."),
     ("reserves", "—", "reserves", "The whole reserve table: what is fenced, deployed and available per ticker."),
+    ("park", "ACCT OWNER VEHICLE QTY", "park  922 NEE QQQ 1",
+     "Record that shares of VEHICLE are held on OWNER's behalf — you sold "
+     "NEE, bought QQQ with the proceeds, and that QQQ belongs to NEE until "
+     "you buy NEE back. QTY is SHARES, not dollars: $426 parked in QQQ is "
+     "not $426 later, so shares are the honest unit."),
+    ("unpark", "ACCT OWNER VEHICLE QTY", "unpark  922 NEE QQQ 1",
+     "Release a parcel — you sold the vehicle and the money is going back "
+     "to the owner ticker. Refuses to release more than is parked."),
+    ("parked", "—", "parked",
+     "Every live parcel: which ticker's reserve is sitting in which stock, "
+     "and how many shares."),
     ("dash_doc", "—", "dash_doc",
      "Fill the DASHBOARD-DOC tab: what every INDICATORS, ORACLE and "
      "FINANCIALS field means, how to read them together, and the common "

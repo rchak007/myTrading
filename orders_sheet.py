@@ -1013,6 +1013,55 @@ def _chitra_line(ticker, chitra_rows, quotes):
         return None
 
 
+def _parked_lines(ticker, width, positions=None):
+    """PARKED / RESERVED lines for a block. Degrades silently.
+
+    Two sides of the same parcel, and the ticker appears on whichever side
+    it is on:
+
+      owner    PARKED    2.1 QQQ          its reserve is sitting in QQQ
+      vehicle  RESERVED  2.1 for NEE      and how many shares are free
+
+    Outside the TOTAL, like the Chitra and Hyperliquid lines: parked QQQ
+    shares are not a NEE position, and adding them to NEE's share count
+    would be nonsense. They belong in NEE's block because that is where
+    the decision about NEE gets made.
+    """
+    try:
+        import parked as pk
+    except Exception:                                   # noqa: BLE001
+        return []
+    t = str(ticker).upper()
+    out = []
+    try:
+        fold = pk.fold()
+        for (a, owner, vehicle), qty in sorted(fold.items()):
+            if qty <= 0:
+                continue
+            if owner == t:
+                row = [""] * width
+                row[1:4] = [t, "PARKED", round(qty, 4)]
+                row[9] = f"{qty:g} {vehicle} held for {t} in {a}"
+                out.append(row)
+            elif vehicle == t:
+                held = None
+                if positions is not None:
+                    hit = positions[(positions["Ticker"] == t)
+                                    & (positions["Acct"] == a)]
+                    if not hit.empty:
+                        held = _num(hit.iloc[0].get("Qty"), None)
+                free = (held - pk.owed_qty(a, t)) if held is not None else None
+                row = [""] * width
+                row[1:4] = [t, "RESERVED", round(qty, 4)]
+                row[9] = (f"{qty:g} held for {owner} in {a}"
+                          + (f" · {free:g} of {held:g} free to sell"
+                             if free is not None else ""))
+                out.append(row)
+    except Exception:                                   # noqa: BLE001
+        return []
+    return out
+
+
 def _hyper_lines(ticker, index, width):
     """hyp-xxxx line(s) for a block. Degrades silently, like Chitra's."""
     if not index:
@@ -1527,6 +1576,8 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         # and 2x long NVDA here is ONE exposure and seeing it in two places
         # is how it gets missed.
         rendered.add(str(ticker).upper())
+        for prow in _parked_lines(ticker, DASH_WIDTH, positions):
+            marks["chitra"].append(add(prow))
         for hrow in _hyper_lines(ticker, hyper_index, DASH_WIDTH):
             marks["chitra"].append(add(hrow))
 
