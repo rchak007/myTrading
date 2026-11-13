@@ -155,6 +155,22 @@ def rows() -> list[list[str]]:
     head("CHAINING — ONE ROW WAITS FOR ANOTHER",
          f"{oi.TRIGGER_FIELD} and {oi.CHAIN_FIELD}")
     add(["", "Sell, then buy back only if the sell actually filled.", "", ""])
+    head("WATCH ONE TICKER, TRADE ANOTHER", "Trigger_Ticker — optional")
+    add(["", "Blank means watch your own ticker. That is every row written "
+             "before this column existed.", "", ""])
+    add(["Trigger_Ticker", "NEE", "on a QQQ row",
+         "The order is placed on QQQ; NEE's close decides when."])
+    add(["", "Why it exists", "the parked round trip",
+         "NEE's money is sitting in QQQ, so 'when NEE closes above 89, "
+         "sell the QQQ' has to be a QQQ order watching NEE."])
+    add(["ROW 1", "Trigger_Ticker NEE · SELL QQQ 1 · ABOVE 89 · Trigger_ID 7",
+         "", "fires on NEE's close, sells the parked QQQ"])
+    add(["ROW 2", "After_Trigger_ID 7 · BUY NEE · Qty blank", "",
+         "arms when row 1 FILLS, buys with exactly what it made"])
+    add(["", "A typo is REFUSED, not ignored", "",
+         "A bad symbol here would silently watch a price that does not "
+         "exist and the row would wait forever looking armed."])
+
     add(["ROW 1", f"{oi.TRIGGER_FIELD} = 1", "SELL AAOI BELOW 73, Qty 10",
          "the parent"])
     add(["ROW 2", f"{oi.CHAIN_FIELD} = 1", "BUY AAOI HL HH, Qty blank",

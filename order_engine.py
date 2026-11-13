@@ -1312,13 +1312,23 @@ def main() -> int:
                 continue
 
             # 5. The close.
-            close, note = daily_close(client, n["Ticker"])
+            # WATCH A DIFFERENT TICKER THAN YOU TRADE. Blank Trigger_Ticker
+            # means watch your own, which is every row written before this
+            # existed. Set, it is the symbol whose CLOSE decides, while the
+            # order is still placed on Ticker.
+            #
+            # This completes the parked round trip: NEE's money is sitting
+            # in QQQ, so "when NEE closes above 89, sell the QQQ" is a QQQ
+            # order watching NEE.
+            watch = (n.get("Trigger_Ticker") or "").strip().upper() \
+                or n["Ticker"]
+            close, note = daily_close(client, watch)
             if close is None:
                 # Leave it ARMED. Never advance a row on a price we could not read.
                 _log(f"   {rid:<26} ARMED      no price: {note}")
                 continue
 
-            dis = cross_check(close, n["Ticker"])
+            dis = cross_check(close, watch)
             if dis:
                 _log(f"   {rid:<26} ARMED      {dis}")
                 continue

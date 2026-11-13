@@ -174,6 +174,22 @@ def normalize(intent: dict) -> dict:
         raise IntentError(f"Ticker {tkr!r} is not a plausible symbol")
     out["Ticker"] = tkr
 
+    # TRIGGER_TICKER — the symbol whose CLOSE decides, when that is not the
+    # symbol being traded. Optional; blank means watch your own, which is
+    # every row written before this field existed.
+    #
+    # Validated to the same shape as Ticker rather than waved through: a
+    # typo here does not fail loudly, it silently watches a price that
+    # does not exist and the row waits forever looking armed.
+    watch = _s(intent.get("Trigger_Ticker"))
+    if watch:
+        if not re.fullmatch(r"[A-Z][A-Z0-9.]{0,9}", watch):
+            raise IntentError(
+                f"Trigger_Ticker {watch!r} is not a plausible symbol")
+        out["Trigger_Ticker"] = "" if watch == tkr else watch
+    else:
+        out["Trigger_Ticker"] = ""
+
     side = _s(intent.get("Side"))
     if side not in SIDES:
         raise IntentError(f"Side {side!r} must be BUY or SELL")
@@ -444,9 +460,20 @@ def idempotency_key(row_id: str, fp: str) -> str:
 def describe(intent: dict) -> str:
     """One line a human can check against what they meant."""
     n = normalize(intent)
-    qty = f"{float(n['Qty']):g}"
+    # RESERVE and $730 are not numbers yet, and describe() runs the moment
+    # the row is typed. float() on them raised and the whole line vanished.
+    try:
+        qty = f"{float(n['Qty']):g} sh"
+    except (TypeError, ValueError):
+        qty = str(n["Qty"])
     lim = (f", GTC limit ${n['Limit_Price']}" if n["Limit_Price"]
            else ", NO LIMIT PRICE — a GTC order needs one")
     exp = f", expires {n['Expires_On']}" if n["Expires_On"] else ", no expiry"
-    return (f"{n['Side']} {qty} sh of {n['Ticker']} in {n['Acct']} when the "
-            f"DAILY CLOSE is {n['Close_Is']} ${n['Trigger_Price']}{lim}{exp}")
+    # SAY WHICH TICKER IS BEING WATCHED when it is not the one being
+    # traded. "when the DAILY CLOSE is ABOVE $89" on a QQQ row reads as
+    # QQQ's close, and would be wrong by a factor of seven.
+    watch = (n.get("Trigger_Ticker") or "").strip().upper()
+    whose = f"{watch}'s " if watch and watch != n["Ticker"] else ""
+    return (f"{n['Side']} {qty} of {n['Ticker']} in {n['Acct']} when "
+            f"{whose}DAILY CLOSE is {n['Close_Is']} "
+            f"${n['Trigger_Price']}{lim}{exp}")

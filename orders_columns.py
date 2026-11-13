@@ -44,7 +44,18 @@ HUMAN = ["Row_ID", "Date", "Acct", "Ticker", "Side", "Close_Is",
          # Both blank on an ordinary row, which is almost all of them.
          # Position is still READ from the header, never assumed, so
          # inserting them anywhere on the live tab is safe.
-         "Trigger_ID", "After_Trigger_ID", "Notes"]
+         "Trigger_ID", "After_Trigger_ID",
+         # TRIGGER ON ONE TICKER, ACT ON ANOTHER. Chakravarti, 2026-11-13:
+         # "for NEE lets say i want to wait that close is above 89 then i
+         # want to sell QQQ 1 qty and buy whatever NEE possible to buy."
+         #
+         # Until now the close was always read from the row's own Ticker,
+         # so that was simply not expressible. It is the missing half of
+         # the parked-reserve round trip: the money for NEE is sitting in
+         # QQQ, so the SELL has to be a QQQ order watching NEE's price.
+         #
+         # Blank means "watch my own ticker", which is every existing row.
+         "Trigger_Ticker", "Notes"]
 ENGINE = ["Status", "Status_Date", "Validation", "Current_Price",
           "Schwab_Order_ID", "Filled_Qty", "Fill_Price", "Seed_Left",
           "Engine_Note", "Last_Checked"]
@@ -62,7 +73,7 @@ ALL = HUMAN + ENGINE
 #
 # A row with no chain columns is simply unchained, which is what almost every
 # row is.
-OPTIONAL = ("Trigger_ID", "After_Trigger_ID")
+OPTIONAL = ("Trigger_ID", "After_Trigger_ID", "Trigger_Ticker")
 REQUIRED = [c for c in HUMAN if c not in OPTIONAL]
 
 
