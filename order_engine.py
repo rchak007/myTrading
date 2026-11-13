@@ -602,15 +602,34 @@ def check_guards(n: dict, close: float | None, submitted_today: int,
     if cfg.TICKER_ALLOWLIST and n["Ticker"] not in cfg.TICKER_ALLOWLIST:
         return f"TICKER_NOT_ALLOWED: {n['Ticker']}"
 
-    qty = float(n["Qty"])
-    px = float(n["Limit_Price"] or n["Trigger_Price"])
-    notional = qty * px
+    # A QTY THAT IS NOT A NUMBER YET IS NOT AN ERROR. "$730" and "RESERVE"
+    # cannot be resolved until the row fires and there is a price — that
+    # happens at step 5b in main(), AFTER this function runs. This guard
+    # is the price-INDEPENDENT pass and must not assume otherwise.
+    #
+    # It did, and `float("RESERVE")` raised. One CRDO row typed 2026-10-29
+    # with Qty RESERVE then crashed EVERY engine run for sixteen days —
+    # the last clean run was 2026-10-27. No order for any ticker was
+    # evaluated in that time, including an AAOI stop from 17 October.
+    #
+    # The notional caps cannot be checked without a quantity, so they are
+    # SKIPPED here and enforced after resolution, where the number exists.
     side = n["Side"]
+    try:
+        qty = float(n["Qty"])
+    except (TypeError, ValueError):
+        if oc.qty_kind(n["Qty"]) not in ("dollars", "reserve"):
+            return (f"QTY_UNREADABLE: {n['Qty']!r} is not shares, dollars "
+                    f"($730) or RESERVE")
+        qty = None                      # resolved at 5b, once a price exists
 
-    if notional > cfg.MAX_NOTIONAL_PER_ORDER:
+    px = _num_or_none(n["Limit_Price"]) or _num_or_none(n["Trigger_Price"])
+    notional = (qty * px) if (qty is not None and px) else None
+
+    if notional is not None and notional > cfg.MAX_NOTIONAL_PER_ORDER:
         return (f"CAP_PER_ORDER: ${notional:,.2f} exceeds "
                 f"${cfg.MAX_NOTIONAL_PER_ORDER:,.2f}")
-    if notional_today + notional > cfg.MAX_NOTIONAL_PER_DAY:
+    if notional is not None and notional_today + notional > cfg.MAX_NOTIONAL_PER_DAY:
         return (f"CAP_PER_DAY: ${notional_today:,.2f} already + ${notional:,.2f} "
                 f"exceeds ${cfg.MAX_NOTIONAL_PER_DAY:,.2f}")
     if submitted_today >= cfg.MAX_SUBMISSIONS_PER_DAY:
@@ -637,10 +656,10 @@ def check_guards(n: dict, close: float | None, submitted_today: int,
             # on collateral.
             owned = (acct_state or {}).get("held", {}).get(
                 (n["Acct"], n["Ticker"]), held)
-            if qty > owned + 1e-6:
+            if qty is not None and qty > owned + 1e-6:
                 return (f"OVERSELL: {qty:g} shares but only {owned:g} held in "
                         f"{n['Acct']} — check for a typo")
-            if qty > held + 1e-6:
+            if qty is not None and qty > held + 1e-6:
                 return (f"COLLATERAL: {qty:g} shares but only {held:g} of "
                         f"{owned:g} are free in {n['Acct']} — "
                         f"{owned - held:g} back a short call")
@@ -656,7 +675,7 @@ def check_guards(n: dict, close: float | None, submitted_today: int,
                     return (f"UNKNOWN_TICKER: {n['Ticker']} is neither held nor "
                             f"in STOCK_TICKERS — likely a typo")
             free = acct_state["cash"].get(n["Acct"])
-            if free is not None and notional > free:
+            if free is not None and notional is not None and notional > free:
                 return (f"INSUFFICIENT_CASH: ${notional:,.2f} needed, "
                         f"${free:,.2f} available in {n['Acct']}")
 
@@ -1086,353 +1105,380 @@ def main() -> int:
     updates: list[dict] = []
 
     for rec in rows:
-        rid = rec["Row_ID"] or f"(sheet row {rec['_sheet_row']})"
+        # Outside the try: the handler below reports against it, and a
+        # NameError in an error handler is how a fix becomes a new bug.
+        rid = rec.get("Row_ID") or f"(sheet row {rec.get('_sheet_row')})"
 
-        def note_only(validation: str):  # noqa: E306
-            """Feedback without a state change — the whole point of running
-            often. A bad row says so within minutes of being typed instead of
-            failing silently at the close."""
-            updates.append(dict(row_id=rec["Row_ID"], validation=validation))
-
-        def finish(state: str, note: str, **extra):
-            # Merge rather than splat: extra legitimately OVERRIDES a default
-            # — a derived limit_price supersedes the blank one in the sheet —
-            # and **extra alongside the same keyword is a TypeError, not an
-            # override.
-            row = dict(row_id=rec["Row_ID"], fingerprint=fp_of(rec),
-                       state=state, note=note, acct=rec["Acct"],
-                       ticker=rec["Ticker"], side=rec["Side"],
-                       close_is=rec["Close_Is"], qty=rec["Qty"],
-                       trigger_price=rec["Trigger_Price"],
-                       limit_price=rec["Limit_Price"])
-            row.update(extra)
-            append_ledger(row)
-            audit(row_id=rec["Row_ID"], state=state, note=note)
-            updates.append(dict(row_id=rec["Row_ID"], state=state, note=note))
-            _log(f"   {rid:<26} {state:<10} {note}")
-
-
-        prior = states.get(rec["Row_ID"], {})
-
-        # ALREADY SUBMITTED — never send it again. SUBMITTED is a live state
-        # (the order can still be cancelled or rejected) so the row is still
-        # re-read each cycle, but re-SUBMITTING it is a different thing
-        # entirely: the trigger condition stays true after firing, so every
-        # subsequent run placed the same order again.
+        # ONE BAD ROW MUST NOT TAKE DOWN THE RUN.
         #
-        # Observed 2026-09-29: one intent became THREE live TSLA orders at
-        # 13:30, 13:45 and 14:05 — one per cron tick. The idempotency key was
-        # being written to the ledger and never read back, which is the whole
-        # reason it exists.
-        done = submitted_before(ledger, rec["Row_ID"])
-        if done:
-            oid = done.get("schwab_order_id") or "(id unknown)"
-            if (done.get("submit_attempted") and not done.get("schwab_order_id")
-                    and done.get("state") not in ("SUBMITTED", "FILLED")):
-                # A run died between the write-ahead and the outcome. Say that,
-                # loudly — it is not routine idempotency, and only the broker
-                # can resolve it.
-                _log(f"🔴 {rid:<26} a previous run DIED MID-SUBMIT at "
-                     f"{str(done.get('ts',''))[:19]}. The order may or may not "
-                     f"have reached Schwab — CHECK THE ACCOUNT.")
-                note_only(f"🔴 a run died mid-submit on "
-                          f"{str(done.get('ts',''))[:19]} — the order may or "
-                          f"may not have reached Schwab. CHECK THE ACCOUNT, "
-                          f"then use a NEW row to order again.")
-                continue
-            _log(f"   {rid:<26} already submitted as {oid} — not resending")
-            # Carry the ORIGINAL note. Replacing it with this one destroyed the
-            # only record of why a submit failed — the sheet is often the first
-            # and sometimes the only place that gets read.
-            why = str(done.get("note", "")).strip()
-            note_only(f"⏹ already submitted as {oid} on "
-                      f"{str(done.get('ts',''))[:19]}. A Row_ID is placed ONCE; "
-                      f"use a new row to order again."
-                      + (f" [{why[:160]}]" if why else ""))
-            continue
-
-        if prior.get("state") in cfg.TERMINAL_STATES:
-            # SAY SO. This exited silently and produced a run that read as
-            # "nothing to do" when the row was in fact being ignored —
-            # indistinguishable from a bug, and alarming when you are waiting
-            # for an order. A terminal row is history, but the operator has no
-            # way to know that without being told.
-            _log(f"   {rid:<26} skipped — already {prior.get('state')} in the "
-                 f"ledger. Give the row a NEW Row_ID to run it again.")
-            note_only(f"⏹ already {prior.get('state')} — this Row_ID is spent. "
-                      f"Clear column A AND change something, or use a new row.")
-            continue
-
-        # 1. Is it even a well-formed intent?
+        # A CRDO row typed 2026-10-29 with Qty RESERVE raised ValueError out
+        # of check_guards, and that exception escaped this loop and killed
+        # main(). Every engine run from then until 2026-11-12 died on the
+        # same row — sixteen days in which NO order for ANY ticker was
+        # evaluated, including an AAOI stop placed on 17 October. The sheet
+        # header kept updating the whole time, because that is written by a
+        # different job.
+        #
+        # The specific crash is fixed above. This is the structural fix: a
+        # row that blows up is BLOCKED, loudly, with the exception in the
+        # sheet where it can be read, and the remaining rows are processed.
+        # Losing one order is a bad day; losing all of them silently for a
+        # fortnight is a different category of failure.
         try:
-            n = oc.normalize(rec)
-        except oc.IntentError as e:
-            finish("VOID", f"MALFORMED: {e}")
-            continue
+            def note_only(validation: str):  # noqa: E306
+                """Feedback without a state change — the whole point of running
+                often. A bad row says so within minutes of being typed instead of
+                failing silently at the close."""
+                updates.append(dict(row_id=rec["Row_ID"], validation=validation))
 
-        # 1b. CHAINING. A row with After_Trigger_ID does not arm until the row
-        #     names has FILLED. Everything here is decided from the ledger,
-        #     which is the only record of what actually happened.
-        wants = n.get(oc.CHAIN_FIELD, "")
-        parent_id = chain_parent.get(rec["Row_ID"], "")
-        if wants or chain_bad.get(rec["Row_ID"]):
-            bad = chain_bad.get(rec["Row_ID"])
-            if bad:
-                # Graph-level faults (missing parent, loop, too deep) cannot be
-                # judged from one row, so they are computed across the tab and
-                # VOID here. Chakravarti asked for over-deep chains to be
-                # VISIBLE rather than silently inert, so they are flagged red
-                # on the Dashboard as well.
-                finish("VOID", bad)
+            def finish(state: str, note: str, **extra):
+                # Merge rather than splat: extra legitimately OVERRIDES a default
+                # — a derived limit_price supersedes the blank one in the sheet —
+                # and **extra alongside the same keyword is a TypeError, not an
+                # override.
+                row = dict(row_id=rec["Row_ID"], fingerprint=fp_of(rec),
+                           state=state, note=note, acct=rec["Acct"],
+                           ticker=rec["Ticker"], side=rec["Side"],
+                           close_is=rec["Close_Is"], qty=rec["Qty"],
+                           trigger_price=rec["Trigger_Price"],
+                           limit_price=rec["Limit_Price"])
+                row.update(extra)
+                append_ledger(row)
+                audit(row_id=rec["Row_ID"], state=state, note=note)
+                updates.append(dict(row_id=rec["Row_ID"], state=state, note=note))
+                _log(f"   {rid:<26} {state:<10} {note}")
+
+
+            prior = states.get(rec["Row_ID"], {})
+
+            # ALREADY SUBMITTED — never send it again. SUBMITTED is a live state
+            # (the order can still be cancelled or rejected) so the row is still
+            # re-read each cycle, but re-SUBMITTING it is a different thing
+            # entirely: the trigger condition stays true after firing, so every
+            # subsequent run placed the same order again.
+            #
+            # Observed 2026-09-29: one intent became THREE live TSLA orders at
+            # 13:30, 13:45 and 14:05 — one per cron tick. The idempotency key was
+            # being written to the ledger and never read back, which is the whole
+            # reason it exists.
+            done = submitted_before(ledger, rec["Row_ID"])
+            if done:
+                oid = done.get("schwab_order_id") or "(id unknown)"
+                if (done.get("submit_attempted") and not done.get("schwab_order_id")
+                        and done.get("state") not in ("SUBMITTED", "FILLED")):
+                    # A run died between the write-ahead and the outcome. Say that,
+                    # loudly — it is not routine idempotency, and only the broker
+                    # can resolve it.
+                    _log(f"🔴 {rid:<26} a previous run DIED MID-SUBMIT at "
+                         f"{str(done.get('ts',''))[:19]}. The order may or may not "
+                         f"have reached Schwab — CHECK THE ACCOUNT.")
+                    note_only(f"🔴 a run died mid-submit on "
+                              f"{str(done.get('ts',''))[:19]} — the order may or "
+                              f"may not have reached Schwab. CHECK THE ACCOUNT, "
+                              f"then use a NEW row to order again.")
+                    continue
+                _log(f"   {rid:<26} already submitted as {oid} — not resending")
+                # Carry the ORIGINAL note. Replacing it with this one destroyed the
+                # only record of why a submit failed — the sheet is often the first
+                # and sometimes the only place that gets read.
+                why = str(done.get("note", "")).strip()
+                note_only(f"⏹ already submitted as {oid} on "
+                          f"{str(done.get('ts',''))[:19]}. A Row_ID is placed ONCE; "
+                          f"use a new row to order again."
+                          + (f" [{why[:160]}]" if why else ""))
                 continue
-            pstate = states.get(parent_id, {})
-            pname = pstate.get("state", "")
-            # Shown by LABEL, which is what he typed and what he will look
-            # for; the Row_ID is noise to him.
-            lbl = f"{oc.TRIGGER_FIELD} {wants}"
-            if not pname:
-                _log(f"   {rid:<26} WAITING    on {lbl} ({parent_id})")
-                note_only(f"⏸ WAITING on {lbl} — arms when that row FILLS")
+
+            if prior.get("state") in cfg.TERMINAL_STATES:
+                # SAY SO. This exited silently and produced a run that read as
+                # "nothing to do" when the row was in fact being ignored —
+                # indistinguishable from a bug, and alarming when you are waiting
+                # for an order. A terminal row is history, but the operator has no
+                # way to know that without being told.
+                _log(f"   {rid:<26} skipped — already {prior.get('state')} in the "
+                     f"ledger. Give the row a NEW Row_ID to run it again.")
+                note_only(f"⏹ already {prior.get('state')} — this Row_ID is spent. "
+                          f"Clear column A AND change something, or use a new row.")
                 continue
-            if pname != "FILLED":
-                if pname in cfg.TERMINAL_STATES:
-                    # Cascade. The parent can no longer fill, so this row can
-                    # never arm; leaving it "waiting" would be a dead row that
-                    # looks alive, which is this sheet's recurring failure.
-                    finish("VOID", f"PARENT_{pname}: the row with {lbl} "
-                                   f"({parent_id}) ended as {pname} without "
-                                   f"filling, so this row can never arm")
+
+            # 1. Is it even a well-formed intent?
+            try:
+                n = oc.normalize(rec)
+            except oc.IntentError as e:
+                finish("VOID", f"MALFORMED: {e}")
+                continue
+
+            # 1b. CHAINING. A row with After_Trigger_ID does not arm until the row
+            #     names has FILLED. Everything here is decided from the ledger,
+            #     which is the only record of what actually happened.
+            wants = n.get(oc.CHAIN_FIELD, "")
+            parent_id = chain_parent.get(rec["Row_ID"], "")
+            if wants or chain_bad.get(rec["Row_ID"]):
+                bad = chain_bad.get(rec["Row_ID"])
+                if bad:
+                    # Graph-level faults (missing parent, loop, too deep) cannot be
+                    # judged from one row, so they are computed across the tab and
+                    # VOID here. Chakravarti asked for over-deep chains to be
+                    # VISIBLE rather than silently inert, so they are flagged red
+                    # on the Dashboard as well.
+                    finish("VOID", bad)
+                    continue
+                pstate = states.get(parent_id, {})
+                pname = pstate.get("state", "")
+                # Shown by LABEL, which is what he typed and what he will look
+                # for; the Row_ID is noise to him.
+                lbl = f"{oc.TRIGGER_FIELD} {wants}"
+                if not pname:
+                    _log(f"   {rid:<26} WAITING    on {lbl} ({parent_id})")
+                    note_only(f"⏸ WAITING on {lbl} — arms when that row FILLS")
+                    continue
+                if pname != "FILLED":
+                    if pname in cfg.TERMINAL_STATES:
+                        # Cascade. The parent can no longer fill, so this row can
+                        # never arm; leaving it "waiting" would be a dead row that
+                        # looks alive, which is this sheet's recurring failure.
+                        finish("VOID", f"PARENT_{pname}: the row with {lbl} "
+                                       f"({parent_id}) ended as {pname} without "
+                                       f"filling, so this row can never arm")
+                    else:
+                        _log(f"   {rid:<26} WAITING    on {lbl} ({pname})")
+                        note_only(f"⏸ WAITING on {lbl} — it is {pname}, "
+                                  f"arms when it FILLS")
+                    continue
+                # Parent FILLED. Qty blank means inherit what it ACTUALLY filled,
+                # which on a partial fill is the whole point: 31 of 50 bought means
+                # 31 to sell, with no hand-editing of a live row.
+                if not n["Qty"]:
+                    # FROM THE SHEET, not the ledger: LEDGER_COLS records the
+                    # quantity ORDERED, never the quantity filled. Filled_Qty is
+                    # an engine column that reconcile writes back, and on a
+                    # partial fill it is the only place the real number exists.
+                    prow = by_row_id.get(parent_id, {})
+                    got = _num_or_none(prow.get("Filled_Qty"))
+                    if not got or got <= 0:
+                        finish("VOID", f"PARENT_FILL_UNKNOWN: the row with "
+                                       f"{lbl} ({parent_id}) is FILLED but its "
+                                       f"Filled_Qty cell is empty, and this row "
+                                       f"has no Qty of its own to fall back on")
+                        continue
+                    n["Qty"] = f"{got:.2f}"
+                    note_only(f"▶ armed by {lbl} — Qty {got:g} inherited "
+                              f"from its fill")
+
+            fp = oc.fingerprint(rec)
+
+            # 2. Has a row we already acted on since been EDITED? Without a
+            #    signature this is what stops an executed intent quietly becoming a
+            #    second, different order under the same Row_ID.
+            if prior and prior.get("state") in cfg.LIVE_STATES \
+                    and prior.get("fingerprint") and prior["fingerprint"] != fp:
+                finish("VOID", "INTENT_CHANGED: this row was edited after the "
+                               "engine acted on it. Use a new Row_ID rather than "
+                               "editing a live row.")
+                continue
+
+            # 3. Expiry.
+            why = expired(n)
+            if why:
+                finish("EXPIRED" if why.startswith("EXPIRED") else "VOID", why)
+                continue
+
+            # 4. Validate NOW, price-independently, and say so in the sheet. This
+            #    is what replaced the signing key: a row that could never execute
+            #    announces itself immediately rather than at the close.
+            problem = check_guards(n, None, n_sub, notional_today, acct_state)
+            if problem:
+                note_only(f"⛔ {problem}")
+                _log(f"   {rid:<26} WOULD BLOCK  {problem}")
+                continue
+            # ⏳ NOT ✅. This is the price-INDEPENDENT validation, written all day;
+            # the trigger is only evaluated after 13:15 PT, when it is replaced by
+            # "⏳ waiting — close X, needs below Y". A green tick read as "this
+            # fired" — Chakravarti asked why rows had gone green when the
+            # conditions plainly had not met. Nothing has happened until something
+            # has, so both pre-close and post-close states say so.
+            msg = (f"⏳ ARMED — {oc.describe(rec)}"
+                   f"  ·  the close is checked after 13:15 PT")
+            if not n["Limit_Price"] and n["Side"] == "BUY" and cfg.WARN_MARKET_BUY:
+                # Not an error, but the one place a blank limit usually is a
+                # mistake: an entry has no urgency, so chasing a gap up is all
+                # cost and no benefit.
+                msg += ("  ⚠️ MARKET BUY — will pay whatever it opens at. A gap up "
+                        "means overpaying for a setup that no longer exists. "
+                        "Consider a limit.")
+                _log(f"   {rid:<26} ⚠️  market BUY with no limit price")
+            note_only(msg)
+
+            if not after_close:
+                continue
+
+            # 5. The close.
+            close, note = daily_close(client, n["Ticker"])
+            if close is None:
+                # Leave it ARMED. Never advance a row on a price we could not read.
+                _log(f"   {rid:<26} ARMED      no price: {note}")
+                continue
+
+            dis = cross_check(close, n["Ticker"])
+            if dis:
+                _log(f"   {rid:<26} ARMED      {dis}")
+                continue
+
+            trig = float(n["Trigger_Price"]) if n["Trigger_Price"] else None
+            lab, conf = ("", "")
+            if oc.wanted_labels(n["Close_Is"]):
+                lab, conf = structure_of(n["Ticker"])
+            fired, why = triggered(n["Close_Is"], close, trig, side=n["Side"],
+                                   label=lab, confirmed=conf,
+                                   since=str(rec.get("Date", "")).strip()[:10])
+            if not fired:
+                _log(f"   {rid:<26} ARMED      {why}")
+                note_only(f"⏳ waiting — {why}")
+                continue
+
+            # 5b. TURN DOLLARS INTO WHOLE SHARES, now that there is a price.
+            #     $730 and RESERVE cannot be resolved when the row is typed —
+            #     neither knows what a share will cost on the day it fires.
+            #
+            #     RESERVE is the one that closes the round trip: sell AAOI, the
+            #     proceeds land in that ticker's fenced reserve where nothing else
+            #     can spend them, and the buy-back spends exactly what came in.
+            #     This is also the first place available_to_buy() has ever been
+            #     consulted by the order path — PROJECT_PLAN §4 has carried "the
+            #     reserve gate is not wired in" as a defect since it was written.
+            kind = oc.qty_kind(n["Qty"])
+            if kind in ("dollars", "reserve"):
+                px_for_qty = _num_or_none(n["Limit_Price"]) or close
+                if kind == "dollars":
+                    budget = float(n["Qty"].lstrip("$"))
+                    src = f"${budget:,.2f} budget"
                 else:
-                    _log(f"   {rid:<26} WAITING    on {lbl} ({pname})")
-                    note_only(f"⏸ WAITING on {lbl} — it is {pname}, "
-                              f"arms when it FILLS")
-                continue
-            # Parent FILLED. Qty blank means inherit what it ACTUALLY filled,
-            # which on a partial fill is the whole point: 31 of 50 bought means
-            # 31 to sell, with no hand-editing of a live row.
-            if not n["Qty"]:
-                # FROM THE SHEET, not the ledger: LEDGER_COLS records the
-                # quantity ORDERED, never the quantity filled. Filled_Qty is
-                # an engine column that reconcile writes back, and on a
-                # partial fill it is the only place the real number exists.
-                prow = by_row_id.get(parent_id, {})
-                got = _num_or_none(prow.get("Filled_Qty"))
-                if not got or got <= 0:
-                    finish("VOID", f"PARENT_FILL_UNKNOWN: the row with "
-                                   f"{lbl} ({parent_id}) is FILLED but its "
-                                   f"Filled_Qty cell is empty, and this row "
-                                   f"has no Qty of its own to fall back on")
-                    continue
-                n["Qty"] = f"{got:.2f}"
-                note_only(f"▶ armed by {lbl} — Qty {got:g} inherited "
-                          f"from its fill")
-
-        fp = oc.fingerprint(rec)
-
-        # 2. Has a row we already acted on since been EDITED? Without a
-        #    signature this is what stops an executed intent quietly becoming a
-        #    second, different order under the same Row_ID.
-        if prior and prior.get("state") in cfg.LIVE_STATES \
-                and prior.get("fingerprint") and prior["fingerprint"] != fp:
-            finish("VOID", "INTENT_CHANGED: this row was edited after the "
-                           "engine acted on it. Use a new Row_ID rather than "
-                           "editing a live row.")
-            continue
-
-        # 3. Expiry.
-        why = expired(n)
-        if why:
-            finish("EXPIRED" if why.startswith("EXPIRED") else "VOID", why)
-            continue
-
-        # 4. Validate NOW, price-independently, and say so in the sheet. This
-        #    is what replaced the signing key: a row that could never execute
-        #    announces itself immediately rather than at the close.
-        problem = check_guards(n, None, n_sub, notional_today, acct_state)
-        if problem:
-            note_only(f"⛔ {problem}")
-            _log(f"   {rid:<26} WOULD BLOCK  {problem}")
-            continue
-        # ⏳ NOT ✅. This is the price-INDEPENDENT validation, written all day;
-        # the trigger is only evaluated after 13:15 PT, when it is replaced by
-        # "⏳ waiting — close X, needs below Y". A green tick read as "this
-        # fired" — Chakravarti asked why rows had gone green when the
-        # conditions plainly had not met. Nothing has happened until something
-        # has, so both pre-close and post-close states say so.
-        msg = (f"⏳ ARMED — {oc.describe(rec)}"
-               f"  ·  the close is checked after 13:15 PT")
-        if not n["Limit_Price"] and n["Side"] == "BUY" and cfg.WARN_MARKET_BUY:
-            # Not an error, but the one place a blank limit usually is a
-            # mistake: an entry has no urgency, so chasing a gap up is all
-            # cost and no benefit.
-            msg += ("  ⚠️ MARKET BUY — will pay whatever it opens at. A gap up "
-                    "means overpaying for a setup that no longer exists. "
-                    "Consider a limit.")
-            _log(f"   {rid:<26} ⚠️  market BUY with no limit price")
-        note_only(msg)
-
-        if not after_close:
-            continue
-
-        # 5. The close.
-        close, note = daily_close(client, n["Ticker"])
-        if close is None:
-            # Leave it ARMED. Never advance a row on a price we could not read.
-            _log(f"   {rid:<26} ARMED      no price: {note}")
-            continue
-
-        dis = cross_check(close, n["Ticker"])
-        if dis:
-            _log(f"   {rid:<26} ARMED      {dis}")
-            continue
-
-        trig = float(n["Trigger_Price"]) if n["Trigger_Price"] else None
-        lab, conf = ("", "")
-        if oc.wanted_labels(n["Close_Is"]):
-            lab, conf = structure_of(n["Ticker"])
-        fired, why = triggered(n["Close_Is"], close, trig, side=n["Side"],
-                               label=lab, confirmed=conf,
-                               since=str(rec.get("Date", "")).strip()[:10])
-        if not fired:
-            _log(f"   {rid:<26} ARMED      {why}")
-            note_only(f"⏳ waiting — {why}")
-            continue
-
-        # 5b. TURN DOLLARS INTO WHOLE SHARES, now that there is a price.
-        #     $730 and RESERVE cannot be resolved when the row is typed —
-        #     neither knows what a share will cost on the day it fires.
-        #
-        #     RESERVE is the one that closes the round trip: sell AAOI, the
-        #     proceeds land in that ticker's fenced reserve where nothing else
-        #     can spend them, and the buy-back spends exactly what came in.
-        #     This is also the first place available_to_buy() has ever been
-        #     consulted by the order path — PROJECT_PLAN §4 has carried "the
-        #     reserve gate is not wired in" as a defect since it was written.
-        kind = oc.qty_kind(n["Qty"])
-        if kind in ("dollars", "reserve"):
-            px_for_qty = _num_or_none(n["Limit_Price"]) or close
-            if kind == "dollars":
-                budget = float(n["Qty"].lstrip("$"))
-                src = f"${budget:,.2f} budget"
-            else:
-                import cash_reserve as cr
-                res = cr.available_to_buy(n["Acct"], n["Ticker"],
-                                          log=lambda *_: None)
-                if not res.get("allowed"):
+                    import cash_reserve as cr
+                    res = cr.available_to_buy(n["Acct"], n["Ticker"],
+                                              log=lambda *_: None)
+                    if not res.get("allowed"):
+                        finish("BLOCKED",
+                               f"NO_RESERVE: {res.get('reason')}. A RESERVE row "
+                               f"needs the ticker fenced — until then there is no "
+                               f"pot to spend and no way to tell this apart from "
+                               f"spending the whole account.",
+                               trigger_close=f"{close:.2f}")
+                        continue
+                    budget = float(res.get("available") or 0.0)
+                    src = f"${budget:,.2f} reserved"
+                shares = int(budget // px_for_qty) if px_for_qty > 0 else 0
+                if shares <= 0:
                     finish("BLOCKED",
-                           f"NO_RESERVE: {res.get('reason')}. A RESERVE row "
-                           f"needs the ticker fenced — until then there is no "
-                           f"pot to spend and no way to tell this apart from "
-                           f"spending the whole account.",
-                           trigger_close=f"{close:.2f}")
+                           f"BUDGET_TOO_SMALL: {src} buys 0 whole shares at "
+                           f"{px_for_qty:,.2f}. Blocked rather than rounded to "
+                           f"nothing.", trigger_close=f"{close:.2f}")
                     continue
-                budget = float(res.get("available") or 0.0)
-                src = f"${budget:,.2f} reserved"
-            shares = int(budget // px_for_qty) if px_for_qty > 0 else 0
-            if shares <= 0:
-                finish("BLOCKED",
-                       f"BUDGET_TOO_SMALL: {src} buys 0 whole shares at "
-                       f"{px_for_qty:,.2f}. Blocked rather than rounded to "
-                       f"nothing.", trigger_close=f"{close:.2f}")
+                _log(f"   {rid:<26} {src} ÷ {px_for_qty:,.2f} = {shares} share(s)")
+                note_only(f"▶ {src} ÷ {px_for_qty:,.2f} → {shares} whole share(s)")
+                n["Qty"] = f"{shares:.2f}"
+
+            # 6. Triggered. Every guard again, now with the close.
+            block = check_guards(n, close, n_sub, notional_today, acct_state)
+            if block:
+                finish("BLOCKED", block, trigger_close=f"{close:.2f}")
                 continue
-            _log(f"   {rid:<26} {src} ÷ {px_for_qty:,.2f} = {shares} share(s)")
-            note_only(f"▶ {src} ÷ {px_for_qty:,.2f} → {shares} whole share(s)")
-            n["Qty"] = f"{shares:.2f}"
 
-        # 6. Triggered. Every guard again, now with the close.
-        block = check_guards(n, close, n_sub, notional_today, acct_state)
-        if block:
-            finish("BLOCKED", block, trigger_close=f"{close:.2f}")
-            continue
+            # 7. Write-ahead BEFORE the call, so a crash mid-submit is detectable
+            #    rather than silently repeatable.
+            idem = oc.idempotency_key(n["Row_ID"], fp)
+            append_ledger(dict(row_id=n["Row_ID"], fingerprint=fp,
+                               state="TRIGGERED", note=f"close {close:.2f}",
+                               acct=n["Acct"], ticker=n["Ticker"], side=n["Side"],
+                               close_is=n["Close_Is"],
+                               qty=n["Qty"], trigger_price=n["Trigger_Price"],
+                               limit_price=n["Limit_Price"],
+                               trigger_close=f"{close:.2f}", idem_key=idem,
+                               submit_attempted="1" if cfg.LIVE_TRADING else ""))
 
-        # 7. Write-ahead BEFORE the call, so a crash mid-submit is detectable
-        #    rather than silently repeatable.
-        idem = oc.idempotency_key(n["Row_ID"], fp)
-        append_ledger(dict(row_id=n["Row_ID"], fingerprint=fp,
-                           state="TRIGGERED", note=f"close {close:.2f}",
-                           acct=n["Acct"], ticker=n["Ticker"], side=n["Side"],
-                           close_is=n["Close_Is"],
-                           qty=n["Qty"], trigger_price=n["Trigger_Price"],
-                           limit_price=n["Limit_Price"],
-                           trigger_close=f"{close:.2f}", idem_key=idem,
-                           submit_attempted="1" if cfg.LIVE_TRADING else ""))
+            if not cfg.LIVE_TRADING:
+                # Validate against Schwab rather than merely asserting we would
+                # have. A dry run that never touches the broker cannot tell you the
+                # payload is wrong, which is the failure it most needs to catch.
+                px, why = resolve_limit(client, n, log=_log)
+                ok, pnote = preview(client, n, log=_log)
+                finish("TRIGGERED" if ok else "BLOCKED",
+                       f"DRY RUN at close {close:.2f} — would place GTC LIMIT "
+                       f"{px if px else '??'} ({cfg.ORDER_SESSION}) ({why}). "
+                       f"{pnote}. "
+                       f"Set ORDER_ENGINE_LIVE=1 to place for real.",
+                       trigger_close=f"{close:.2f}", limit_price=px or "",
+                       idem_key=idem)
+                continue
 
-        if not cfg.LIVE_TRADING:
-            # Validate against Schwab rather than merely asserting we would
-            # have. A dry run that never touches the broker cannot tell you the
-            # payload is wrong, which is the failure it most needs to catch.
-            px, why = resolve_limit(client, n, log=_log)
-            ok, pnote = preview(client, n, log=_log)
-            finish("TRIGGERED" if ok else "BLOCKED",
-                   f"DRY RUN at close {close:.2f} — would place GTC LIMIT "
-                   f"{px if px else '??'} ({cfg.ORDER_SESSION}) ({why}). "
-                   f"{pnote}. "
-                   f"Set ORDER_ENGINE_LIVE=1 to place for real.",
-                   trigger_close=f"{close:.2f}", limit_price=px or "",
-                   idem_key=idem)
-            continue
+            # Resting sells that would starve this one of shares.
+            #
+            # FETCHED LAZILY, ONCE. This used to reference an `orders_df` that was
+            # never defined in main() — a NameError that crashed the engine the
+            # FIRST time a SELL triggered, on 2026-10-06. It had gone unnoticed
+            # because the only earlier trigger was a BUY, which never reaches this
+            # branch. Fetching here rather than up front keeps the cost on the
+            # path that actually needs it.
+            conflicts, cnote = ([], "")
+            if n["Side"] == "SELL" and not args.no_cancel:
+                if orders_df is None:
+                    try:
+                        from stocks_orders import build_orders_table
+                        orders_df = build_orders_table(client, open_only=True,
+                                                       restrict_to_tickers=False,
+                                                       log=_log)
+                        _log(f"   open orders at Schwab: "
+                             f"{0 if orders_df is None else len(orders_df)}")
+                    except Exception as e:
+                        # Fail CLOSED. Not knowing what rests at Schwab means not
+                        # knowing whether the shares are free, and placing anyway
+                        # is how an exit fails at the moment it matters.
+                        finish("BLOCKED", f"NO_OPEN_ORDERS: cannot read resting "
+                                          f"orders ({type(e).__name__}: {e}) — not "
+                                          f"placing without knowing what they hold",
+                               trigger_close=f"{close:.2f}", submit_cleared="1")
+                        continue
+                held = (acct_state or {}).get("positions", {}).get(
+                    (n["Acct"], n["Ticker"]), 0.0)
+                conflicts, cnote = conflicting_sells(orders_df, n["Acct"],
+                                                     n["Ticker"], held,
+                                                     float(n["Qty"]))
+                if cnote:
+                    _log(f"   {cnote}")
 
-        # Resting sells that would starve this one of shares.
-        #
-        # FETCHED LAZILY, ONCE. This used to reference an `orders_df` that was
-        # never defined in main() — a NameError that crashed the engine the
-        # FIRST time a SELL triggered, on 2026-10-06. It had gone unnoticed
-        # because the only earlier trigger was a BUY, which never reaches this
-        # branch. Fetching here rather than up front keeps the cost on the
-        # path that actually needs it.
-        conflicts, cnote = ([], "")
-        if n["Side"] == "SELL" and not args.no_cancel:
-            if orders_df is None:
-                try:
-                    from stocks_orders import build_orders_table
-                    orders_df = build_orders_table(client, open_only=True,
-                                                   restrict_to_tickers=False,
-                                                   log=_log)
-                    _log(f"   open orders at Schwab: "
-                         f"{0 if orders_df is None else len(orders_df)}")
-                except Exception as e:
-                    # Fail CLOSED. Not knowing what rests at Schwab means not
-                    # knowing whether the shares are free, and placing anyway
-                    # is how an exit fails at the moment it matters.
-                    finish("BLOCKED", f"NO_OPEN_ORDERS: cannot read resting "
-                                      f"orders ({type(e).__name__}: {e}) — not "
-                                      f"placing without knowing what they hold",
-                           trigger_close=f"{close:.2f}", submit_cleared="1")
-                    continue
-            held = (acct_state or {}).get("positions", {}).get(
-                (n["Acct"], n["Ticker"]), 0.0)
-            conflicts, cnote = conflicting_sells(orders_df, n["Acct"],
-                                                 n["Ticker"], held,
-                                                 float(n["Qty"]))
-            if cnote:
-                _log(f"   {cnote}")
+            oid, snote, certain_not_placed = submit(client, n, idem,
+                                                    conflicts=conflicts)
+            if conflicts and oid:
+                snote += (f" · cancelled {len(conflicts)} resting sell(s) first: "
+                          + ", ".join(c["id"] for c in conflicts))
+            if oid:
+                n_sub += 1
+                if n_sub >= cfg.WARN_SUBMISSIONS_PER_DAY:
+                    _log(f"⚠️  that was order {n_sub} of a possible "
+                         f"{cfg.MAX_SUBMISSIONS_PER_DAY} today")
+                notional_today += float(n["Qty"]) * float(n["Limit_Price"] or close)
+                finish("SUBMITTED", snote, trigger_close=f"{close:.2f}",
+                       idem_key=idem, schwab_order_id=oid, submit_attempted="1")
+            else:
+                # CLEAR THE WRITE-AHEAD when submit is certain nothing was sent.
+                # The marker exists to catch a crash mid-call; treating a clean
+                # rejection the same way made the row permanently unretryable and
+                # then overwrote the real reason with "already submitted as (id
+                # unknown)" on the next cycle. Observed on LITE, 2026-10-06.
+                finish("BLOCKED", snote, trigger_close=f"{close:.2f}", idem_key=idem,
+                       submit_cleared="1" if certain_not_placed else "")
+                if certain_not_placed:
+                    _log("   nothing reached Schwab — this row can trigger again")
 
-        oid, snote, certain_not_placed = submit(client, n, idem,
-                                                conflicts=conflicts)
-        if conflicts and oid:
-            snote += (f" · cancelled {len(conflicts)} resting sell(s) first: "
-                      + ", ".join(c["id"] for c in conflicts))
-        if oid:
-            n_sub += 1
-            if n_sub >= cfg.WARN_SUBMISSIONS_PER_DAY:
-                _log(f"⚠️  that was order {n_sub} of a possible "
-                     f"{cfg.MAX_SUBMISSIONS_PER_DAY} today")
-            notional_today += float(n["Qty"]) * float(n["Limit_Price"] or close)
-            finish("SUBMITTED", snote, trigger_close=f"{close:.2f}",
-                   idem_key=idem, schwab_order_id=oid, submit_attempted="1")
-        else:
-            # CLEAR THE WRITE-AHEAD when submit is certain nothing was sent.
-            # The marker exists to catch a crash mid-call; treating a clean
-            # rejection the same way made the row permanently unretryable and
-            # then overwrote the real reason with "already submitted as (id
-            # unknown)" on the next cycle. Observed on LITE, 2026-10-06.
-            finish("BLOCKED", snote, trigger_close=f"{close:.2f}", idem_key=idem,
-                   submit_cleared="1" if certain_not_placed else "")
-            if certain_not_placed:
-                _log("   nothing reached Schwab — this row can trigger again")
-
-    # Mirror state back into the engine columns. Best effort: the ledger is the
-    # record, the sheet is a view of it.
+        # Mirror state back into the engine columns. Best effort: the ledger is the
+        # record, the sheet is a view of it.
+        except Exception as e:                       # noqa: BLE001
+            import traceback
+            _log(f"   {rid:<26} 🔴 CRASHED   {type(e).__name__}: {e}")
+            _log(traceback.format_exc())
+            updates.append(dict(
+                row_id=rec.get("Row_ID", ""),
+                validation=(f"⛔ ENGINE_ERROR: {type(e).__name__}: {e} — "
+                            f"this row crashed the evaluator and was "
+                            f"skipped. The other rows still ran.")))
     try:
         # Re-read column A and map id -> CURRENT row. Rows may have been
         # inserted above these while the cycle ran — the whole point of adding
