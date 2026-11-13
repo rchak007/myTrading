@@ -1467,6 +1467,12 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         print(f"⚠️  ticker notes unavailable: {e}")
         notes = {}
 
+    try:
+        import ticker_notes
+        seen = ticker_notes.attended()
+    except Exception:                                   # noqa: BLE001
+        seen = {}
+
     beth = _beth_tickers()
     watch_only = sorted(beth - set(str(t).upper() for t in order))
     if watch_only:
@@ -1501,7 +1507,20 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         # The BETH tag sits in column C, beside the POSITIONS label, so it
         # reads at a glance while scrolling without costing a row.
         on_beth = str(ticker).upper() in beth
-        hdr_row = add([ticker, "POSITIONS", "BETH" if on_beth else ""])
+        # LAST ATTENDED sits in column D, beside the BETH tag. The value of
+        # it is comparative — across 140 blocks you are scanning for the
+        # ones with no date or an old one, which is why the age in days is
+        # shown rather than only the date.
+        att = seen.get(str(ticker).upper(), "")
+        if att:
+            try:
+                from datetime import date as _d
+                y, m, dd = (int(x) for x in att.split("-"))
+                age = (_d.today() - _d(y, m, dd)).days
+                att = f"✓ {att}" + (f" ({age}d ago)" if age else " (today)")
+            except Exception:                           # noqa: BLE001
+                att = f"✓ {att}"
+        hdr_row = add([ticker, "POSITIONS", "BETH" if on_beth else "", att])
         marks["ticker"].append(hdr_row)
         if on_beth:
             marks["beth"].append(hdr_row)

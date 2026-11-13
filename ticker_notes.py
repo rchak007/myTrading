@@ -46,7 +46,16 @@ STATE_DIR = Path(os.environ.get(
 NOTES_PATH = STATE_DIR / "ticker_notes.csv"
 
 COLS = ["Timestamp_PST", "Event_ID", "Ticker", "Action", "Text", "Source"]
-ACTIONS = {"ADD", "REPLACE", "DELETE"}
+
+# ATTENDED is a note action, not a separate ledger. Chakravarti,
+# 2026-11-13: *"since i am managing so many tickers - i also need a verb
+# called lastAttendedTo ... so when i browse i know which i took care of."*
+#
+# It rides here because it is the same shape as a note — per-ticker,
+# dated, append-only — and because the history then lives in one file. An
+# ATTENDED row carries no text and never appears in the note itself; it is
+# folded separately by attended().
+ACTIONS = {"ADD", "REPLACE", "DELETE", "ATTENDED"}
 
 # One note should not be able to push a Dashboard row past what Sheets will
 # render, or bury the numbers underneath it.
@@ -98,6 +107,38 @@ def _append(ticker: str, action: str, text: str, source: str,
         finally:
             fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
     log(f"ticker_notes: {action} {tkr(ticker)} -> {path}")
+
+
+def attend(ticker, source="cli", path: Path = NOTES_PATH, log=print) -> str:
+    """Stamp a ticker as looked-at today. Returns the date written."""
+    _append(ticker, "ATTENDED", "", source, path=path, log=log)
+    return _now()[:10]
+
+
+def attended(path: Path = NOTES_PATH) -> dict[str, str]:
+    """{TICKER: YYYY-MM-DD} — the LAST time each was attended to.
+
+    Last, not first: re-attending overwrites, because the question is
+    always "when did I last look at this", never "when did I start".
+    """
+    out: dict[str, str] = {}
+    for r in read_log(path):
+        if str(r.get("Action", "")).strip().upper() == "ATTENDED":
+            out[tkr(r.get("Ticker"))] = str(r.get("Timestamp_PST", ""))[:10]
+    return out
+
+
+def days_since(ticker, path: Path = NOTES_PATH):
+    """Whole days since this ticker was attended to, or None."""
+    from datetime import date as _date
+    d = attended(path).get(tkr(ticker))
+    if not d:
+        return None
+    try:
+        y, m, dd = (int(x) for x in d.split("-"))
+        return (_date.today() - _date(y, m, dd)).days
+    except Exception:                                    # noqa: BLE001
+        return None
 
 
 # ---------------------------------------------------------------------

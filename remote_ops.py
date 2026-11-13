@@ -255,6 +255,8 @@ PY_VERBS = {
     "park":         (True,  False),
     "unpark":       (True,  False),
     "parked":       (False, False),
+    "attend":       (True,  False),
+    "attended":     (False, False),
     "dash_doc":     (False, False),
     # Rebuild the sheet tabs now instead of waiting for :15 / :50. Launches
     # detached and returns at once — see _run_signals for why it must not
@@ -677,6 +679,28 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
         out.append("Run run_signals to refresh the sheet columns.")
         return 0, "\n".join(out)
 
+    # "I have looked at this one." A date, nothing else — the point is to
+    # see at a glance which of 140 tickers have had attention and which
+    # have been sitting untouched for a month.
+    if verb in ("attend", "attended"):
+        import ticker_notes
+        if verb == "attended":
+            seen = ticker_notes.attended()
+            if not seen:
+                return 0, "nothing attended to yet"
+            rows = sorted(seen.items(), key=lambda kv: kv[1])
+            return 0, "\n".join(
+                f"  {t:<8} {d}  ({ticker_notes.days_since(t)}d ago)"
+                for t, d in rows)
+        t = arg.split()[0] if arg.split() else ""
+        if not t:
+            return 2, "need a TICKER\n  e.g.  attend  NEE"
+        out = []
+        when = ticker_notes.attend(t, source="ops_sheet", log=out.append)
+        out.append(f"{ticker_notes.tkr(t)} marked attended {when}")
+        out.append("Run run_signals to show it on the Dashboard.")
+        return 0, "\n".join(out)
+
     if verb == "parked":
         import parked
         return 0, "\n".join(parked.render())
@@ -912,6 +936,12 @@ VERB_DOCS = [
 
     ("run_signals", "—", "run_signals", "Rebuild Positions, Cash, Dashboard and the reserve tables now instead of waiting for the next cron. Returns as soon as it LAUNCHES; watch with tail_log stocks."),
     ("reserves", "—", "reserves", "The whole reserve table: what is fenced, deployed and available per ticker."),
+    ("attend", "TICKER", "attend  NEE",
+     "Mark a ticker as looked-at today. The date shows in its Dashboard "
+     "block, so browsing 140 names you can see which have had attention "
+     "and which have sat untouched for a month."),
+    ("attended", "—", "attended",
+     "Every ticker you have attended to, oldest first, with how long ago."),
     ("park", "ACCT OWNER VEHICLE QTY", "park  922 NEE QQQ 1",
      "Record that shares of VEHICLE are held on OWNER's behalf — you sold "
      "NEE, bought QQQ with the proceeds, and that QQQ belongs to NEE until "
