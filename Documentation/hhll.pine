@@ -1,7 +1,4 @@
-//@version=5
-// NOTE: //@version=5 MUST be the first line of the file. It was below this
-// comment block and Pine rejected the whole script at line 1 with
-// 'end of line without line continuation'.
+//@version=6
 // myTrading HH/HL/LH/LL - the structure the order engine actually reads.
 //
 // The Orders tab's HH/HL/LH/LL triggers are evaluated against hhll.py, not
@@ -28,8 +25,14 @@
 // The chart cannot know your row's date, so a label here is necessary but
 // not sufficient. Compare the Dashboard STRUCTURE row's Confirmed date.
 //
-// Every statement is on ONE line on purpose: Pine's line-continuation rule
-// inside a multi-line call is what rejected the first version of this file.
+// Pine notes, learned the hard way:
+//   - the //@version line must be the FIRST line of the file
+//   - function parameters are left UNTYPED here, which is valid in
+//     both v5 and v6; typed params are a v6-only syntax
+//   - every statement on one line; the continuation rule inside a
+//     multi-line call is stricter than it looks
+// All three report as 'end of line without line continuation' at
+// line 1, which tells you nothing about any of them.
 
 indicator("myTrading HH/HL/LH/LL", overlay = true, max_labels_count = 500, max_lines_count = 500)
 
@@ -57,10 +60,10 @@ var label curLab = na
 
 pivBar = bar_index - prd
 
-labelFor(bool isHigh, float price) =>
+labelFor(isHigh, price) =>
     isHigh ? (na(prevH) or price > prevH ? "HH" : "LH") : (na(prevL) or price > prevL ? "HL" : "LL")
 
-draw(bool isHigh, float price, int b) =>
+draw(isHigh, price, b) =>
     txt = labelFor(isHigh, price)
     col = txt == "HH" or txt == "HL" ? color.green : color.red
     sty = isHigh ? label.style_label_down : label.style_label_up
