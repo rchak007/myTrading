@@ -1,4 +1,8 @@
-// myTrading HH/HL/LH/LL — the structure the order engine actually reads.
+//@version=5
+// NOTE: //@version=5 MUST be the first line of the file. It was below this
+// comment block and Pine rejected the whole script at line 1 with
+// 'end of line without line continuation'.
+// myTrading HH/HL/LH/LL - the structure the order engine actually reads.
 //
 // The Orders tab's HH/HL/LH/LL triggers are evaluated against hhll.py, not
 // against whatever indicator is on the chart. The two kept disagreeing, so
@@ -11,7 +15,7 @@
 // Faithful to hhll.py in all four stages:
 //   1. symmetric window pivots, TIES ALLOWED (>= / <=, like Pine's own)
 //   2. confirmed prd bars AFTER the pivot bar, never on the bar itself
-//   3. zigzag alternation — consecutive same-kind pivots collapse to the
+//   3. zigzag alternation - consecutive same-kind pivots collapse to the
 //      more extreme one rather than both surviving
 //   4. labels vs the previous pivot OF THE SAME KIND
 //      high -> HH if above the last high, else LH
@@ -20,17 +24,16 @@
 // Regime is close-based, never wicks.
 //
 // WHAT THIS CANNOT SHOW YOU: the engine will not fire on a pivot confirmed
-// BEFORE the row was typed — "the next HL" has to mean new since you asked.
+// BEFORE the row was typed - "the next HL" has to mean new since you asked.
 // The chart cannot know your row's date, so a label here is necessary but
 // not sufficient. Compare the Dashboard STRUCTURE row's Confirmed date.
 //
 // Every statement is on ONE line on purpose: Pine's line-continuation rule
 // inside a multi-line call is what rejected the first version of this file.
 
-//@version=5
 indicator("myTrading HH/HL/LH/LL", overlay = true, max_labels_count = 500, max_lines_count = 500)
 
-prd = input.int(2, "ZigZag Period — hhll.py uses 2, TradingView's default is 10", minval = 1)
+prd = input.int(2, "ZigZag Period - hhll.py uses 2, TradingView's default is 10", minval = 1)
 showSR = input.bool(true, "Show support / resistance levels")
 showRgm = input.bool(true, "Colour bars by regime")
 
@@ -109,7 +112,7 @@ barcolor(showRgm ? bcol : na)
 
 // Read-out, to compare against the Dashboard STRUCTURE row.
 var table tb = table.new(position.top_right, 2, 3, border_width = 1)
-curLabel = na(side) ? "—" : side == "H" ? labelFor(true, lastH) : labelFor(false, lastL)
+curLabel = na(side) ? "-" : side == "H" ? labelFor(true, lastH) : labelFor(false, lastL)
 curPrice = na(side) ? na : side == "H" ? lastH : lastL
 
 if barstate.islast
