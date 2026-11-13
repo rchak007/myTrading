@@ -256,7 +256,7 @@ PY_VERBS = {
     "unpark":       (True,  False),
     "parked":       (False, False),
     "attend":       (True,  False),
-    "attended":     (False, False),
+    "attend_list":  (False, False),
     "dash_doc":     (False, False),
     # Rebuild the sheet tabs now instead of waiting for :15 / :50. Launches
     # detached and returns at once — see _run_signals for why it must not
@@ -682,9 +682,9 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
     # "I have looked at this one." A date, nothing else — the point is to
     # see at a glance which of 140 tickers have had attention and which
     # have been sitting untouched for a month.
-    if verb in ("attend", "attended"):
+    if verb in ("attend", "attend_list"):
         import ticker_notes
-        if verb == "attended":
+        if verb == "attend_list":
             seen = ticker_notes.attended()
             if not seen:
                 return 0, "nothing attended to yet"
@@ -940,8 +940,10 @@ VERB_DOCS = [
      "Mark a ticker as looked-at today. The date shows in its Dashboard "
      "block, so browsing 140 names you can see which have had attention "
      "and which have sat untouched for a month."),
-    ("attended", "—", "attended",
-     "Every ticker you have attended to, oldest first, with how long ago."),
+    ("attend_list", "—", "attend_list",
+     "READ-ONLY. Lists every ticker you have attended to, oldest first, "
+     "with how long ago. Writes nothing — it was called `attended` for "
+     "one commit and read like an action that marks everything."),
     ("park", "ACCT OWNER VEHICLE QTY", "park  922 NEE QQQ 1",
      "Record that shares of VEHICLE are held on OWNER's behalf — you sold "
      "NEE, bought QQQ with the proceeds, and that QQQ belongs to NEE until "
