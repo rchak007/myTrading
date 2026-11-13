@@ -255,6 +255,7 @@ PY_VERBS = {
     "park":         (True,  False),
     "unpark":       (True,  False),
     "parked":       (False, False),
+    "orders_columns": (False, False),
     "attend":       (True,  False),
     "attend_list":  (False, False),
     "dash_doc":     (False, False),
@@ -701,6 +702,27 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
         out.append("Run run_signals to show it on the Dashboard.")
         return 0, "\n".join(out)
 
+    # ADD MISSING ORDERS COLUMNS, from the sheet. This existed only as a
+    # script run on Pi 1 — and needing SSH to finish a feature is exactly
+    # the dependency this channel was built to remove. Chakravarti,
+    # 2026-11-13: *"I dont have access to Pi1 for now."*
+    #
+    # DRY RUN unless the argument is literally "apply", because it inserts
+    # columns into the tab he types into.
+    if verb == "orders_columns":
+        import subprocess as sp
+        py = REPO / ".venv" / "bin" / "python"
+        cmd = [str(py), str(REPO / "orders_add_columns.py")]
+        if (arg or "").strip().lower() == "apply":
+            cmd.append("--apply")
+        r = sp.run(cmd, cwd=str(REPO), capture_output=True, text=True,
+                   timeout=120)
+        out = (r.stdout or "") + (r.stderr or "")
+        if "--apply" not in cmd:
+            out += ("\n\nThis was a DRY RUN. To actually insert:\n"
+                    "    orders_columns   apply")
+        return r.returncode, out.strip()
+
     if verb == "parked":
         import parked
         return 0, "\n".join(parked.render())
@@ -936,6 +958,11 @@ VERB_DOCS = [
 
     ("run_signals", "—", "run_signals", "Rebuild Positions, Cash, Dashboard and the reserve tables now instead of waiting for the next cron. Returns as soon as it LAUNCHES; watch with tail_log stocks."),
     ("reserves", "—", "reserves", "The whole reserve table: what is fenced, deployed and available per ticker."),
+    ("orders_columns", "— or 'apply'", "orders_columns  apply",
+     "Add any missing HUMAN columns to the Orders tab (Trigger_ID, "
+     "After_Trigger_ID, Trigger_Ticker). DRY RUN with no argument; pass "
+     "'apply' to actually insert. Idempotent, and insert_cols shifts cells "
+     "RIGHT so no data is at risk. Replaces needing SSH to Pi 1."),
     ("attend", "TICKER", "attend  NEE",
      "Mark a ticker as looked-at today. The date shows in its Dashboard "
      "block, so browsing 140 names you can see which have had attention "
