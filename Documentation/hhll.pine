@@ -1,0 +1,172 @@
+// =====================================================================
+// myTrading HH/HL/LH/LL — the EXACT structure the order engine reads
+// =====================================================================
+//
+// Why this exists. Chakravarti kept seeing an HL on TradingView while the
+// engine said LH or LL, and typed structure triggers against the wrong
+// one — "It closed on HL, should this fire tomorrow?" when our detector
+// had not confirmed one. The Orders tab's HH/HL/LH/LL conditions are
+// evaluated against hhll.py, not against whatever indicator is on the
+// chart. This is hhll.py, in Pine, so the two agree.
+//
+// THE USUAL CAUSE OF DISAGREEMENT IS THE PERIOD. hhll.py runs prd = 2.
+// LonesomeTheBlue's original (which hhll.py is a port of) defaults to 10.
+// A period-10 chart simply sees different swings. If you change nothing
+// else, change that.
+//
+// Faithful to hhll.py in all four stages:
+//   1. symmetric window pivots, TIES ALLOWED (>= and <=, as in Pine)
+//   2. confirmation prd bars AFTER the pivot bar — never on the bar itself
+//   3. zigzag alternation: consecutive same-kind pivots collapse to the
+//      more extreme one rather than both surviving
+//   4. labels vs the previous pivot OF THE SAME KIND
+//      high -> HH if above the last high, else LH
+//      low  -> HL if above the last low,  else LL
+//
+// Regime is close-based, never wicks: a close above an unbroken
+// Resistance is BULL, below an unbroken Support is BEAR, and it persists
+// until the opposite break.
+//
+// WHAT THIS CANNOT SHOW YOU. The engine will not fire on a pivot that was
+// confirmed BEFORE the row was typed — "the next HL" has to mean new
+// since you asked. The chart has no way to know your row's date, so a
+// label here is necessary but not sufficient. Check the Dashboard
+// STRUCTURE row's Confirmed date against your row's Date.
+// =====================================================================
+
+//@version=5
+indicator("myTrading HH/HL/LH/LL", overlay = true, max_labels_count = 500,
+          max_lines_count = 500)
+
+prd      = input.int(2, "ZigZag Period (hhll.py uses 2)", minval = 1,
+                     tooltip = "The engine runs 2. LonesomeTheBlue's " +
+                               "original defaults to 10 — that difference " +
+                               "alone explains most disagreements.")
+showSR   = input.bool(true,  "Show support / resistance levels")
+showRgm  = input.bool(true,  "Colour bars by regime")
+showConf = input.bool(false, "Mark the CONFIRMATION bar",
+                      tooltip = "A pivot is only knowable prd bars later. " +
+                                "This marks when, not where.")
+
+// ── 1. symmetric window pivots ───────────────────────────────────────
+// ta.pivothigh/low use strict > and <, so a tie loses the pivot. hhll.py
+// uses >= and <=. Done by hand to keep them identical.
+isPH = true
+isPL = true
+if bar_index >= prd * 2
+    for k = 1 to prd
+        if high[prd] < high[prd - k] or high[prd] < high[prd + k]
+            isPH := false
+        if low[prd] > low[prd - k] or low[prd] > low[prd + k]
+            isPL := false
+else
+    isPH := false
+    isPL := false
+
+// ── 2 & 3. alternation, extending the leg with the more extreme pivot ─
+var float lastH     = na     // price of the running pivot high
+var float lastL     = na
+var int   lastHBar  = na
+var int   lastLBar  = na
+var string lastKind = na     // "H" or "L" — the side we are currently on
+var float prevH     = na     // previous CONFIRMED high, for labelling
+var float prevL     = na
+var label curLabel  = na     // the label for the running pivot, so an
+                             // extended leg moves its label rather than
+                             // leaving a stale one behind
+
+pivPrice = isPH ? high[prd] : isPL ? low[prd] : na
+pivBar   = bar_index - prd
+
+drawPivot(bool isHigh, float price, int bar) =>
+    string txt = isHigh ? (na(prevH) or price > prevH ? "HH" : "LH")
+                        : (na(prevL) or price > prevL ? "HL" : "LL")
+    color col = txt == "HH" or txt == "HL" ? color.new(color.green, 0)
+                                           : color.new(color.red, 0)
+    label.new(bar, price, txt, color = col,
+              textcolor = color.white, size = size.small,
+              style = isHigh ? label.style_label_down : label.style_label_up)
+
+if isPH and not isPL
+    if lastKind == "H"
+        // Same side again: keep only the more extreme one.
+        if high[prd] >= lastH
+            label.delete(curLabel)
+            lastH    := high[prd]
+            lastHBar := pivBar
+            curLabel := drawPivot(true, lastH, lastHBar)
+    else
+        prevL    := lastKind == "L" ? lastL : prevL
+        lastH    := high[prd]
+        lastHBar := pivBar
+        curLabel := drawPivot(true, lastH, lastHBar)
+        prevH    := na(prevH) ? lastH : prevH
+        lastKind := "H"
+        if showSR
+            line.new(lastHBar, lastH, bar_index + 10, lastH,
+                     color = color.new(color.red, 55), width = 1,
+                     extend = extend.none)
+
+if isPL and not isPH
+    if lastKind == "L"
+        if low[prd] <= lastL
+            label.delete(curLabel)
+            lastL    := low[prd]
+            lastLBar := pivBar
+            curLabel := drawPivot(false, lastL, lastLBar)
+    else
+        prevH    := lastKind == "H" ? lastH : prevH
+        lastL    := low[prd]
+        lastLBar := pivBar
+        curLabel := drawPivot(false, lastL, lastLBar)
+        prevL    := na(prevL) ? lastL : prevL
+        lastKind := "L"
+        if showSR
+            line.new(lastLBar, lastL, bar_index + 10, lastL,
+                     color = color.new(color.green, 55), width = 1,
+                     extend = extend.none)
+
+// Update the comparison baselines only once a pivot is final — i.e. when
+// the other side takes over. Comparing against a leg that is still
+// extending would relabel it retroactively.
+if lastKind == "L" and not na(lastH)
+    prevH := lastH
+if lastKind == "H" and not na(lastL)
+    prevL := lastL
+
+if showConf and (isPH or isPL)
+    label.new(bar_index, isPH ? high : low, "conf",
+              color = color.new(color.gray, 70), textcolor = color.white,
+              size = size.tiny,
+              style = isPH ? label.style_label_down : label.style_label_up)
+
+// ── 4. close-based regime ────────────────────────────────────────────
+var string regime = "NONE"
+if not na(lastH) and close > lastH
+    regime := "BULL"
+if not na(lastL) and close < lastL
+    regime := "BEAR"
+
+barcolor(showRgm ? (regime == "BULL" ? color.new(color.teal, 60) :
+                    regime == "BEAR" ? color.new(color.maroon, 60) : na) : na)
+
+// ── read-out, so the chart can be compared with the Dashboard ────────
+var table tb = table.new(position.top_right, 2, 3,
+                         border_width = 1, frame_width = 1)
+if barstate.islast
+    string lab = na(lastKind) ? "—" :
+          lastKind == "H" ? (na(prevH) or lastH > prevH ? "HH" : "LH")
+                          : (na(prevL) or lastL > prevL ? "HL" : "LL")
+    table.cell(tb, 0, 0, "Last_Label", bgcolor = color.new(color.gray, 80),
+               text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 0, lab, bgcolor = color.new(color.gray, 80),
+               text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 1, "At", bgcolor = color.new(color.gray, 80),
+               text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 1, str.tostring(lastKind == "H" ? lastH : lastL,
+               format.mintick), bgcolor = color.new(color.gray, 80),
+               text_color = color.white, text_size = size.small)
+    table.cell(tb, 0, 2, "Regime", bgcolor = color.new(color.gray, 80),
+               text_color = color.white, text_size = size.small)
+    table.cell(tb, 1, 2, regime, bgcolor = color.new(color.gray, 80),
+               text_color = color.white, text_size = size.small)
