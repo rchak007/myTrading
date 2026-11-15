@@ -997,6 +997,12 @@ ORD_HDR = ["Acct", "Side", "Type", "Qty", "Limit_Price", "Stop_Price",
            "Status", "Entered", "Order_ID"]
 DASH_WIDTH = 1 + len(POS_HDR)          # column A holds the ticker label
 REST_TAB = os.getenv("GSHEET_REST_DASHBOARD_TAB", "REST-DASHBOARD")
+CRYPTO_TAB = os.getenv("GSHEET_CRYPTO_TAB", "CRYPTO")
+
+# Only these two sections render on the CRYPTO tab. ORACLE and FINANCIALS are
+# left off because they are SEC-filing machinery — EDGAR has no 10-K for a
+# Bittensor subnet, so both would render empty or, worse, wrong.
+CRYPTO_SECTIONS = {"INDICATORS", "RECOMMENDED"}
 
 
 def _chitra_line(ticker, chitra_rows, quotes):
@@ -1344,7 +1350,8 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                     signals_df=None, chitra_rows=None,
                     intents_df=None, options=None,
                     token_status=None, hyper=None,
-                    only=None, title="DASHBOARD") -> tuple[list, dict]:
+                    only=None, title="DASHBOARD",
+                    sections=None) -> tuple[list, dict]:
     """
     One block per ticker: the positions mini-table, then the live Schwab orders
     for that ticker.
@@ -1356,7 +1363,19 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     Returns (rows, marks) where marks records which row numbers are ticker
     headers / section labels / column headers, so formatting can be applied in
     one batch afterwards.
+
+    `sections` limits which blocks render, by name: POSITIONS, RECOMMENDED,
+    ORDERS, INDICATORS, ORACLE, FINANCIALS. None means all of them, which is
+    every existing caller — the Dashboard and REST-DASHBOARD are unchanged.
+
+    Added 2026-11-15 for the CRYPTO tab, where Chakravarti asked for *"the
+    INDICATORS section on this. we dont need other sections. Also do the
+    RECOMMENDED dip, trim etc too. So only those 2 sections."* The ticker
+    header always renders regardless — it is the block's title, not a
+    section, and dropping it would leave unlabelled slabs of numbers.
     """
+    def want(name: str) -> bool:
+        return sections is None or name in sections
     rows: list[list] = []
     # "warn" holds individual A1 refs to paint yellow — a missing stop or a
     # missing trim on a position actually held. The point is discipline: an
@@ -1416,12 +1435,22 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                          f" — expires {tok.get('expires', '?')}"
                          + (f" ({days}d)" if days is not None else ""))
     marks["title"].append(add(title_row))
-    add(["", f"{n_tickers} ticker(s) · read-only, regenerated every cycle · "
-             f"ORDERS shows live Schwab orders AND the Orders-tab intents "
-             f"waiting on a close (Type 'CLOSE BELOW/ABOVE', Entered 'sheet') · "
-             f"a YELLOW Seed_Reserved means a resting BUY is waiting to spend "
-             f"it — see that ticker's ORDERS block just below. Still reserved, "
-             f"not yet spent: it is debited when the order FILLS."])
+    # The subtitle describes sections that may not be on this tab. On a tab
+    # rendering a subset, count the tickers ACTUALLY shown — positions is
+    # empty for a watchlist-only tab, and "0 ticker(s)" above twelve blocks
+    # of numbers reads as a failed write.
+    shown_n = len(only) if only is not None else n_tickers
+    if sections is not None:
+        add(["", f"{shown_n} ticker(s) · read-only, regenerated every cycle · "
+                 f"sections: {', '.join(sorted(sections))}"])
+    else:
+        add(["", f"{shown_n} ticker(s) · read-only, regenerated every cycle · "
+                 f"ORDERS shows live Schwab orders AND the Orders-tab intents "
+                 f"waiting on a close (Type 'CLOSE BELOW/ABOVE', Entered "
+                 f"'sheet') · a YELLOW Seed_Reserved means a resting BUY is "
+                 f"waiting to spend it — see that ticker's ORDERS block just "
+                 f"below. Still reserved, not yet spent: it is debited when "
+                 f"the order FILLS."])
 
     # EARNINGS, up top as well as per block. Buried in a block it is found
     # only by someone already scrolled to that ticker — and the whole point is
@@ -1490,6 +1519,10 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     fenced = fenced or set()
     for ticker in list(order) + watch_only:
         grp = positions[positions["Ticker"] == ticker]
+        # Emptied rather than branched around, so the holdings loop below
+        # simply iterates nothing instead of needing a guard of its own.
+        if not want("POSITIONS"):
+            grp = grp.iloc[0:0]
 
         # Fill the price columns here rather than leaving them blank for
         # orders_sheet_prices.py. The job already holds the quotes, and a
@@ -1520,7 +1553,8 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                 att = f"✓ {att}" + (f" ({age}d ago)" if age else " (today)")
             except Exception:                           # noqa: BLE001
                 att = f"✓ {att}"
-        hdr_row = add([ticker, "POSITIONS", "BETH" if on_beth else "", att])
+        hdr_row = add([ticker, "POSITIONS" if want("POSITIONS") else "",
+                       "BETH" if on_beth else "", att])
         marks["ticker"].append(hdr_row)
         if on_beth:
             marks["beth"].append(hdr_row)
@@ -1532,13 +1566,15 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         for d, txt in notes.get(str(ticker).upper(), []):
             marks["note"].append(add(["", f"📌 {d}  {txt}"]))
 
-        marks["header"].append(add([""] + POS_HDR))
+        if want("POSITIONS"):
+            marks["header"].append(add([""] + POS_HDR))
 
-        # A watchlist name has no rows here. Say so, rather than leaving a
-        # bare header — an empty table under a header reads as a broken write.
-        if grp.empty:
-            add(["", ticker, "—", 0, "", px if px is not None else "",
-                 round(pct, 2) if pct is not None else "", 0, 0])
+            # A watchlist name has no rows here. Say so, rather than leaving a
+            # bare header — an empty table under a header reads as a broken
+            # write.
+            if grp.empty:
+                add(["", ticker, "—", 0, "", px if px is not None else "",
+                     round(pct, 2) if pct is not None else "", 0, 0])
 
         for _, r in grp.iterrows():
             add(["", r["Ticker"], r["Acct"], r["Qty"], r["Avg_Cost"],
@@ -1582,7 +1618,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         # time, after the TOTAL row is already computed, so her shares can
         # never reach his totals, the market-value sort, coverage, the reserve
         # ledger or the order engine.
-        if chitra_rows:
+        if chitra_rows and want("POSITIONS"):
             crow = _chitra_line(ticker, chitra_rows, quotes)
             if crow:
                 marks["chitra"].append(add(crow))
@@ -1595,10 +1631,11 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         # and 2x long NVDA here is ONE exposure and seeing it in two places
         # is how it gets missed.
         rendered.add(str(ticker).upper())
-        for prow in _parked_lines(ticker, DASH_WIDTH, positions):
-            marks["chitra"].append(add(prow))
-        for hrow in _hyper_lines(ticker, hyper_index, DASH_WIDTH):
-            marks["chitra"].append(add(hrow))
+        if want("POSITIONS"):
+            for prow in _parked_lines(ticker, DASH_WIDTH, positions):
+                marks["chitra"].append(add(prow))
+            for hrow in _hyper_lines(ticker, hyper_index, DASH_WIDTH):
+                marks["chitra"].append(add(hrow))
 
         # RECOMMENDED levels, between the holdings and the live orders —
         # deliberately adjacent to both, because the question they answer is
@@ -1608,7 +1645,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         # account) but these levels are a property of the stock, and a holding
         # fenced anywhere is one being held as core somewhere.
         rec_lines = _rec_rows(ticker, px, signals_df, is_fenced, DASH_WIDTH,
-                              rec=rec, row0=rec_row0)
+                              rec=rec, row0=rec_row0) if want("RECOMMENDED") else []
         if rec_lines:
             first = add(rec_lines[0])
             for extra in rec_lines[1:]:
@@ -1618,68 +1655,74 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
             # miss a row or bleed onto the spacer below it.
             marks["rec"].append((first, len(rec_lines)))
 
-        add([])
-        marks["label"].append(add(["", "ORDERS"]))
-        marks["header"].append(add([""] + ORD_HDR))
+        # ORDERS. Skipped entirely on a tab that has no brokerage side to
+        # it — the CRYPTO tab holds subnet alpha in a Bittensor wallet, and
+        # "— no open orders —" under every block would be noise asserting
+        # the absence of something that could never have been there.
+        if want("ORDERS"):
+            add([])
+            marks["label"].append(add(["", "ORDERS"]))
+            marks["header"].append(add([""] + ORD_HDR))
 
-        legs = pd.DataFrame()
-        if orders_df is not None and not getattr(orders_df, "empty", True):
-            legs = orders_df[orders_df["Ticker"].astype(str).str.upper() == ticker]
-        for _, o in legs.iterrows():
-            add(["", acct_key(o.get("Account")), o.get("Side", ""),
-                 o.get("Order_Type", ""), o.get("Remaining_QTY", o.get("QTY", "")),
-                 o.get("Limit_Price", ""), o.get("Stop_Price", ""),
-                 o.get("Status", ""), str(o.get("Entered_Time", ""))[:16],
-                 o.get("Order_ID", "")])
+            legs = pd.DataFrame()
+            if orders_df is not None and not getattr(orders_df, "empty", True):
+                legs = orders_df[orders_df["Ticker"].astype(str).str.upper() == ticker]
+            for _, o in legs.iterrows():
+                add(["", acct_key(o.get("Account")), o.get("Side", ""),
+                     o.get("Order_Type", ""), o.get("Remaining_QTY", o.get("QTY", "")),
+                     o.get("Limit_Price", ""), o.get("Stop_Price", ""),
+                     o.get("Status", ""), str(o.get("Entered_Time", ""))[:16],
+                     o.get("Order_ID", "")])
 
-        # SHEET INTENTS, under the resting orders. Without them a block could
-        # say Has_Stop = P and then show nothing at all underneath, which is
-        # the Dashboard asserting protection it never points at.
-        #
-        # Same columns, deliberately. Trigger_Price goes in Stop_Price because
-        # both mean the same thing — the price that ACTIVATES the order — and
-        # Limit_Price stays blank because the engine derives the limit from
-        # the live market at submit time, not from anything typed here.
-        wait = pd.DataFrame()
-        if intents_df is not None and not getattr(intents_df, "empty", True):
-            wait = intents_df[intents_df["Ticker"].astype(str).str.upper() == ticker]
-        for _, o in wait.iterrows():
-            marks["intent"].append(add(
-                ["", o.get("Account", ""), o.get("Side", ""),
-                 # The mechanism is the one thing that must not be mistaken: a
-                 # CLOSE trigger cannot be hit by a wick, and does nothing at
-                 # all while Pi 1 is down.
-                 f"CLOSE {o.get('Close_Is', '')}".strip(),
-                 o.get("Qty", ""), "", o.get("Trigger_Price", ""),
-                 o.get("Status", "") or "waiting", "sheet",
-                 o.get("Row_ID", "")]))
+            # SHEET INTENTS, under the resting orders. Without them a block could
+            # say Has_Stop = P and then show nothing at all underneath, which is
+            # the Dashboard asserting protection it never points at.
+            #
+            # Same columns, deliberately. Trigger_Price goes in Stop_Price because
+            # both mean the same thing — the price that ACTIVATES the order — and
+            # Limit_Price stays blank because the engine derives the limit from
+            # the live market at submit time, not from anything typed here.
+            wait = pd.DataFrame()
+            if intents_df is not None and not getattr(intents_df, "empty", True):
+                wait = intents_df[intents_df["Ticker"].astype(str).str.upper() == ticker]
+            for _, o in wait.iterrows():
+                marks["intent"].append(add(
+                    ["", o.get("Account", ""), o.get("Side", ""),
+                     # The mechanism is the one thing that must not be mistaken: a
+                     # CLOSE trigger cannot be hit by a wick, and does nothing at
+                     # all while Pi 1 is down.
+                     f"CLOSE {o.get('Close_Is', '')}".strip(),
+                     o.get("Qty", ""), "", o.get("Trigger_Price", ""),
+                     o.get("Status", "") or "waiting", "sheet",
+                     o.get("Row_ID", "")]))
 
-        # OPTION POSITIONS, in the same list. A covered call is an obligation
-        # to deliver shares at the strike — functionally a resting trim — so
-        # burying it on another tab is how 100 shares end up double-promised.
-        opt_legs = [o for o in (options or [])
-                    if str(o.get("underlying", "")).upper() == ticker]
-        for o in sorted(opt_legs, key=lambda x: (x.get("expiry") or "",
-                                                 x.get("strike") or 0)):
-            short = (o.get("Qty") or 0) < 0
-            kind = {"C": "CALL", "P": "PUT"}.get(o.get("right"), "?")
-            tied = o.get("Shares_Tied") or 0
-            marks["option"].append(add(
-                ["", o.get("Acct", ""), "SHORT" if short else "LONG",
-                 f"{kind} {o.get('expiry', '')}",
-                 abs(o.get("Qty") or 0), "", o.get("strike", ""),
-                 (f"{tied:g} shares tied" if tied else
-                  (f"${o['Cash_Tied']:,.0f} cash tied" if o.get("Cash_Tied")
-                   else "open")),
-                 "option", o.get("symbol", "")]))
+            # OPTION POSITIONS, in the same list. A covered call is an obligation
+            # to deliver shares at the strike — functionally a resting trim — so
+            # burying it on another tab is how 100 shares end up double-promised.
+            opt_legs = [o for o in (options or [])
+                        if str(o.get("underlying", "")).upper() == ticker]
+            for o in sorted(opt_legs, key=lambda x: (x.get("expiry") or "",
+                                                     x.get("strike") or 0)):
+                short = (o.get("Qty") or 0) < 0
+                kind = {"C": "CALL", "P": "PUT"}.get(o.get("right"), "?")
+                tied = o.get("Shares_Tied") or 0
+                marks["option"].append(add(
+                    ["", o.get("Acct", ""), "SHORT" if short else "LONG",
+                     f"{kind} {o.get('expiry', '')}",
+                     abs(o.get("Qty") or 0), "", o.get("strike", ""),
+                     (f"{tied:g} shares tied" if tied else
+                      (f"${o['Cash_Tied']:,.0f} cash tied" if o.get("Cash_Tied")
+                       else "open")),
+                     "option", o.get("symbol", "")]))
 
-        if legs.empty and wait.empty and not opt_legs:
-            add(["", "— no open orders —"])
+            if legs.empty and wait.empty and not opt_legs:
+                add(["", "— no open orders —"])
 
         # INDICATORS, after the orders. Everything jobStocksSignals computed
         # for this ticker, grouped so it can be read rather than dumped as a
         # 57-column wall.
-        ind_lines = _ind_rows(ticker, signals_df, DASH_WIDTH)
+        ind_lines = _ind_rows(ticker, signals_df, DASH_WIDTH) \
+            if want("INDICATORS") else []
         if ind_lines:
             add([])
             marks["label"].append(add(["", "INDICATORS"]))
@@ -1693,7 +1736,8 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         # Chakravarti uses it as confluence alongside his own read, not as a
         # trade trigger, so it gets room to show its working — the value, the
         # six-factor panel, and how much history the anchor rests on.
-        orc_lines = _oracle_rows(ticker, px, DASH_WIDTH)
+        orc_lines = _oracle_rows(ticker, px, DASH_WIDTH) \
+            if want("ORACLE") else []
         if orc_lines:
             add([])
             marks["label"].append(add(["", "ORACLE"]))
@@ -1707,7 +1751,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         # because these are raw reported figures, not a model's output,
         # and the difference matters when one of them looks wrong.
         fin_lines, fin_verdict, fin_why, peg_col = _financial_rows(
-            ticker, DASH_WIDTH)
+            ticker, DASH_WIDTH) if want("FINANCIALS") else ([], "", "", None)
         if fin_lines:
             add([])
             hdr = ["", "FINANCIALS"]
@@ -1927,16 +1971,30 @@ def _paint(ws, marks, log):
         log(f"⚠️  dashboard formatting skipped (data is fine): {e}")
 
 
-def all_tickers() -> list:
-    """STOCK_TICKERS from app.py by AST — same approach as oracle_value."""
+def _app_list(name: str) -> list:
+    """A list literal from app.py by AST — same approach as oracle_value.
+
+    Parsed rather than imported: app.py is a Streamlit module and importing
+    it drags in the whole UI, which is neither available nor wanted on Pi 1.
+    """
     import ast
     tree = ast.parse((Path(__file__).resolve().parent / "app.py").read_text())
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(
-                getattr(t, "id", "") == "STOCK_TICKERS" for t in node.targets):
+                getattr(t, "id", "") == name for t in node.targets):
             return [str(e.value).upper() for e in node.value.elts
                     if isinstance(e, ast.Constant)]
     return []
+
+
+def all_tickers() -> list:
+    """STOCK_TICKERS from app.py."""
+    return _app_list("STOCK_TICKERS")
+
+
+def crypto_tickers() -> list:
+    """CRYPTO_DASHBOARD from app.py — the CRYPTO tab's universe."""
+    return _app_list("CRYPTO_DASHBOARD")
 
 
 def write_rest_dashboard(book, positions, shown, log=print, **kw) -> int:
@@ -1954,8 +2012,12 @@ def write_rest_dashboard(book, positions, shown, log=print, **kw) -> int:
     recomputed — deriving it twice is how the two tabs would quietly start
     disagreeing about which names are covered.
     """
-    rest = [t for t in all_tickers() if t not in {str(x).upper()
-                                                  for x in (shown or [])}]
+    # Crypto is excluded explicitly. It lives in app.py like everything else,
+    # so without this it would satisfy "every ticker not on the Dashboard"
+    # and land on REST-DASHBOARD as well as its own tab — rendered with
+    # ORACLE and FINANCIALS sections that mean nothing for a subnet alpha.
+    skip = {str(x).upper() for x in (shown or [])} | set(crypto_tickers())
+    rest = [t for t in all_tickers() if t not in skip]
     if not rest:
         log("REST-DASHBOARD: every ticker is already on the Dashboard")
         return 0
@@ -1983,6 +2045,55 @@ def write_rest_dashboard(book, positions, shown, log=print, **kw) -> int:
     _paint(ws, marks, log)
     log(f"REST-DASHBOARD: {len(rest)} ticker(s) not on the Dashboard")
     return len(rest)
+
+
+def write_crypto_dashboard(book, positions, log=print, **kw) -> int:
+    """CRYPTO: the CRYPTO_DASHBOARD list, INDICATORS and RECOMMENDED only.
+
+    Chakravarti, 2026-11-15: *"lets do the INDICATORS section on this. we
+    dont need other sections. Also do the RECOMMENDED dip, trim etc too. So
+    only those 2 sections."*
+
+    Every name here is priced by Yahoo exactly like a stock — Bittensor
+    subnet alphas included, which Yahoo carries as SN<netuid>-USD from
+    CoinMarketCap — so jobStocksSignals computes the full indicator set for
+    them and this tab is a pure rendering concern. No crypto price feed, no
+    second signals pipeline, nothing to keep in step.
+    """
+    tickers = crypto_tickers()
+    if not tickers:
+        log("CRYPTO: no CRYPTO_DASHBOARD list in app.py — skipping")
+        return 0
+    try:
+        ws = book.worksheet(CRYPTO_TAB)
+    except Exception:                                    # noqa: BLE001
+        log(f"CRYPTO: no '{CRYPTO_TAB}' tab — skipping")
+        return 0
+
+    # A ticker with no signals row renders as a bare header and nothing else,
+    # which reads as a broken write rather than "Yahoo had no data". Said
+    # plainly in the log instead, naming the symbol so it can be fixed.
+    sig = kw.get("signals_df")
+    if sig is not None and not getattr(sig, "empty", True):
+        have = set(sig["Ticker"].astype(str).str.upper())
+        missing = [t for t in tickers if t not in have]
+        if missing:
+            log(f"CRYPTO: no signals for {', '.join(missing)} — check the "
+                f"symbol resolves on Yahoo (yf.Ticker(sym).history())")
+
+    rows, marks = build_dashboard(positions, quotes=kw.get("quotes"),
+                                  signals_df=sig,
+                                  only=tickers, title=CRYPTO_TAB,
+                                  sections=CRYPTO_SECTIONS)
+    need = len(rows) + 50
+    if int(getattr(ws, "row_count", 0) or 0) < need:
+        ws.resize(rows=need)
+    ws.batch_clear([f"A1:{_last_col()}{ws.row_count}"])
+    ws.update(values=rows, range_name=f"A1:{_last_col()}{len(rows)}",
+              value_input_option="USER_ENTERED")
+    _paint(ws, marks, log)
+    log(f"CRYPTO: {len(tickers)} ticker(s)")
+    return len(tickers)
 
 
 def write_dashboard(book, positions: pd.DataFrame, orders_df=None,
@@ -2144,6 +2255,15 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
                              options=opts, hyper=hyper)
     except Exception as e:                               # noqa: BLE001
         log(f"⚠️  REST-DASHBOARD skipped ({type(e).__name__}: {e})")
+
+    # CRYPTO, wrapped for the same reason and independently of REST-DASHBOARD
+    # — one bad symbol in CRYPTO_DASHBOARD must not take the other tab down
+    # with it.
+    try:
+        write_crypto_dashboard(book, positions, log=log, quotes=quotes,
+                               signals_df=signals_df)
+    except Exception as e:                               # noqa: BLE001
+        log(f"⚠️  CRYPTO skipped ({type(e).__name__}: {e})")
 
     # ---- header block. LAST POLL is the health check: if this stops moving,
     # ---- whatever runs this module has died.

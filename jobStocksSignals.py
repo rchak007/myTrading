@@ -375,11 +375,33 @@ def main(no_push: bool = False):
     CHITRA_TICKERS = getattr(mod, "CHITRA_TICKERS", [])
     STOCKS_NOTES   = getattr(mod, "STOCKS_NOTES", [])
 
+    # CRYPTO tab universe. Folded into the SIGNALS pass only — these are
+    # priced by Yahoo like any other symbol, so every indicator the stocks
+    # get, they get, with no second pipeline to keep in step.
+    #
+    # Deliberately kept OUT of:
+    #   - the Schwab quote fetch   (not Schwab instruments; the call 404s)
+    #   - the Schwab holdings merge (QTY/VALUE fall to 0, which is correct —
+    #     Chakravarti's subnet alpha sits in a Bittensor wallet, not a
+    #     brokerage account)
+    #   - REST-DASHBOARD           (it renders "every app.py ticker not on
+    #     the Dashboard", which without an exclusion would pull all twelve
+    #     of these onto the wrong tab)
+    #
+    # SIGNALS_TICKERS is what gets indicators; STOCK_TICKERS stays exactly
+    # what it was, so every Schwab-facing path below is untouched.
+    CRYPTO_DASHBOARD = getattr(mod, "CRYPTO_DASHBOARD", [])
+    SIGNALS_TICKERS  = list(STOCK_TICKERS) + [
+        t for t in CRYPTO_DASHBOARD if t not in set(STOCK_TICKERS)
+    ]
+
     pacific     = pytz.timezone("America/Los_Angeles")
     updated_pst = datetime.now(pacific).strftime("%Y-%m-%d %H:%M:%S %Z")
 
     log("=== jobStocksSignals.py start ===")
-    log(f"Loaded {len(STOCK_TICKERS)} tickers from app.py")
+    log(f"Loaded {len(STOCK_TICKERS)} tickers from app.py"
+        + (f" + {len(SIGNALS_TICKERS) - len(STOCK_TICKERS)} crypto"
+           if len(SIGNALS_TICKERS) > len(STOCK_TICKERS) else ""))
     log(f"Params from core.config: ATR={INDICATOR_PARAMS['atr_period']}/{INDICATOR_PARAMS['atr_multiplier']}, "
         f"ADXR_LOW={INDICATOR_PARAMS['adxr_low_threshold']}")
 
@@ -405,7 +427,7 @@ def main(no_push: bool = False):
         log(f"⚠️  live quotes unavailable, falling back to Yahoo per ticker: {e}")
 
     df_signals = build_stocks_signals_table(
-        STOCK_TICKERS,
+        SIGNALS_TICKERS,
         price_map=price_map,
         **INDICATOR_PARAMS,
     )
@@ -458,7 +480,7 @@ def main(no_push: bool = False):
     try:
         from hhll import attach_hhll_columns
         log("Computing HHLL structure...")
-        df, hhll_msg = attach_hhll_columns(df, STOCK_TICKERS, after="VALUE", log_fn=log)
+        df, hhll_msg = attach_hhll_columns(df, SIGNALS_TICKERS, after="VALUE", log_fn=log)
         log(hhll_msg)
     except Exception as e:
         log(f"⚠️  HHLL merge failed (continuing without it): {e}")
@@ -468,7 +490,7 @@ def main(no_push: bool = False):
         from ath import attach_ath_columns
         log("Computing ATH distance...")
         df, ath_msg = attach_ath_columns(
-            df, STOCK_TICKERS, after=["Current Price", "Last Close"], log_fn=log
+            df, SIGNALS_TICKERS, after=["Current Price", "Last Close"], log_fn=log
         )
         log(ath_msg)
     except Exception as e:

@@ -307,6 +307,51 @@ CRYPTO_TICKERS = [
 
 
 
+# The CRYPTO tab's universe — NOT the big CRYPTO_TICKERS list above.
+#
+# Chakravarti, 2026-11-15: *"Keep new tickers list in App.py maybe -
+# CryptoDashboard list. And only keep these - i might add a few more later."*
+# CRYPTO_TICKERS is the wallet-scanning list (70+ names, many dust); this is
+# a short watchlist that gets the full indicator treatment on its own tab.
+#
+# SYMBOLS ARE YAHOO'S, AND THEY ARE NOT GUESSABLE. Verified live 2026-11-15,
+# every one returning 366 daily bars with real High/Low/Volume except where
+# noted — which is the only reason this needs no new price plumbing at all:
+#
+#   SN51-USD      Lium            Yahoo carries Bittensor subnet alphas under
+#   SN4-USD       Targon          their SN<netuid>-USD ticker, sourced from
+#   SN64-USD      Chutes          CoinMarketCap. Chakravarti found this; the
+#   SN62-USD      Ridges AI       fallback being built before he did was a
+#                                 CoinGecko hourly-resample layer, now unneeded.
+#   VANTA-USD     Vanta Network   SN8 does NOT resolve. Taoshi's Proprietary
+#                                 Trading Network rebranded, and Yahoo tracks
+#                                 the new name. ~93 bars only (recent listing)
+#                                 — above the 60-bar floor, so it computes,
+#                                 but its long-window scores stay thin.
+#   TAO22974-USD  Bittensor       Plain TAO-USD is EMPTY. Yahoo disambiguates
+#                                 colliding symbols with a numeric suffix.
+#
+# Add to this list freely; anything Yahoo prices daily will work. Check a new
+# symbol with yfinance BEFORE adding it — a bad one is silently skipped by
+# fetch_stock_1d_df and the ticker just never appears on the tab.
+CRYPTO_DASHBOARD = [
+    # Bittensor subnet alphas
+    "SN51-USD",      # Lium        — GPU rental
+    "SN4-USD",       # Targon      — confidential compute (TEE)
+    "SN64-USD",      # Chutes      — serverless inference      [held]
+    "SN62-USD",      # Ridges AI                               [held]
+    "VANTA-USD",     # SN8 Vanta Network (ex-Prop Trading)     [held]
+    # Majors
+    "BTC-USD",
+    "ETH-USD",
+    "SOL-USD",
+    "LINK-USD",
+    "TAO22974-USD",  # Bittensor
+    "ONDO-USD",
+    "NEAR-USD",
+]
+
+
 CRYPTO_NOT_FOUND_YAHOO = {
     "LQL": "https://www.geckoterminal.com/solana/pools/GiRyo4r3kREH8oRCe9GoJJARZuGo4ksto6xXvUok4wdd",
     "A0X": "https://www.geckoterminal.com/base/pools/0xfd100e192d0ff7a284f31a93b367d582666e406b",
