@@ -325,9 +325,11 @@ CRYPTO_TICKERS = [
 #                                 CoinGecko hourly-resample layer, now unneeded.
 #   VANTA-USD     Vanta Network   SN8 does NOT resolve. Taoshi's Proprietary
 #                                 Trading Network rebranded, and Yahoo tracks
-#                                 the new name. ~93 bars only (recent listing)
-#                                 — above the 60-bar floor, so it computes,
-#                                 but its long-window scores stay thin.
+#                                 the new name — its own description says
+#                                 "operates on the Bittensor platform", and
+#                                 the supply (4.29M) and cap ($29M) match the
+#                                 subnet. 207 bars from 2026-04-23, so the
+#                                 120-day momentum scores are thin but real.
 #   TAO22974-USD  Bittensor       Plain TAO-USD is EMPTY. Yahoo disambiguates
 #                                 colliding symbols with a numeric suffix.
 #
