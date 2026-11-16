@@ -34,6 +34,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -235,6 +236,12 @@ PY_VERBS = {
     "token_status": (False, False),
     "auth_url":     (False, False),
     "auth_code":    (True,  True),
+    # The taostats key for the CRYPTO tab's SUBNET section. Sensitive, so the
+    # audit log gets "(redacted)" and the poller blanks column B afterwards —
+    # the same handling auth_code has had since October. Read-only market
+    # data: it places no orders and moves no money. See _run_taostats_key for
+    # why it is one verb for one key rather than a general set_secret.
+    "taostats_key": (True,  True),
     "seed":         (True,  False),
     "fence":        (True,  False),
     # The RELEASE side of seeding. Without these the ops sheet could only
@@ -337,6 +344,107 @@ def _run_seed(arg: str) -> tuple[int, str]:
                             log=out.append)
     out.append(f"\nreserve balance for {acct}/{ticker.upper()} is now ${bal:,.2f}")
     out.append("to undo:  withdraw or close, from the CLI on Pi 1")
+    return 0, "\n".join(out)
+
+
+# A taostats key is "tao-" then a UUID then ":" then 8 hex. The pattern is
+# the entire security story of the verb below: an argument that does not
+# match it is never written anywhere, so this cannot be used to put arbitrary
+# text into a file on Pi 1.
+_TAO_KEY_RE = re.compile(
+    r"^tao-[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
+    r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}:[0-9a-fA-F]{8}$")
+
+
+def _mask_key(k: str) -> str:
+    return f"{k[:8]}…{k[-4:]}" if len(k) > 14 else "…"
+
+
+def _run_taostats_key(arg: str) -> tuple[int, str]:
+    """Install the taostats API key, so the SUBNET section needs no SSH.
+
+    WHY THIS IS NARROW ON PURPOSE
+    -----------------------------
+    Chakravarti asked for a Pi 1 supply-chain guard (PROJECT_PLAN §9), and a
+    general `set_secret` verb would cut straight across it: anyone who can
+    edit the ops sheet could overwrite any line of Pi 1's .env, Schwab
+    credentials included. So this verb is not that. It:
+
+      * accepts ONE argument shape, `_TAO_KEY_RE`, and writes nothing at all
+        if the argument does not match
+      * writes ONE file, its own, mode 0600 — never the main .env, which is
+        where the credentials that move money live
+      * writes ONE line, `TAOSTATS_API_KEY=…`, replacing the file wholesale
+        rather than appending to anything
+      * carries a read-only market-data key and nothing else. The worst a
+        wrong value can do is leave the SUBNET section blank.
+
+    It follows `auth_code`, which has carried a Schwab credential through
+    this same channel since October — so the channel is not new, only the
+    second thing to use it.
+
+    The key never appears in the output or the audit log: PY_VERBS marks it
+    sensitive, which redacts the log, and the poller blanks column B once the
+    row is done. What comes back is a masked key, the path, and the result of
+    one live call so the sheet can show the key WORKS without showing it.
+    """
+    import taostats
+    dest = taostats.KEY_FILE          # imported, never restated — see there
+    key = (arg or "").strip().strip("'\"")
+    if not key:
+        return 2, ("taostats_key  tao-XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX:"
+                   "XXXXXXXX\n\nGet one at taostats.io → API. Read-only "
+                   "market data; it places no orders and moves no money.")
+    if not _TAO_KEY_RE.match(key):
+        # Deliberately does not echo what arrived. The whole point of
+        # refusing is that we do not know what it is.
+        return 2, (f"that does not look like a taostats key "
+                   f"({len(key)} chars) — nothing was written.\n\n"
+                   "Expected  tao-<uuid>:<8 hex>, e.g.\n"
+                   "  tao-12345678-90ab-cdef-1234-567890abcdef:0a85aa4e\n\n"
+                   "Only that exact shape is accepted, so this verb cannot "
+                   "write anything else to Pi 1.")
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp = dest.with_suffix(".tmp")
+        tmp.write_text(f"TAOSTATS_API_KEY={key}\n")
+        os.chmod(tmp, 0o600)
+        tmp.replace(dest)
+    except Exception as e:                                  # noqa: BLE001
+        return 1, f"could not write {dest}: {type(e).__name__}: {e}"
+
+    out = [f"wrote {_mask_key(key)} to {dest} (mode 0600)"]
+    # Say so if something else is SHADOWING the file we just wrote — an
+    # existing TAOSTATS_API_KEY in Pi 1's .env, or a key in one of the
+    # ~/agents/*/.env files the reader also searches. Without this, the verb
+    # would report success while the section kept using an older key, and the
+    # only symptom would be numbers that never change.
+    try:
+        if taostats._api_key() != key:
+            out.append("⚠️  the file was written but another source takes "
+                       "precedence (TAOSTATS_API_KEY in the environment, or a "
+                       "key in ~/agents/*/.env). Remove that one if this is "
+                       "the key you want used.")
+    except Exception:                                       # noqa: BLE001
+        pass
+
+    # Prove it works NOW, from the file, rather than at 02:00 tomorrow when
+    # nobody is looking. One call, the same one the daily refresh makes.
+    try:
+        taostats._MEM = None          # drop any snapshot already in process
+        snap = taostats.snapshot(force=True, log=out.append)
+        n = len(snap.get("subnets") or {})
+        if n:
+            out.append(f"✓ verified — {n} subnets cached. The SUBNET section "
+                       "fills on the next run_signals.")
+        else:
+            out.append("⚠️  key written but the call returned nothing. "
+                       "Check it at taostats.io.")
+            return 1, "\n".join(out)
+    except Exception as e:                                  # noqa: BLE001
+        out.append(f"⚠️  key written but the test call failed: "
+                   f"{type(e).__name__}: {e}")
+        return 1, "\n".join(out)
     return 0, "\n".join(out)
 
 
@@ -466,6 +574,9 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
 
     if verb == "seed":
         return _run_seed(arg)
+
+    if verb == "taostats_key":
+        return _run_taostats_key(arg)
 
     if verb in ("withdraw", "close"):
         import cash_reserve
@@ -955,6 +1066,7 @@ VERB_DOCS = [
     ("token_status", "—", "token_status", "Schwab token state and days remaining."),
     ("auth_url", "—", "auth_url", "Start a Schwab re-auth. ⏱ THE CODE DIES ~30s AFTER YOU TAP APPROVE — add the auth_code row with column B EMPTY first, then approve, then paste."),
     ("auth_code", "the whole pasted redirect URL", "auth_code  https://127.0.0.1:8000/?code=C0.b...@&session=...", "Finishes the re-auth. Paste the ENTIRE address bar. A re-pasted code is refused — get a fresh auth_url instead."),
+    ("taostats_key", "a taostats API key", "taostats_key  tao-12345678-90ab-cdef-1234-567890abcdef:0a85aa4e", "Installs the key the CRYPTO tab's SUBNET section reads. Only the exact tao-<uuid>:<8hex> shape is accepted and only its own file is written — never .env. Column B is blanked after. Read-only market data: no orders, no money."),
 
     ("run_signals", "—", "run_signals", "Rebuild Positions, Cash, Dashboard and the reserve tables now instead of waiting for the next cron. Returns as soon as it LAUNCHES; watch with tail_log stocks."),
     ("reserves", "—", "reserves", "The whole reserve table: what is fenced, deployed and available per ticker."),
@@ -1274,11 +1386,20 @@ def main() -> int:
             "Host": HOST,
         })
 
+        # A secret-bearing argument is wiped from the cell once it is spent.
         # The authorization code is single-use and short-lived, but leaving
-        # it sitting in a spreadsheet cell is pointless risk.
-        if verb == "auth_code":
+        # it sitting in a spreadsheet cell is pointless risk — and the same
+        # goes for an API key, which unlike the code does NOT expire.
+        #
+        # Keyed off the sensitive flag rather than the verb name, since 2026
+        # -11-15: it was `verb == "auth_code"`, which meant every future
+        # secret-bearing verb silently left its secret on the sheet until
+        # someone remembered to add it here. The flag is already declared in
+        # PY_VERBS and already drives the audit log; now it drives both.
+        if safe_arg(verb, arg or "x") == "(redacted)":
             try:
-                ws.update(values=[["(consumed)"]], range_name=f"B{r}")
+                ws.update(values=[["(stored)" if verb == "taostats_key"
+                                   else "(consumed)"]], range_name=f"B{r}")
             except Exception as e:
                 audit(event="redact_failed", row=r, error=str(e))
 

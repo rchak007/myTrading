@@ -999,10 +999,14 @@ DASH_WIDTH = 1 + len(POS_HDR)          # column A holds the ticker label
 REST_TAB = os.getenv("GSHEET_REST_DASHBOARD_TAB", "REST-DASHBOARD")
 CRYPTO_TAB = os.getenv("GSHEET_CRYPTO_TAB", "CRYPTO")
 
-# Only these two sections render on the CRYPTO tab. ORACLE and FINANCIALS are
-# left off because they are SEC-filing machinery — EDGAR has no 10-K for a
-# Bittensor subnet, so both would render empty or, worse, wrong.
-CRYPTO_SECTIONS = {"INDICATORS", "RECOMMENDED"}
+# What renders on the CRYPTO tab. ORACLE and FINANCIALS are left off because
+# they are SEC-filing machinery — EDGAR has no 10-K for a Bittensor subnet, so
+# both would render empty or, worse, wrong.
+#
+# SUBNET is the replacement for FINANCIALS, added 2026-11-15: the on-chain
+# figures off taostats. It appears on the five subnet alphas and on TAO
+# itself, and silently on nothing else.
+CRYPTO_SECTIONS = {"INDICATORS", "RECOMMENDED", "SUBNET"}
 
 
 def _chitra_line(ticker, chitra_rows, quotes):
@@ -1251,6 +1255,65 @@ def _financial_rows(ticker, width):
     return out, verdict, why, peg_col
 
 
+def _subnet_rows(ticker, width, tao_usd=None):
+    """(rows, note) for the SUBNET section. Fail-soft like ORACLE above.
+
+    The subnet answer to FINANCIALS. A stock block gets PE and PEG off EDGAR;
+    a Bittensor subnet has no filing, so what stands in for fundamentals is
+    the on-chain figures — what the chain pays the subnet, how much alpha
+    exists to dilute you, and who is actually registered on it.
+
+    No verdict, unlike FINANCIALS. The judgement that matters on a subnet is
+    revenue against emissions, and revenue is self-reported off chain —
+    taostats does not carry it and neither does the chain. A verdict here
+    would be a confident-looking number resting on nothing, which is exactly
+    the failure he already warned about on StockOracle.
+
+    ([], "") for every non-subnet ticker, so the stock Dashboard carries this
+    call for free: the netuid lookup misses and no HTTP happens.
+    """
+    try:
+        import taostats
+        if not taostats.is_subnet_ticker(ticker):
+            return [], ""
+        groups, note = taostats.subnet_rows(ticker, tao_usd=tao_usd,
+                                            log=lambda *_: None)
+    except Exception:                                   # noqa: BLE001
+        return [], ""
+    out = []
+    for label, names, vals in groups:
+        head = ["", label] + list(names)
+        line = ["", ""] + ["" if v is None else v for v in vals]
+        out.append(head[:width] + [""] * max(0, width - len(head)))
+        out.append(line[:width] + [""] * max(0, width - len(line)))
+    return out, note
+
+
+def _tao_usd(signals_df):
+    """TAO in dollars, off the signals row the tab already computed.
+
+    Deliberately NOT a taostats price call. The subnet prices come back in
+    TAO, so something has to convert them, and using the same Yahoo close the
+    INDICATORS section is built from keeps one price on the tab instead of
+    two that disagree by a dollar. It also costs no HTTP.
+    """
+    if signals_df is None or getattr(signals_df, "empty", True):
+        return None
+    try:
+        hit = signals_df[signals_df["Ticker"].astype(str).str.upper()
+                         == "TAO22974-USD"]
+        if hit.empty:
+            return None
+        for col in ("Current Price", "Last Close", "Close", "Price"):
+            if col in signals_df.columns:
+                v = _num(hit.iloc[0].get(col))
+                if v:
+                    return v
+    except Exception:                                   # noqa: BLE001
+        return None
+    return None
+
+
 def _rec_rows(ticker, price, signals_df, is_fenced, pos_width,
               rec=None, row0=None):
     """The two RECOMMENDED lines for one block: headers, then levels.
@@ -1365,8 +1428,10 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     one batch afterwards.
 
     `sections` limits which blocks render, by name: POSITIONS, RECOMMENDED,
-    ORDERS, INDICATORS, ORACLE, FINANCIALS. None means all of them, which is
-    every existing caller — the Dashboard and REST-DASHBOARD are unchanged.
+    ORDERS, INDICATORS, SUBNET, ORACLE, FINANCIALS. None means all of them,
+    which is every existing caller — the Dashboard and REST-DASHBOARD are
+    unchanged (SUBNET renders only on Bittensor tickers, so asking for it
+    everywhere costs the stock tabs nothing).
 
     Added 2026-11-15 for the CRYPTO tab, where Chakravarti asked for *"the
     INDICATORS section on this. we dont need other sections. Also do the
@@ -1501,6 +1566,12 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
         seen = ticker_notes.attended()
     except Exception:                                   # noqa: BLE001
         seen = {}
+
+    # TAO in dollars, once for the whole sheet. Subnet alpha prices come off
+    # the chain denominated in TAO, so every SUBNET block needs this one
+    # number and none of them should look it up for itself.
+    tao_usd = _tao_usd(signals_df) if (sections is None
+                                       or "SUBNET" in sections) else None
 
     beth = _beth_tickers()
     watch_only = sorted(beth - set(str(t).upper() for t in order))
@@ -1730,6 +1801,22 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                 r = add(line)
                 # Even rows are the field NAMES, odd are the values — the
                 # names get the header tint so the pairs stay legible.
+                (marks["header"] if i % 2 == 0 else marks["ind"]).append(r)
+
+        # SUBNET, directly under INDICATORS and in FINANCIALS' slot — the
+        # on-chain fundamentals for a Bittensor subnet alpha. Renders on
+        # exactly the six tickers taostats.TICKER_NETUID knows and nothing
+        # else, so the stock Dashboard is untouched.
+        sn_lines, sn_note = _subnet_rows(ticker, DASH_WIDTH, tao_usd) \
+            if want("SUBNET") else ([], "")
+        if sn_lines:
+            add([])
+            # The age rides in the label row. A cached on-chain figure that
+            # cannot say how old it is would be indistinguishable from a live
+            # one, and this section refreshes once a day by design.
+            marks["label"].append(add(["", "SUBNET", sn_note]))
+            for i, line in enumerate(sn_lines):
+                r = add(line)
                 (marks["header"] if i % 2 == 0 else marks["ind"]).append(r)
 
         # ORACLE, its own section rather than one cell in RECOMMENDED.
