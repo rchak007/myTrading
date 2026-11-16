@@ -1076,6 +1076,32 @@ def main() -> int:
     import jobStocksSignals as job
     client = job.get_schwab_client()
 
+    # RECONCILE FIRST, THEN EVALUATE.
+    #
+    # Nothing in this engine ever wrote FILLED, so a chained row waited on a
+    # state that could not occur and sat "⏸ WAITING ... arms when it FILLS"
+    # for ever. order_reconcile asks Schwab what became of every SUBMITTED
+    # order and writes the answer to the ledger.
+    #
+    # It runs BEFORE the rows are evaluated, and `states` is rebuilt from the
+    # fresh ledger underneath, so a parent that filled overnight arms its
+    # child on THIS cycle rather than the next one. Placing nothing and
+    # cancelling nothing, it is safe ahead of the guards.
+    try:
+        import order_reconcile
+        if order_reconcile.reconcile(client, ws=ws, cols=cols, log=_log):
+            ledger = read_ledger()
+            states = latest_states(ledger)
+            n_sub, notional_today = todays_submissions(ledger)
+            done_ids = {rid for rid, s in states.items()
+                        if s.get("state") in cfg.TERMINAL_STATES}
+            chain_bad = oc.chain_problems(rows, done_ids=done_ids)
+            chain_parent = oc.parent_of(rows, done_ids=done_ids)
+    except Exception as e:                                  # noqa: BLE001
+        # Never block the cycle. A failed reconcile costs the chain one run;
+        # a reconcile that takes the engine down costs every stop on the tab.
+        _log(f"⚠️  reconcile skipped ({type(e).__name__}: {e})")
+
     # Read the real account ONCE. Every guard that catches a mis-typed cell
     # depends on knowing what is actually held.
     acct_state = account_state(client, log=_log)

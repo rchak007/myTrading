@@ -256,6 +256,11 @@ PY_VERBS = {
     "return_borrow": (True, False),
     "owe":           (True, False),
     "paid_back":     (True, False),
+    # Ask Schwab what became of every SUBMITTED order and write it down.
+    # Places nothing, cancels nothing — it only records outcomes — so it is
+    # safe to run at any time. The engine also runs it at the top of each
+    # cycle; this is for when you want the answer now.
+    "reconcile":    (False, False),
     "apply_fills":  (False, False),
     "reserves":     (False, False),
     "tidy_orders":  (False, False),
@@ -577,6 +582,28 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
 
     if verb == "taostats_key":
         return _run_taostats_key(arg)
+
+    if verb == "reconcile":
+        import jobStocksSignals as job
+        import order_engine as eng
+        import order_reconcile
+        import orders_columns as oco
+        out = []
+        ws = eng.open_orders_tab()
+        updates = order_reconcile.reconcile(
+            job.get_schwab_client(), ws=ws, cols=oco.read(ws, log=out.append),
+            log=out.append)
+        if updates:
+            out.append("")
+            out.append(f"{len(updates)} order(s) reached a final state:")
+            for u in updates:
+                out.append(f"  {u['row_id']:<26} {u['state']:<10} {u['note']}")
+            out.append("")
+            out.append("A chained row whose parent just FILLED arms on the "
+                       "next engine cycle.")
+        else:
+            out.append("nothing changed — no submitted order has finished")
+        return 0, "\n".join(out)
 
     if verb in ("withdraw", "close"):
         import cash_reserve
@@ -1068,6 +1095,7 @@ VERB_DOCS = [
     ("auth_code", "the whole pasted redirect URL", "auth_code  https://127.0.0.1:8000/?code=C0.b...@&session=...", "Finishes the re-auth. Paste the ENTIRE address bar. A re-pasted code is refused — get a fresh auth_url instead."),
     ("taostats_key", "a taostats API key", "taostats_key  tao-12345678-90ab-cdef-1234-567890abcdef:0a85aa4e", "Installs the key the CRYPTO tab's SUBNET section reads. Only the exact tao-<uuid>:<8hex> shape is accepted and only its own file is written — never .env. Column B is blanked after. Read-only market data: no orders, no money."),
 
+    ("reconcile", "—", "reconcile", "Ask Schwab what became of every SUBMITTED order and record it — FILLED / CANCELLED / REJECTED / EXPIRED, with the filled quantity and average price. Places and cancels nothing. The engine runs this itself each cycle; use it to get the answer now. A chained row arms once its parent reads FILLED."),
     ("run_signals", "—", "run_signals", "Rebuild Positions, Cash, Dashboard and the reserve tables now instead of waiting for the next cron. Returns as soon as it LAUNCHES; watch with tail_log stocks."),
     ("reserves", "—", "reserves", "The whole reserve table: what is fenced, deployed and available per ticker."),
     ("orders_columns", "— or 'apply'", "orders_columns  apply",
