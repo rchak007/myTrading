@@ -1336,7 +1336,19 @@ def main() -> int:
             trig = float(n["Trigger_Price"]) if n["Trigger_Price"] else None
             lab, conf = ("", "")
             if oc.wanted_labels(n["Close_Is"]):
-                lab, conf = structure_of(n["Ticker"])
+                # `watch`, NOT n["Ticker"]. Trigger_Ticker says which symbol
+                # DECIDES, and HH/HL is part of that decision just as much as
+                # the close is — reading the structure off the order's own
+                # symbol while reading the close off another one is two
+                # different tickers answering one question.
+                #
+                # It broke the exact case Trigger_Ticker was added for. The
+                # parked round trip is a QQQ order watching NEE: "when NEE
+                # prints HH or HL, sell the QQQ." This read QQQ's label, so
+                # the row fired on QQQ's structure or, far more often, never
+                # fired at all. Price triggers (ABOVE/BELOW) were always
+                # correct; only the label path had the wrong ticker.
+                lab, conf = structure_of(watch)
             fired, why = triggered(n["Close_Is"], close, trig, side=n["Side"],
                                    label=lab, confirmed=conf,
                                    since=str(rec.get("Date", "")).strip()[:10])
