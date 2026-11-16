@@ -1350,7 +1350,18 @@ def main() -> int:
                           f"{', '.join(sorted(set(VERBS) | set(PY_VERBS)))}",
                 "Host": HOST,
             })
-            audit(event="rejected", row=r, verb=verb, args=arg)
+            # SHAPE ONLY, NEVER THE VALUE. safe_arg cannot help here: it
+            # redacts by looking the verb up in PY_VERBS, and this verb is by
+            # definition not there, so it returns the argument verbatim.
+            #
+            # That mattered the moment a secret-bearing verb existed. Queue
+            # `taostats_key <key>` on a Pi that has not pulled yet and the
+            # old code rejects it as unknown — and used to write the key in
+            # clear into an append-only audit log that is kept forever. The
+            # one case where we know least about an argument is the one case
+            # it was being logged in full.
+            audit(event="rejected", row=r, verb=verb,
+                  args=f"({len(arg)} chars, not logged)" if arg else "")
             executed += 1
             continue
 
