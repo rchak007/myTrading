@@ -2084,6 +2084,209 @@ def crypto_tickers() -> list:
     return _app_list("CRYPTO_DASHBOARD")
 
 
+DUE_TAB = os.getenv("GSHEET_DUE_TAB", "DUE")
+DUE_HDR = ["Ticker", "Due", "Days", "State", "Where", "Held",
+           "Last_Attended", "Note"]
+
+
+def _due_sort_key(days):
+    """Past due first, then undated, then the rest — Chakravarti's order.
+
+    (bucket, tiebreak). The undated bucket sits in the MIDDLE deliberately:
+    a ticker with no due date is not a ticker with nothing to do, it is one
+    you have never decided about, and burying those under six months of
+    future dates is how they stay undecided.
+
+    Within past-due, the most overdue leads. Within future, the soonest.
+    """
+    if days is None:
+        return (1, 0)
+    if days < 0:
+        return (0, days)            # -30 before -2
+    return (2, days)                # today, then tomorrow, ...
+
+
+def due_rows(book_tickers, held, log=print, notes_path=None) -> tuple[list, dict]:
+    """(rows, marks) for the DUE tab. Pure — no sheet access, so it is testable.
+
+    `notes_path` overrides where the ledger is read from. It exists for the
+    tests: ticker_notes binds its default path at import, so pointing the
+    module global somewhere else after the fact does nothing, and a test that
+    appeared to use a temp file would silently read the real one.
+    """
+    try:
+        import ticker_notes
+        kw = {"path": notes_path} if notes_path else {}
+        due = ticker_notes.due_dates(**kw)
+        seen = ticker_notes.attended(**kw)
+        notes = ticker_notes.current(**kw)
+    except Exception as e:                              # noqa: BLE001
+        log(f"⚠️  DUE: ticker notes unavailable: {e}")
+        due, seen, notes = {}, {}, {}
+
+    from datetime import date as _date
+    today = _date.today()
+
+    def days_for(iso):
+        try:
+            y, m, d = (int(x) for x in iso.split("-"))
+            return (_date(y, m, d) - today).days
+        except Exception:                               # noqa: BLE001
+            return None
+
+    items = []
+    for t, where in sorted(book_tickers.items()):
+        iso = due.get(t, "")
+        days = days_for(iso) if iso else None
+        if days is None:
+            state = ""
+        elif days < 0:
+            state = f"🔴 PAST DUE {-days}d"
+        elif days == 0:
+            state = "🟠 DUE TODAY"
+        elif days <= 7:
+            state = f"🟡 in {days}d"
+        else:
+            state = f"in {days}d"
+        att = seen.get(t, "")
+        if att:
+            try:
+                y, m, d = (int(x) for x in att.split("-"))
+                age = (today - _date(y, m, d)).days
+                att = f"{att} ({age}d ago)" if age else f"{att} (today)"
+            except Exception:                           # noqa: BLE001
+                pass
+        frag = notes.get(t) or []
+        note = "  ·  ".join(txt for _when, txt in frag)[:300]
+        items.append((_due_sort_key(days), t, iso, days, state, where,
+                      "✓" if t in held else "", att, note))
+
+    items.sort(key=lambda x: (x[0], x[1]))
+
+    marks = {"title": [], "header": [], "overdue": [], "today": [],
+             "undated": [], "label": []}
+    rows = []
+
+    def add(vals):
+        rows.append([_scrub(v) for v in vals]
+                    + [""] * (len(DUE_HDR) - len(vals)))
+        return len(rows)
+
+    n_over = sum(1 for i in items if i[3] is not None and i[3] < 0)
+    n_none = sum(1 for i in items if i[3] is None)
+    marks["title"].append(add([
+        DUE_TAB, f"updated {_now()}"]))
+    add(["", f"{len(items)} ticker(s) across Dashboard, REST-DASHBOARD and "
+             f"CRYPTO · {n_over} past due · {n_none} with no date · "
+             f"read-only, regenerated every cycle"])
+    add([])
+    marks["header"].append(add(DUE_HDR))
+
+    bucket = None
+    for key, t, iso, days, state, where, held_mark, att, note in items:
+        if key[0] != bucket:
+            bucket = key[0]
+            label = {0: "PAST DUE", 1: "NO DATE SET",
+                     2: "UPCOMING"}[bucket]
+            marks["label"].append(add(["", f"— {label} —"]))
+        r = add([t, iso, "" if days is None else days, state, where,
+                 held_mark, att, note])
+        if days is None:
+            marks["undated"].append(r)
+        elif days < 0:
+            marks["overdue"].append(r)
+        elif days == 0:
+            marks["today"].append(r)
+    return rows, marks
+
+
+def write_due_tab(book, positions, log=print, **kw) -> int:
+    """DUE: every ticker on the three dashboards, ordered by what is overdue.
+
+    Chakravarti, 2026-11-16: *"i want all tickers from DASHBOARD,
+    RESTDASHBOARD and CRYPTO to show here. With due dates. Show past due
+    first and empty next and then rest."*
+
+    One tab for "what needs a decision", across a universe spread over three
+    tabs that are each ordered by something else entirely. Nothing here is
+    typed by a human — the dates come from the notes ledger via the `due`
+    verb — so it can be regenerated wholesale like every other tab.
+    """
+    try:
+        ws = book.worksheet(DUE_TAB)
+    except Exception:                                    # noqa: BLE001
+        log(f"DUE: no '{DUE_TAB}' tab — skipping")
+        return 0
+
+    held = set()
+    try:
+        held = set(positions.loc[positions["Acct"] != TOTAL,
+                                 "Ticker"].astype(str).str.upper())
+    except Exception:                                    # noqa: BLE001
+        pass
+
+    # WHERE each ticker is rendered, so a name can be found again. Built in
+    # reverse precedence: Dashboard wins over REST-DASHBOARD for a held name,
+    # because that is the tab it actually appears on.
+    where: dict[str, str] = {}
+    for t in crypto_tickers():
+        where[str(t).upper()] = "CRYPTO"
+    for t in all_tickers():
+        where.setdefault(str(t).upper(), "REST-DASHBOARD")
+    try:
+        for t in _beth_tickers(log=lambda *_: None):
+            where[str(t).upper()] = "DASHBOARD"
+    except Exception:                                    # noqa: BLE001
+        pass
+    for t in held:
+        where[t] = "DASHBOARD"
+    # A ticker with a due date but no longer in any list still has to appear,
+    # or clearing it would be impossible from the tab that reports it.
+    try:
+        import ticker_notes
+        for t in ticker_notes.due_dates():
+            where.setdefault(t, "(not listed)")
+    except Exception:                                    # noqa: BLE001
+        pass
+
+    if not where:
+        log("DUE: no tickers to list — skipping")
+        return 0
+
+    rows, marks = due_rows(where, held, log=log)
+    need = len(rows) + 30
+    if int(getattr(ws, "row_count", 0) or 0) < need:
+        ws.resize(rows=need)
+    last = chr(ord("A") + len(DUE_HDR) - 1)
+    ws.batch_clear([f"A1:{last}{ws.row_count}"])
+    ws.update(values=rows, range_name=f"A1:{last}{len(rows)}",
+              value_input_option="USER_ENTERED")
+    _paint_due(ws, marks, last, log)
+    log(f"DUE: {len(where)} ticker(s)")
+    return len(where)
+
+
+def _paint_due(ws, marks, last_col, log=print) -> None:
+    """Colour the DUE tab. Cosmetic — never let it cost the write."""
+    try:
+        fmts = [
+            ("title", {"textFormat": {"bold": True, "fontSize": 12}}),
+            ("header", {"textFormat": {"bold": True},
+                        "backgroundColor": {"red": .85, "green": .87, "blue": .92}}),
+            ("label", {"textFormat": {"bold": True, "italic": True},
+                       "backgroundColor": {"red": .93, "green": .93, "blue": .93}}),
+            ("overdue", {"backgroundColor": {"red": 1.0, "green": .80, "blue": .80}}),
+            ("today", {"backgroundColor": {"red": 1.0, "green": .92, "blue": .75}}),
+            ("undated", {"backgroundColor": {"red": .95, "green": .95, "blue": .95}}),
+        ]
+        for name, fmt in fmts:
+            spans = [f"A{r}:{last_col}{r}" for r in marks.get(name, [])]
+            if spans:
+                ws.format(spans, fmt)
+    except Exception as e:                               # noqa: BLE001
+        log(f"⚠️  DUE: could not paint ({e})")
+
+
 def write_rest_dashboard(book, positions, shown, log=print, **kw) -> int:
     """REST-DASHBOARD: every ticker in app.py that the Dashboard does not show.
 
@@ -2351,6 +2554,12 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
                                signals_df=signals_df)
     except Exception as e:                               # noqa: BLE001
         log(f"⚠️  CRYPTO skipped ({type(e).__name__}: {e})")
+
+    # DUE, wrapped independently for the same reason as the two above.
+    try:
+        write_due_tab(book, positions, log=log)
+    except Exception as e:                               # noqa: BLE001
+        log(f"⚠️  DUE skipped ({type(e).__name__}: {e})")
 
     # ---- header block. LAST POLL is the health check: if this stops moving,
     # ---- whatever runs this module has died.

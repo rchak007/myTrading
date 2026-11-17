@@ -55,7 +55,19 @@ COLS = ["Timestamp_PST", "Event_ID", "Ticker", "Action", "Text", "Source"]
 # dated, append-only — and because the history then lives in one file. An
 # ATTENDED row carries no text and never appears in the note itself; it is
 # folded separately by attended().
-ACTIONS = {"ADD", "REPLACE", "DELETE", "ATTENDED"}
+# DUE rides here for the same reasons ATTENDED does. Chakravarti,
+# 2026-11-16: a date by which a ticker needs a decision, so the DUE tab can
+# sort the whole universe by what is overdue.
+#
+# ATTENDED answers "when did I last look at this"; DUE answers "when must I
+# look next". Same shape, same file, one history — and the pair is far more
+# useful together than either alone, which is the argument for not splitting
+# them across two ledgers.
+#
+# The date is the row's Text. Clearing a due date writes a DUE row with an
+# EMPTY Text rather than deleting anything: append-only, so "it used to be
+# due on the 3rd and I cleared it" stays answerable.
+ACTIONS = {"ADD", "REPLACE", "DELETE", "ATTENDED", "DUE"}
 
 # One note should not be able to push a Dashboard row past what Sheets will
 # render, or bury the numbers underneath it.
@@ -126,6 +138,105 @@ def attended(path: Path = NOTES_PATH) -> dict[str, str]:
         if str(r.get("Action", "")).strip().upper() == "ATTENDED":
             out[tkr(r.get("Ticker"))] = str(r.get("Timestamp_PST", ""))[:10]
     return out
+
+
+def parse_due(text) -> str:
+    """A typed due date into YYYY-MM-DD, or "" to clear it.
+
+    Accepts what a person actually types on a phone:
+
+        2026-12-01   an ISO date
+        12/01        this year, or next if that is already past
+        30d  4w  3m  relative to today
+        today  tomorrow  eom
+        -  none  clear  x        clear the date
+
+    Raises ValueError on anything else. A due date that silently parsed to
+    the wrong day would be worse than a refusal — the whole tab sorts on it.
+    """
+    from datetime import date as _date, timedelta
+    s = str(text or "").strip().lower()
+    if s in ("", "-", "none", "clear", "x", "off"):
+        return ""
+    today = _date.today()
+    if s == "today":
+        return today.isoformat()
+    if s == "tomorrow":
+        return (today + timedelta(days=1)).isoformat()
+    if s == "eom":
+        nxt = (today.replace(day=28) + timedelta(days=4))
+        return (nxt - timedelta(days=nxt.day)).isoformat()
+
+    import re
+    m = re.fullmatch(r"\+?(\d+)\s*([dwmy])", s)
+    if m:
+        n, unit = int(m.group(1)), m.group(2)
+        days = {"d": 1, "w": 7, "m": 30, "y": 365}[unit] * n
+        return (today + timedelta(days=days)).isoformat()
+
+    m = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", s)
+    if m:
+        y, mo, d = (int(x) for x in m.groups())
+        return _date(y, mo, d).isoformat()        # ValueError if not real
+
+    # M/D or M/D/Y. Bare M/D means the NEXT occurrence, so typing 1/15 in
+    # December means next January rather than a date eleven months past.
+    m = re.fullmatch(r"(\d{1,2})/(\d{1,2})(?:/(\d{2,4}))?", s)
+    if m:
+        mo, d, y = int(m.group(1)), int(m.group(2)), m.group(3)
+        if y:
+            y = int(y)
+            y += 2000 if y < 100 else 0
+            return _date(y, mo, d).isoformat()
+        cand = _date(today.year, mo, d)
+        if cand < today:
+            cand = _date(today.year + 1, mo, d)
+        return cand.isoformat()
+
+    raise ValueError(
+        f"{text!r} is not a date. Use 2026-12-01, 12/01, 30d, 4w, 3m, "
+        f"today, tomorrow, eom — or '-' to clear it.")
+
+
+def set_due(ticker, when, *, source="cli", path: Path = NOTES_PATH,
+            log=print) -> str:
+    """Set (or clear) a ticker's due date. Returns the date written, or ""."""
+    iso = parse_due(when)
+    _append(ticker, "DUE", iso, source, path=path, log=log)
+    return iso
+
+
+def due_dates(path: Path = NOTES_PATH) -> dict[str, str]:
+    """{TICKER: YYYY-MM-DD} — the CURRENT due date for each ticker.
+
+    Last row wins, and a row with an empty date removes the ticker from the
+    mapping entirely rather than mapping it to "". Callers then only have to
+    handle "present" and "absent", not a third empty-string case that reads
+    as a date everywhere it is forgotten.
+    """
+    out: dict[str, str] = {}
+    for r in read_log(path):
+        if str(r.get("Action", "")).strip().upper() != "DUE":
+            continue
+        t, iso = tkr(r.get("Ticker")), str(r.get("Text", "")).strip()
+        if iso:
+            out[t] = iso
+        else:
+            out.pop(t, None)
+    return out
+
+
+def days_until(ticker, path: Path = NOTES_PATH):
+    """Whole days until this ticker is due. Negative is overdue; None unset."""
+    from datetime import date as _date
+    d = due_dates(path).get(tkr(ticker))
+    if not d:
+        return None
+    try:
+        y, m, dd = (int(x) for x in d.split("-"))
+        return (_date(y, m, dd) - _date.today()).days
+    except Exception:                                    # noqa: BLE001
+        return None
 
 
 def days_since(ticker, path: Path = NOTES_PATH):

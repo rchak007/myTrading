@@ -279,6 +279,10 @@ PY_VERBS = {
     "orders_doc":   (False, False),
     # Sticky notes. Free text, so the whole of column B after the ticker is
     # the note — never split into fixed fields.
+    # Due dates. One date, any number of tickers: "due NVDA AMD MU 12/01".
+    # Not sensitive — the argument is the record, like seed's.
+    "due":           (True,  False),
+    "due_list":      (False, False),
     "note":          (True,  False),
     "note_replace":  (True,  False),
     "note_delete":   (True,  False),
@@ -453,6 +457,88 @@ def _run_taostats_key(arg: str) -> tuple[int, str]:
     return 0, "\n".join(out)
 
 
+DUE_USAGE = (
+    "due  TICKER [TICKER ...] DATE\n"
+    "  e.g.  due  NVDA 2026-12-01\n"
+    "        due  NVDA AMD MU 12/01      one date, any number of tickers\n"
+    "        due  BE 30d                 30d · 4w · 3m · today · tomorrow · eom\n"
+    "        due  BE -                   clear it\n\n"
+    "The DATE IS LAST. Everything before it is a ticker.\n"
+    "Shows on the DUE tab, past due first. Use due_list to read them here.")
+
+
+def _run_due(arg: str) -> tuple[int, str]:
+    """Set a due date on one or many tickers, or list them all.
+
+    THE DATE GOES LAST, and that is the only ordering rule. Chakravarti asked
+    for *"a bunch of tickers with space then all get updated"*, so the
+    ticker count is variable and the date is the one token whose position can
+    be fixed. Taking it from the end means `due NVDA AMD MU 12/01` and
+    `due BE 30d` parse by the same rule.
+
+    ALL OR NOTHING. The date is parsed and every ticker is validated BEFORE
+    anything is written, so a typo in the fourth symbol does not leave the
+    first three dated and the rest not — a half-applied batch is worse than a
+    refused one, because nothing on the tab would say it happened.
+    """
+    import ticker_notes
+
+    parts = (arg or "").split()
+    if not parts:
+        cur = ticker_notes.due_dates()
+        if not cur:
+            return 0, "no due dates set.\n\n" + DUE_USAGE
+        from datetime import date as _d
+        today = _d.today()
+        lines = []
+        for t, iso in sorted(cur.items()):
+            try:
+                y, m, dd = (int(x) for x in iso.split("-"))
+                n = (_d(y, m, dd) - today).days
+                tag = (f"PAST DUE {-n}d" if n < 0 else
+                       "DUE TODAY" if n == 0 else f"in {n}d")
+            except Exception:                           # noqa: BLE001
+                n, tag = 0, "?"
+            lines.append((n, f"  {t:<12} {iso}   {tag}"))
+        return 0, (f"{len(cur)} due date(s), soonest first:\n"
+                   + "\n".join(x for _n, x in sorted(lines)))
+
+    if len(parts) < 2:
+        return 2, ("needs at least a ticker and a date — the DATE IS LAST.\n\n"
+                   + DUE_USAGE)
+
+    *tickers, when = parts
+    try:
+        iso = ticker_notes.parse_due(when)
+    except ValueError as e:
+        return 2, (f"{e}\n\nNothing was written. The date goes LAST — if "
+                   f"{when!r} was meant to be a ticker, the date is missing.\n\n"
+                   + DUE_USAGE)
+
+    clean, bad = [], []
+    for t in tickers:
+        t = ticker_notes.tkr(t)
+        # Same shape a ticker has everywhere else here. Catches a date typed
+        # first, which would otherwise be recorded as a symbol called "12/01".
+        if t and t.replace(".", "").replace("-", "").isalnum() and len(t) <= 12:
+            clean.append(t)
+        else:
+            bad.append(t)
+    if bad:
+        return 2, (f"not valid ticker(s): {', '.join(bad)}. Nothing was "
+                   f"written.\n\n" + DUE_USAGE)
+    if not clean:
+        return 2, "no tickers given. Nothing was written.\n\n" + DUE_USAGE
+
+    out = []
+    for t in clean:
+        ticker_notes.set_due(t, iso or "-", source="ops", log=lambda *_: None)
+        out.append(t)
+    what = f"due {iso}" if iso else "due date CLEARED"
+    return 0, (f"{len(out)} ticker(s) {what}: {', '.join(out)}\n\n"
+               f"The DUE tab is rewritten on the next run_signals.")
+
+
 def run_pyverb(verb: str, arg: str) -> tuple[int, str]:
     """Dispatch an in-process verb. NEVER raises.
 
@@ -582,6 +668,9 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
 
     if verb == "taostats_key":
         return _run_taostats_key(arg)
+
+    if verb in ("due", "due_list"):
+        return _run_due(arg if verb == "due" else "")
 
     if verb == "reconcile":
         import jobStocksSignals as job
@@ -1095,6 +1184,8 @@ VERB_DOCS = [
     ("auth_code", "the whole pasted redirect URL", "auth_code  https://127.0.0.1:8000/?code=C0.b...@&session=...", "Finishes the re-auth. Paste the ENTIRE address bar. A re-pasted code is refused — get a fresh auth_url instead."),
     ("taostats_key", "a taostats API key", "taostats_key  tao-12345678-90ab-cdef-1234-567890abcdef:0a85aa4e", "Installs the key the CRYPTO tab's SUBNET section reads. Only the exact tao-<uuid>:<8hex> shape is accepted and only its own file is written — never .env. Column B is blanked after. Read-only market data: no orders, no money."),
 
+    ("due", "TICKER… then the DATE", "due  NVDA AMD MU 12/01", "Set a due date on one or many tickers — THE DATE IS LAST, everything before it is a ticker. Accepts 2026-12-01, 12/01, 30d, 4w, 3m, today, tomorrow, eom, or '-' to clear. Shows on the DUE tab with past due first, then undated, then the rest."),
+    ("due_list", "—", "due_list", "Every due date, soonest first, read right here instead of on the DUE tab."),
     ("reconcile", "—", "reconcile", "Ask Schwab what became of every SUBMITTED order and record it — FILLED / CANCELLED / REJECTED / EXPIRED, with the filled quantity and average price. Places and cancels nothing. The engine runs this itself each cycle; use it to get the answer now. A chained row arms once its parent reads FILLED."),
     ("run_signals", "—", "run_signals", "Rebuild Positions, Cash, Dashboard and the reserve tables now instead of waiting for the next cron. Returns as soon as it LAUNCHES; watch with tail_log stocks."),
     ("reserves", "—", "reserves", "The whole reserve table: what is fenced, deployed and available per ticker."),
