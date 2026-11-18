@@ -420,6 +420,88 @@ options                       rebuild the OPTIONS tab now
 path from here to a submission. Read the answer, decide, enter it at your
 broker yourself.
 
+### The two modes, and only two
+
+Chakravarti, 2026-11-18: *"I'm asking only for you to do two things."*
+
+| You have | You type | You get |
+|---|---|---|
+| nothing yet | `cc MSTR` / `csp NVDA` | the best strike and expiry to open |
+| a live position | `pos MSTR 127C 11/27 @0.54` | close it? at what limit? roll it? |
+
+Nothing else. `pos` deliberately does **not** print a ladder — he asked
+three questions about one position, and a second trade inside the answer to
+a first one is noise.
+
+### `pos` — a position you already hold
+
+```
+pos <TICKER> <STRIKE><C|P> <EXPIRY> [@premium] [xN]
+
+    pos MSTR 127C 11/27 @0.54
+    pos CRWV 60C 2026-11-20 @0.27
+    pos NVDA 170P 12/19 @2.10 x2
+```
+
+**Order does not matter after the ticker.** Each piece is recognised by its
+shape — a number ending `C`/`P` is the strike and right, `@n` is what you
+sold it for, `xN` is contracts, anything date-shaped is the expiry.
+Remembering an argument order while the market is open is the thing that
+stops a tool being used. A missing piece is named rather than guessed.
+
+`@premium` is optional. Without it you still get the greeks, the distance
+to the strike and the roll; you do not get how much profit is already
+banked, because nothing knows what you sold it for.
+
+#### Quiet position
+
+```
+MSTR  2026-11-27  $127.00C  ·  1 contract  ·  sold at $0.54
+
+   Spot $100.38   ·   strike is 26.5% away   ·   10 days left
+   Now $0.12   ·   bid $0.10 / ask $0.14   ·   Δ0.06   ·   theta $1.40/day
+   P/L $42  ·  78% of the premium captured
+
+→ 🟢 DECAY.  On track. Let theta work.
+
+   CLOSE NOW: buy to close, LIMIT $0.14 → costs $12, banks $42
+   OR SET AND FORGET: GTC buy-to-close at $0.08 — that is 85% of the
+   premium captured ($46 of the $54). Place it once and stop watching.
+
+   ROLL: not needed — Δ0.06 with 10 days left is not a threat.
+```
+
+**The set-and-forget line is the point of the whole verb.** It turns "check
+this every morning" into one GTC order placed once, at his own stated 80-95%
+take-profit band.
+
+#### Threatened position
+
+```
+→ 🔴 ROLL.  Δ0.52 with 3d left — gamma week. Roll before Thursday,
+            not on expiry day.
+
+   CLOSE NOW: buy to close, LIMIT $1.87 → costs $185, crystallises −$158
+   (No take-profit order: your 85% level is $0.04 and it is trading at
+    $1.85. That order would not fill.)
+
+   ROLL TO: buy back 2026-11-20 $60.00C at ~$1.85,
+            sell 2026-12-19 $65.00C at ~$2.90
+      net credit $105  ·  strike up $5.00  ·  29 more days  ·  Δ0.20
+```
+
+Three restraints worth knowing:
+
+- **A roll appears only when the strike is actually threatened** — in the
+  money, delta past 0.45, or past 0.30 inside gamma week. Offering one on a
+  Δ0.06 position is inventing a trade.
+- **No take-profit order is printed on a threatened position.** The 85%
+  level sits far below the current mark, so the order would never fill, and
+  an unfillable order next to "gamma week, roll now" is noise at the exact
+  moment attention matters.
+- **A debit roll is named a DEBIT** and explicitly not urged. Paying to keep
+  a position is sometimes right and never automatic.
+
 ### A ticker Schwab cannot see still gets an answer
 
 Corrected 2026-11-17. Chakravarti: *"Charles Schwab I don't have GOOG or

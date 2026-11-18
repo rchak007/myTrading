@@ -1039,3 +1039,201 @@ def advise(ticker, chain, *, right="C", shares=None, qty=None,
         L.append("")
         L += ["   " + w for w in warn]
     return L
+
+
+# ───────────────────────────────── "here is my position — what do I do"
+def parse_position(tokens) -> dict:
+    """`MSTR 127C 11/27 @0.54 x1` in any order after the ticker.
+
+    SHAPE, NOT POSITION. The ticker is first and everything after it is
+    identified by what it looks like: a number ending C or P is the strike
+    and the right, `@n` is what you sold it for, `xN` is contracts, and
+    anything date-shaped is the expiry. Fixing the order would mean
+    remembering the order, and the one thing worse than no tool is a tool
+    you have to get exactly right while the market is open.
+
+    Raises ValueError naming what is missing, rather than guessing.
+    """
+    import re
+    toks = [str(t).strip().upper() for t in tokens if str(t).strip()]
+    if not toks:
+        raise ValueError("give me a ticker")
+    out = {"ticker": toks[0], "strike": None, "right": "", "expiry": "",
+           "premium": None, "qty": 1}
+    if not re.fullmatch(r"[A-Z][A-Z.]{0,5}", out["ticker"]):
+        raise ValueError(f"{toks[0]} is not a ticker")
+
+    for tok in toks[1:]:
+        m = re.fullmatch(r"([0-9]*\.?[0-9]+)\s*([CP])", tok)
+        if m:
+            out["strike"], out["right"] = float(m.group(1)), m.group(2)
+            continue
+        if re.fullmatch(r"[CP](ALL|UT)?", tok):
+            out["right"] = tok[0]
+            continue
+        if tok.startswith("@"):
+            try:
+                out["premium"] = float(tok[1:].replace("$", ""))
+            except ValueError:
+                raise ValueError(f"{tok} is not a price") from None
+            continue
+        if re.fullmatch(r"X[0-9]{1,3}", tok):
+            out["qty"] = int(tok[1:])
+            continue
+        d = norm_date(tok)
+        if d:
+            out["expiry"] = d
+            continue
+        if re.fullmatch(r"[0-9]*\.?[0-9]+", tok) and out["strike"] is None:
+            out["strike"] = float(tok)
+            continue
+        raise ValueError(f"I cannot read {tok!r}")
+
+    missing = [n for n, v in (("strike", out["strike"]),
+                              ("expiry", out["expiry"])) if not v]
+    if missing:
+        raise ValueError("missing the " + " and ".join(missing))
+    if not out["right"]:
+        raise ValueError("say C or P — e.g. 127C")
+    return out
+
+
+def review(pos: dict, chain, *, shares=None, iv_rows=None) -> list[str]:
+    """Three answers about a position you already hold, and nothing else.
+
+    Chakravarti, 2026-11-18: *"if I already hold a position and I give you
+    that, then recommend whether if it's enough profit to sell it off, or
+    put a limit order to sell at what price, or to roll over if I'm in
+    danger of getting called."*
+
+    So: close it or not, the limit to close at, and a roll only when there
+    is something to roll away from. No ladder, no suggestion — he did not
+    ask what else to sell and a second trade in the answer is noise.
+    """
+    t, right = pos["ticker"], pos["right"]
+    strike, expiry = pos["strike"], pos["expiry"]
+    prem, qty = pos.get("premium"), pos.get("qty") or 1
+    L = []
+    if not chain:
+        return [f"{t}: no option chain available."]
+
+    px = chain.get("price")
+    c = oc.find(chain, right, expiry, strike)
+    if not c:
+        return [f"{t} {expiry} ${strike:,.2f}{right} is not in the chain "
+                f"(it looks {LADDER_MAX_DTE}+ days out, or the strike does "
+                f"not exist). Check the expiry and strike."]
+
+    mark, dte, delta = c["mark"], c["dte"], c["delta"]
+    d = abs(delta) if delta is not None else None
+    kept = (round(100.0 * (prem - mark) / prem, 1)
+            if prem and mark is not None and prem > 0 else None)
+    pl = (prem - mark) * MULT * qty if (prem and mark is not None) else None
+    gap = ((strike - px) if right == "C" else (px - strike)) if px else None
+
+    head = f"{t}  {expiry}  ${strike:,.2f}{right}  ·  {qty} contract" \
+           + ("s" if qty != 1 else "")
+    if prem:
+        head += f"  ·  sold at ${prem:.2f}"
+    L += [head, ""]
+    L.append(f"   Spot ${px:,.2f}" if px else "   Spot unknown")
+    bits = []
+    if gap is not None and px:
+        bits.append(f"strike is {abs(gap) / px * 100:.1f}% "
+                    + ("away" if gap > 0 else "THROUGH — in the money"))
+    bits.append(f"{dte} day{'s' if dte != 1 else ''} left")
+    L[-1] += "   ·   " + "   ·   ".join(bits)
+    now = [f"Now ${mark:.2f}" if mark is not None else "no quote",
+           f"bid ${c['bid']:.2f} / ask ${c['ask']:.2f}"
+           if c["bid"] is not None else ""]
+    if d is not None:
+        now.append(f"Δ{d:.2f}")
+    if c["theta"] is not None:
+        # Cents matter here. Theta on a quiet short is often $1.40 a day,
+        # and rounded to whole dollars that reads as $1 — which understates
+        # it by a third and makes the number not worth printing.
+        now.append(f"theta ${-c['theta'] * MULT * qty:,.2f}/day")
+    L.append("   " + "   ·   ".join(x for x in now if x))
+    if pl is not None:
+        # "-585% of the premium captured" is not English. Underwater is a
+        # different sentence from in profit, so say the different sentence.
+        if kept is None:
+            tail = ""
+        elif kept >= 0:
+            tail = f"  ·  {kept:.0f}% of the premium captured"
+        else:
+            tail = (f"  ·  underwater by {_m(-pl)} on a "
+                    f"{_m(prem * MULT * qty)} premium")
+        L.append(f"   P/L {_m(pl)}{tail}")
+    L.append("")
+
+    verdict, action = assess({"dte": dte, "delta": delta, "kept": kept,
+                              "under": px, "strike": strike, "right": right,
+                              "mark": mark, "qty": qty})
+    L.append(f"→ {verdict}.  {action}")
+    L.append("")
+
+    danger = (gap is not None and gap <= 0) or (d is not None and (
+        d >= 0.45 or (dte is not None and dte <= GAMMA_DTE and d >= 0.30)))
+
+    # ── 1. the limit to close at ─────────────────────────────────────────
+    if mark is not None:
+        L.append(f"   CLOSE NOW: buy to close, LIMIT ${c['ask']:.2f} "
+                 f"→ costs {_m(mark * MULT * qty)}"
+                 + ((f", banks {_m(pl)}" if pl >= 0
+                     else f", crystallises {_m(pl)}")
+                    if pl is not None else ""))
+    tgt = round(prem * (1 - CLOSE_AT / 100.0), 2) if prem else None
+    if prem and not danger:
+        # The standing order, and the most useful line here: it turns "watch
+        # it every day" into one GTC placed once. 85% captured is his own
+        # stated take-profit band.
+        #
+        # ONLY WHEN THE POSITION IS SAFE. On a threatened short the
+        # take-profit level is far below the current mark, so the order
+        # would never fill — and printing an unfillable order next to
+        # "gamma week, roll now" is noise at the exact moment attention
+        # matters most.
+        if mark is None or mark > tgt:
+            L.append(f"   OR SET AND FORGET: GTC buy-to-close at "
+                     f"${tgt:.2f} — that is {CLOSE_AT:.0f}% of the premium "
+                     f"captured ({_m(prem * CLOSE_AT / 100.0 * MULT * qty)} "
+                     f"of the {_m(prem * MULT * qty)}). Place it once and "
+                     f"stop watching.")
+        else:
+            L.append(f"   Already past your {CLOSE_AT:.0f}% mark "
+                     f"(${tgt:.2f}). Take it.")
+    elif prem and danger and tgt is not None:
+        L.append(f"   (No take-profit order: your {CLOSE_AT:.0f}% level is "
+                 f"${tgt:.2f} and it is trading at ${mark:.2f}. That order "
+                 f"would not fill.)")
+    L.append("")
+
+    # ── 2. roll, but only when there is something to roll away from ──────
+    if not danger:
+        L.append(f"   ROLL: not needed"
+                 + (f" — Δ{d:.2f} with {dte} days left is not a threat."
+                    if d is not None else "."))
+        return L
+
+    best, credit = oc.roll(chain, c, right=right, strike=strike,
+                           expiry=expiry, target_delta=TARGET_DELTA)
+    if best is None:
+        L.append("   ROLL: nothing liquid further out that improves the "
+                 "strike. Closing or accepting assignment are the two "
+                 "honest options.")
+        return L
+    net = (credit or 0) * MULT * qty
+    L.append(f"   ROLL TO: buy back {expiry} ${strike:,.2f}{right} at "
+             f"~${mark:.2f}, sell {best['expiry']} ${best['strike']:,.2f}"
+             f"{right} at ~${best['mark']:.2f}")
+    L.append(f"      net {'credit ' if net >= 0 else 'DEBIT '}{_m(abs(net))}"
+             f"  ·  strike {'up' if best['strike'] > strike else 'down'} "
+             f"${abs(best['strike'] - strike):,.2f}"
+             f"  ·  {best['dte'] - (dte or 0)} more days"
+             f"  ·  Δ{abs(best['delta']):.2f}")
+    if net < 0:
+        L.append("      A debit roll is paying to keep the position. "
+                 "Sometimes right, never automatic — only do it if you "
+                 "want these shares more than the cash.")
+    return L

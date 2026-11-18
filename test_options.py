@@ -559,6 +559,120 @@ def test_assignment_is_measured_from_todays_price():
     assert "basis" not in out.lower(), out
 
 
+# ──────────────────────────── a position you already hold (`pos` verb)
+
+def test_the_position_tokens_parse_in_any_order():
+    # Fixing the order means remembering the order, and the one thing worse
+    # than no tool is one you must get exactly right while the market is open.
+    import options_sheet as osh
+    want = {"ticker": "MSTR", "strike": 127.0, "right": "C",
+            "expiry": "2026-11-27", "premium": 0.54, "qty": 1}
+    for toks in (["MSTR", "127C", "2026-11-27", "@0.54"],
+                 ["MSTR", "@0.54", "127C", "2026-11-27"],
+                 ["mstr", "2026-11-27", "@$0.54", "127c"]):
+        assert osh.parse_position(toks) == want, toks
+    got = osh.parse_position(["NVDA", "170P", "2026-12-19", "@2.10", "x2"])
+    assert got["qty"] == 2 and got["right"] == "P" and got["strike"] == 170.0
+
+
+def test_a_position_missing_a_piece_is_refused_by_name():
+    import options_sheet as osh
+    for toks, says in ((["MSTR", "127C"], "expiry"),
+                       (["MSTR", "2026-11-27"], "strike"),
+                       (["MSTR", "127", "2026-11-27"], "C or P"),
+                       (["MSTR", "127C", "2026-11-27", "@abc"], "not a price"),
+                       ([], "ticker")):
+        try:
+            osh.parse_position(toks)
+        except ValueError as e:
+            assert says in str(e), (toks, str(e))
+            continue
+        raise AssertionError(f"{toks} should not have parsed")
+
+
+def _pos_chain(px, cur, extra=()):
+    return _chain(px, [cur] + list(extra))
+
+
+def test_a_quiet_position_says_hold_and_gives_the_gtc_level():
+    # The set-and-forget line is the most useful output here: it turns
+    # "watch it daily" into one order placed once.
+    import options_sheet as osh
+    cur = _contract(strike=127.0, expiry="2026-11-27", dte=10, delta=0.06,
+                    mark=0.12, bid=0.10, ask=0.14, oi=4000)
+    out = "\n".join(osh.review(
+        {"ticker": "MSTR", "strike": 127.0, "right": "C",
+         "expiry": "2026-11-27", "premium": 0.54, "qty": 1},
+        _pos_chain(100.38, cur)))
+    assert "78% of the premium captured" in out, out
+    assert "GTC buy-to-close at $0.08" in out, out
+    assert "ROLL: not needed" in out, out
+
+
+def test_a_threatened_position_gets_a_roll_with_the_net_credit():
+    import options_sheet as osh
+    cur = _contract(strike=60.0, expiry="2026-11-20", dte=3, delta=0.52,
+                    mark=1.85, bid=1.80, ask=1.90, oi=1200)
+    nxt = _contract(strike=65.0, expiry="2026-12-19", dte=32, delta=0.20,
+                    mark=2.90, bid=2.85, ask=2.95, oi=900)
+    out = "\n".join(osh.review(
+        {"ticker": "CRWV", "strike": 60.0, "right": "C",
+         "expiry": "2026-11-20", "premium": 0.27, "qty": 1},
+        _pos_chain(59.0, cur, [nxt])))
+    assert "ROLL TO:" in out and "$65.00C" in out, out
+    assert "net credit $105" in out, out
+    assert "strike up $5.00" in out, out
+
+
+def test_a_debit_roll_is_named_a_debit_and_not_urged():
+    import options_sheet as osh
+    cur = _contract(strike=60.0, expiry="2026-11-20", dte=3, delta=0.55,
+                    mark=3.00, bid=2.95, ask=3.05, oi=1200)
+    nxt = _contract(strike=65.0, expiry="2026-12-19", dte=32, delta=0.20,
+                    mark=1.00, bid=0.95, ask=1.05, oi=900)
+    out = "\n".join(osh.review(
+        {"ticker": "CRWV", "strike": 60.0, "right": "C",
+         "expiry": "2026-11-20", "premium": 0.27, "qty": 1},
+        _pos_chain(59.0, cur, [nxt])))
+    assert "net DEBIT $200" in out, out
+    assert "never automatic" in out
+
+
+def test_a_position_past_the_take_profit_band_is_told_to_take_it():
+    import options_sheet as osh
+    cur = _contract(strike=127.0, expiry="2026-11-27", dte=6, delta=0.02,
+                    mark=0.04, bid=0.02, ask=0.06, oi=4000)
+    out = "\n".join(osh.review(
+        {"ticker": "MSTR", "strike": 127.0, "right": "C",
+         "expiry": "2026-11-27", "premium": 0.54, "qty": 1},
+        _pos_chain(100.0, cur)))
+    assert "🟢 CLOSE" in out and "Already past your 85% mark" in out, out
+
+
+def test_a_contract_not_in_the_chain_says_so_instead_of_guessing():
+    import options_sheet as osh
+    out = "\n".join(osh.review(
+        {"ticker": "MSTR", "strike": 999.0, "right": "C",
+         "expiry": "2026-11-27", "premium": 0.54, "qty": 1},
+        _chain(100.0, [_contract(strike=127.0, expiry="2026-11-27")])))
+    assert "not in the chain" in out and "ROLL" not in out
+
+
+def test_review_offers_no_second_trade():
+    # He asked three questions about ONE position. A ladder in the answer
+    # is a different trade wearing the same output.
+    import options_sheet as osh
+    cur = _contract(strike=127.0, expiry="2026-11-27", dte=10, delta=0.06,
+                    mark=0.12, bid=0.10, ask=0.14, oi=4000)
+    other = _contract(strike=140.0, expiry="2026-12-19", dte=32, delta=0.15,
+                      mark=2.00, oi=4000)
+    out = "\n".join(osh.review(
+        {"ticker": "MSTR", "strike": 127.0, "right": "C",
+         "expiry": "2026-11-27", "premium": 0.54, "qty": 1},
+        _pos_chain(100.38, cur, [other])))
+    assert "LADDER" not in out and "TODAY: SELL" not in out, out
+
+
 OPT_VERDICT = None
 
 

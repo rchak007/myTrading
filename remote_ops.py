@@ -268,6 +268,9 @@ PY_VERBS = {
     # Answers in the Status cell; writes nothing and places nothing.
     "cc":           (True,  False),
     "csp":          (True,  False),
+    # "here is a position I already hold" -> close it / limit to close at /
+    # roll it. Reads a chain, prints text, places nothing.
+    "pos":          (True,  False),
     "apply_fills":  (False, False),
     "reserves":     (False, False),
     "tidy_orders":  (False, False),
@@ -567,6 +570,53 @@ def _run_option_advice(arg: str, right: str) -> tuple[int, str]:
     return 0, "\n".join(out)
 
 
+POS_USAGE = (
+    "pos <TICKER> <STRIKE><C|P> <EXPIRY> [@premium] [xN]\n"
+    "\n"
+    "    pos MSTR 127C 11/27 @0.54\n"
+    "    pos CRWV 60C 2026-11-20 @0.27\n"
+    "    pos NVDA 170P 12/19 @2.10 x2\n"
+    "\n"
+    "Order does not matter after the ticker - each piece is recognised by\n"
+    "its shape. @premium is what you SOLD it for; without it you still get\n"
+    "the greeks and the roll, but not the profit taken so far.\n"
+    "\n"
+    "Answers three things and nothing else: close it or not, the limit to\n"
+    "close at, and a roll if the strike is threatened. Places nothing."
+)
+
+
+def _run_position_review(arg: str) -> tuple[int, str]:
+    """`pos MSTR 127C 11/27 @0.54` - what to do with one you already hold.
+
+    Chakravarti, 2026-11-18: *"if I already hold a position and I give you
+    that, then recommend whether if it's enough profit to sell it off, or
+    put a limit order to sell at what price, or to roll over if I'm in
+    danger of getting called."*
+
+    Deliberately NOT a ladder. He did not ask what else to sell, and a
+    second trade inside the answer to a first one is noise.
+    """
+    import option_chain as oc
+    import options_sheet as osh
+
+    try:
+        pos = osh.parse_position((arg or "").replace(",", " ").split())
+    except ValueError as e:
+        return 2, f"{e}\n\n{POS_USAGE}"
+
+    _client, shares, _basis, _opts = _option_context([pos["ticker"]])
+    import jobStocksSignals as job
+    client = job.get_schwab_client()
+    out = []
+    chain = oc.fetch_chain(client, pos["ticker"], log=out.append)
+    out += osh.review(pos, chain, shares=shares.get(pos["ticker"]),
+                      iv_rows=oc.read_iv())
+    out.append("")
+    out.append("RECOMMENDATION ONLY - nothing was placed and nothing can be.")
+    return 0, "\n".join(out)
+
+
 def _run_options() -> tuple[int, str]:
     """Refresh the OPTIONS tab now instead of waiting for the next cycle."""
     import options_sheet as osh
@@ -805,6 +855,9 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
 
     if verb in ("cc", "csp"):
         return _run_option_advice(arg, "C" if verb == "cc" else "P")
+
+    if verb == "pos":
+        return _run_position_review(arg)
 
     if verb == "reconcile":
         import jobStocksSignals as job
@@ -1322,6 +1375,7 @@ VERB_DOCS = [
     ("due_list", "—", "due_list", "Every due date, soonest first, read right here instead of on the DUE tab."),
     ("cc", "TICKER [TICKER ...]", "cc MSTR", "What covered call to write on this name TODAY. Prints a ladder — the closest strike to delta 0.15 at every expiry out to 60 days, with the premium, the per-contract dollars, the annualised yield and the open interest — then picks one inside your 7-14 day window and says what assignment would actually pay. NEVER suggests a strike below your cost basis, so being called away cannot book a loss. Warns on earnings before expiry, on cheap IV, and on a premium too small to clear commissions. Places nothing."),
     ("csp", "TICKER [TICKER ...]", "csp NVDA", "The same for a cash-secured put: which strike and expiry to sell, and how much cash it ties up. Assignment means BUYING at the strike, so the strike has to be a price you want to own at — the answer says the dollar amount outright. Places nothing."),
+    ("pos", "TICKER STRIKE<C|P> EXPIRY [@premium] [xN]", "pos MSTR 127C 11/27 @0.54", "A position you already hold: should you close it, at what limit, and should you roll. Prints how much of the premium you have captured, what buying it back costs now, and a GTC buy-to-close level at 85% captured so you can place one order and stop watching. A roll is offered ONLY when the strike is actually threatened — in the money, or delta past 0.45, or past 0.30 inside gamma week — and it states the net credit or debit outright. Places nothing."),
     ("options", "—", "options", "Rebuild the OPTIONS tab now rather than waiting for the next signals run. Reads your short calls and puts from Schwab, merges the rows you typed by hand (SoFi and anything else no API reaches), pulls one option chain per underlying and writes greeks, P/L, verdicts and roll candidates. Columns A-G of that tab are yours; H onward is regenerated."),
     ("reconcile", "—", "reconcile", "Ask Schwab what became of every SUBMITTED order and record it — FILLED / CANCELLED / REJECTED / EXPIRED, with the filled quantity and average price. Places and cancels nothing. The engine runs this itself each cycle; use it to get the answer now. A chained row arms once its parent reads FILLED."),
     ("run_signals", "—", "run_signals", "Rebuild Positions, Cash, Dashboard and the reserve tables now instead of waiting for the next cron. Returns as soon as it LAUNCHES; watch with tail_log stocks."),
