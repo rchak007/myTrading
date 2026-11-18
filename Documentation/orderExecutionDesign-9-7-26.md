@@ -201,6 +201,70 @@ are ignored.
 Terminal: `FILLED`, `REJECTED`, `CANCELLED`, `EXPIRED`, `VOID`.
 A terminal row is never re-evaluated. Ever.
 
+### 5.1b Reconciliation — built 2026-11-16 (`2de4f27`)
+
+The table above has always said `SUBMITTED → FILLED` happens by
+"reconciliation against Schwab". **Nothing implemented it.** No code
+anywhere wrote `FILLED`, `Filled_Qty` or `Fill_Price`, so every submitted
+row stayed on `SUBMITTED` forever.
+
+The visible cost was small — a stale Status column. The invisible cost was
+not: `After_Trigger_ID` arms a child when its parent reaches a terminal
+state, and no parent ever reached one. **Chaining was permanently inert**,
+silently, for as long as it had existed. `2026-10-02-AAOI-01` sat on
+`SUBMITTED` from October.
+
+`order_reconcile.py` asks Schwab what became of each pending order and
+writes the answer to the ledger and the Orders tab. It runs at the top of
+each engine cycle, *before* rows are evaluated, so a parent that filled
+overnight arms its child on the same cycle rather than the next one. The
+`reconcile` verb runs it on demand.
+
+#### It is deliberately reluctant
+
+Writing `FILLED` is easy. The damage comes from writing it when the order
+has **not** filled, because a chained row then arms and spends money on the
+strength of it. So the design is asymmetric:
+
+| Situation | What happens |
+|---|---|
+| Status on the terminal allowlist | recorded |
+| Status not on the allowlist | **left alone.** "Not in TERMINAL" must mean "still live", never "probably done" |
+| Order missing from the lookback window | **left alone.** Absence of evidence — that is a statement about the window, not about the order |
+| Row has no `schwab_order_id` | **left alone.** No submission to ask about; `orphaned_attempts` already reports these |
+| Row already terminal | not re-checked |
+
+A row stuck on `SUBMITTED` is visible and fixable by a human. One wrongly
+marked `FILLED` arms a chain.
+
+#### Two details that are easy to get wrong
+
+**The average price is quantity-weighted.** 0.4 @ 660 and 0.6 @ 670 is 666,
+not 665. A plain mean misreports every order that filled in uneven pieces,
+which is most of them.
+
+**A bracket's fill lives on the child order**, which carries its own id, so
+`childOrderStrategies` is walked rather than just the top-level order.
+
+**A partial fill on a cancelled order is still recorded.** It ended
+`CANCELLED`, but shares changed hands and the quantity that matters
+downstream is what actually executed.
+
+### 5.2b A label trigger reads the WATCHED ticker — fixed 2026-11-16 (`e423eeb`)
+
+`Trigger_Ticker` exists for exactly one purpose: watch one symbol, trade
+another. *"When NEE prints HH/HL, sell the QQQ."*
+
+`order_engine.py` resolved the price from the watched ticker correctly, then
+called `structure_of(n["Ticker"])` — the ticker being **traded** — when
+evaluating a label trigger like `HH` or `HL`. So the one case the column
+exists for was the one case it got wrong: it checked QQQ's structure and
+reported it as NEE's.
+
+Now `structure_of(watch)`. The failure was silent in both directions: a
+trigger could fire on the wrong symbol's structure, or fail to fire on the
+right one, and the log line named the ticker it *meant* either way.
+
 ### 5.2 Trigger evaluation — bar-boundary close confirmation
 
 **The engine never triggers on an intrabar price touch.** A trigger fires only on

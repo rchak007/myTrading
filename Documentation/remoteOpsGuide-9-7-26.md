@@ -50,9 +50,26 @@ bare `True`, a 1-tuple) is treated as **sensitive**: redacting something
 harmless costs an unhelpful log line, while the reverse writes a credential
 into a file we keep forever.
 
-Known residual: a **typo'd** verb (`auth_cod`) with a real URL in column B is
-rejected, and the rejection audit line logs the URL in plaintext. The code is
-single-use and short-lived, so this is minor, but worth knowing.
+#### Fixed 2026-11-16 — a REJECTED row used to log its argument (`e21f4a0`)
+
+`safe_arg()` decides what to redact by looking the verb up in `PY_VERBS`. An
+**unknown** verb is not in that table, so it fell through to "not sensitive"
+and the argument went into the append-only audit log verbatim.
+
+The realistic path is a typo. `auth_cod` with a real redirect URL in column B
+is rejected — and the rejection line wrote the whole URL, authorization code
+included, into a file nothing rotates. A single-use short-lived code, but
+written permanently to disk, which is the part that matters.
+
+The REJECTED branch now logs `(N chars, not logged)` instead of the value. It
+never needed the argument: the row is being refused *because the verb is not
+real*, so nothing downstream can use it.
+
+**The general shape is worth remembering.** A redaction policy keyed on a
+lookup table is only as good as its behaviour on a miss, and the safe default
+on a miss is always "redact". This one defaulted the other way, and the only
+code path that reached it was the error path — the one least exercised and
+least watched.
 
 ---
 

@@ -46,6 +46,10 @@ delivers most of the value. See §10.
 | `Cash` | **Pi 1 only** | cash, seed reserved, free to deploy |
 | `History` | **Pi 1 only, append-only** | completed rows |
 | `Dashboard` | **Pi 1 only, regenerated** | per-ticker blocks: positions + live orders together. See §11c |
+| `REST-DASHBOARD` | **Pi 1 only, regenerated** | the same blocks for every ticker in `app.py` the Dashboard does *not* show — about ninety names that were scored and valued with nowhere to be read |
+| `CRYPTO` | **Pi 1 only, regenerated** | the same blocks for `CRYPTO_DASHBOARD`. INDICATORS, RECOMMENDED and **SUBNET** only — see §11e |
+| `DUE` | **Pi 1 only, regenerated** | every ticker across the three dashboards, ordered past-due → undated → upcoming. See §11f |
+| `OPTIONS` | **you (A–G) + Pi 1 (H onward)** | short calls and puts with greeks, P/L and roll advice. The only tab that is both input and output — see §11g |
 
 ---
 
@@ -575,6 +579,160 @@ Both now share `_scrub()`.
 Worth remembering as a class: **any** unexpected `NaN` anywhere in a payload
 blanks the whole write, and the symptom is an empty tab rather than a partial
 one. That error line is the first place to look.
+
+---
+
+## 11d. `REST-DASHBOARD` — the other ninety names
+
+Added 2026-11-10. Chakravarti: *"i added a sheet called REST-DASHBOARD; here
+i want same as Dashboard from rest of the tickers in App.py tickers list."*
+
+The main Dashboard shows what he **holds** plus the Beth watchlist — about
+fifty names. The other ninety in `app.py` were tracked by the signals job,
+scored by Benter and valued weekly, and had nowhere to be read.
+
+Same block renderer, same sections. Only the ticker list differs: everything
+in `app.py` minus what the Dashboard already shows, so the two never
+duplicate a name.
+
+Written inside its own `try`, independently of CRYPTO, DUE and OPTIONS. A
+second tab failing must never cost the Dashboard, the Positions tab or the
+cash tables written above it.
+
+---
+
+## 11e. `CRYPTO` — and why there is no FINANCIALS
+
+Added 2026-11-14 (`6ebf007`), SUBNET added 2026-11-16 (`cfbb286`).
+
+Same block renderer as the Dashboard, three sections only: INDICATORS,
+RECOMMENDED, SUBNET.
+
+**FINANCIALS is switched off here deliberately.** That section reads EDGAR,
+and there is no 10-K for a Bittensor subnet. Rendering an empty FINANCIALS
+block would read as "no revenue" rather than "no filing exists", which is a
+different and much worse claim.
+
+### SUBNET — the fundamentals that *do* exist
+
+`taostats.py` replaces FINANCIALS for the subnet alphas. Two API calls per
+refresh — `/api/dtao/pool/latest/v1` and `/api/subnet/latest/v1`, both
+`limit=200` — cover every subnet at once, cached for 20 hours.
+
+Four groups per ticker: SUBNET (identity, price, market cap), EMISSION (TAO
+in, alpha out), SUPPLY (circulating, staked, the root proportion) and
+ACTIVITY (validators, miners, registrations). For TAO itself there are two
+more: NETWORK and ISSUANCE.
+
+**Alpha per day is MEASURED, not assumed.** The nominal rate is 7,200 blocks
+a day, and the interesting fact is how far below that a chain actually runs.
+So one snapshot per calendar day is kept (40 of them) and issuance is read
+off the supply delta between snapshots. Assuming the nominal number would
+have made the one question worth asking unanswerable.
+
+**There is deliberately no verdict.** A subnet's revenue is self-reported
+off-chain and taostats does not carry it, so there is no honest basis for a
+BUY/HOLD/TRIM of the kind the Dashboard gives equities. The section reports
+and stops.
+
+#### The key
+
+Lives at `~/.config/myTrading/taostats.env`, mode 0600, installed by the
+`taostats_key` verb — which writes that one file and nothing else, then
+verifies it with a single live call. `taostats.KEY_FILE` is the single
+definition of the path and `remote_ops.py` imports it rather than restating
+it; two copies of a path is how a verb ends up writing somewhere the reader
+never looks.
+
+`urllib` does not work against this API — Cloudflare returns 403 error 1010
+on every endpoint. `requests` does. The reason is documented at the call
+site so nobody "simplifies" it back.
+
+---
+
+## 11f. `DUE` — what needs a decision
+
+Added 2026-11-16 (`d3a8f4a`). Chakravarti: *"i want all tickers from
+DASHBOARD, RESTDASHBOARD and CRYPTO to show here. With due dates. Show past
+due first and empty next and then rest."*
+
+One tab for "what needs a decision", across a universe spread over three
+tabs that are each ordered by something else entirely.
+
+**Three buckets, and the undated one sits in the MIDDLE.** A ticker with no
+due date is not a ticker with nothing to do — it is one you have never
+decided about, and burying those under six months of future dates is exactly
+how they stay undecided.
+
+```
+— PAST DUE —        most overdue first
+— NO DATE SET —
+— UPCOMING —        soonest first
+```
+
+Columns: Ticker, Due, Days, State, Where, Held, Last_Attended, Note. `Where`
+names the tab the ticker actually renders on, so a name found here can be
+found again.
+
+**Dates live in the existing `ticker_notes` ledger as a `DUE` action**,
+beside `ATTENDED`. That pairing is the point: `Last_Attended` says when you
+last looked, `Due` says when you must look next, and the tab shows both side
+by side. Clearing a date appends an empty row rather than deleting one, so
+the history survives.
+
+Set them with the `due` verb — the date goes **last**, so one date updates
+any number of tickers. See `remoteOpsGuide` §4.
+
+---
+
+## 11g. `OPTIONS` — the only tab that is also an input
+
+Added 2026-11-17 (`6460283`). Full operational detail in `remoteOpsGuide`
+§4c; what belongs here is the design.
+
+**Columns A–G are typed, H onward is regenerated.** Two sources share the
+tab: positions Schwab reports (never editable — the facts are refetched
+every cycle, so a hand-edit would be silently reverted, which is worse than
+being read-only) and positions it cannot see, SoFi above all.
+
+**The dangerous property is that the write regenerates every row.** A cycle
+that read nothing and wrote anyway would erase hand-typed positions. Two
+guards:
+
+1. Typed rows are mirrored to an append-only ledger on every successful
+   read, so the last good state always exists on disk.
+2. `write_tab` **refuses to write at all** when the read failed. A stale tab
+   is recoverable; an erased one is retyping.
+
+**Leave strike and expiry blank and the row becomes a question** — the tab
+suggests a contract instead of grading one.
+
+### What the advice is, and is not
+
+Rules firing on numbers. Every verdict reads back to the row that produced
+it, and none of them needs an opinion about where the stock is going.
+
+The one judgement baked in is Chakravarti's own, stated twice in
+`options_reminders.csv` and again on 2026-11-17: these are shares he wants
+to **keep**. Assignment is the thing being managed, not an outcome to be
+optimised into. Two consequences are hard limits rather than preferences:
+
+- a covered call is **never** suggested below cost basis — assignment there
+  books a real loss on shares meant to be held;
+- nothing **in the money** is ever suggested to open, because that is a
+  decision to be assigned dressed up as income.
+
+### Two restraints worth knowing
+
+**A hand-typed short call is never reported NAKED.** Schwab cannot see SoFi
+shares. Crying wolf on those rows would train the flag to be ignored on the
+Schwab rows, where it means something real — so a manual row states the
+obligation and leaves the check to you.
+
+**Greeks are Schwab's.** Nothing here prices an option. Black-Scholes with
+the wrong rate and the wrong dividend assumption produces a confident number
+that disagrees with the broker you actually trade at, which is worse than no
+number.
 
 ---
 
