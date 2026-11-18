@@ -544,6 +544,7 @@ def test_a_put_answer_states_the_cash_it_ties_up():
                                   dte=11, delta=-0.16, mark=1.50, oi=2000)])
     out = "\n".join(osh.advise("NVDA", ch, right="P", qty=1, earnings=False))
     assert "$12,000 of cash" in out
+    assert "needs $12,000 cash" in out, out
     assert "a price you want to own at" in out
 
 
@@ -567,7 +568,8 @@ def test_a_name_schwab_cannot_see_still_gets_an_answer():
     out = "\n".join(osh.advise("GOOG", ch, right="C", shares=0,
                                earnings=False))
     assert "SELL 1 GOOG 2026-12-05 $330.00C" in out, out
-    assert "confirming the cover is yours" in out
+    assert "needs 100 shares" in out, out
+    assert "cannot check your cover" in out
 
 
 def test_a_typed_basis_brings_back_the_assignment_maths():
@@ -586,6 +588,9 @@ def test_an_unseen_name_can_be_sized_by_hand():
     out = "\n".join(osh.advise("GOOG", ch, right="C", shares=0, qty=3,
                                earnings=False))
     assert "SELL 3 GOOG" in out and "$660" in out, out
+    # The cover goes where the order is read, not in a footnote.
+    assert "needs 300 shares" in out, out
+    assert "because you asked for that size" in out, out
 
 
 def test_the_ticker_token_parses_basis_and_size():

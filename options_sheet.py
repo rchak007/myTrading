@@ -934,7 +934,9 @@ def advise(ticker, chain, *, right="C", shares=None, basis=None, qty=None,
         head += f"  ·  IV {iv:.0f}%" + (f" (rank {ivr}%)" if ivr is not None
                                         else " (rank: not enough history)")
     if shares is not None:
-        head += f"  ·  {shares:,.0f} sh"
+        # "0 sh" next to "SELL 2" on the same screen is how a reader is left
+        # to reconcile two numbers that disagree. Name the source.
+        head += f"  ·  {shares:,.0f} sh at Schwab"
     if basis:
         head += f"  ·  basis ${basis:,.2f}"
     L += [head, ""]
@@ -956,10 +958,14 @@ def advise(ticker, chain, *, right="C", shares=None, basis=None, qty=None,
             unseen, n = True, (qty or 1)
         qty = min(qty or n, n)
         if unseen:
-            L.append(f"Schwab shows {shares or 0:,.0f} shares, so sizing "
-                     f"assumes {qty} contract(s). If you hold these "
-                     f"elsewhere, the strike and premium below are right — "
-                     f"confirming the cover is yours.")
+            L.append(f"⚠  Schwab shows {shares or 0:,.0f} shares of {t}, so "
+                     f"it cannot check your cover. Sizing assumes "
+                     f"{qty} contract{'s' if qty != 1 else ''} = "
+                     f"{qty * 100:,.0f} shares"
+                     + (" — because you asked for that size."
+                        if (qty or 1) > 1 else ".")
+                     + " The strike and premium are right either way; the "
+                       "share count is yours to confirm.")
             L.append("")
         for p in open_positions:
             L.append(f"NOTE: you are already short {p}. Anything below is "
@@ -1020,9 +1026,18 @@ def advise(ticker, chain, *, right="C", shares=None, basis=None, qty=None,
     best = max(inwin, key=lambda c: (c["ann"] or 0))
 
     gross = best["mark"] * MULT * (qty or 1)
+    # THE COVER GOES IN THE ORDER LINE. Added 2026-11-18 after a demo
+    # printed "0 sh" and "SELL 2 GOOG" four lines apart and expected the
+    # reader to reconcile them. Chakravarti: *"I don't have 200 shares of
+    # Google lol. Only 100 in SoFi"*. A contract count is abstract; "needs
+    # 200 shares" is the thing you can check against your own account in
+    # one second, so it belongs where the order is read, not in a note.
+    need = (f"  — needs {(qty or 1) * 100:,.0f} shares"
+            if want_call else
+            f"  — needs {_m(best['strike'] * 100 * (qty or 1))} cash")
     L.append(f"→ TODAY: SELL {qty or 1} {t} {best['expiry']} "
              f"${best['strike']:,.2f}{right} — LIMIT ${best['mark']:.2f} "
-             f"(${gross:,.0f})")
+             f"(${gross:,.0f}){need}")
     if note_window:
         L.append(note_window)
     bits = [f"Δ{abs(best['delta']):.2f}", f"{best['dte']} days"]

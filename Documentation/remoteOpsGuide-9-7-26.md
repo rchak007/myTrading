@@ -434,9 +434,27 @@ does, and that is his to confirm.
 So the ladder is printed either way, sizing assumes one contract, and the
 assumption is stated:
 
-> Schwab shows 0 shares, so sizing assumes 1 contract. If you hold these
-> elsewhere, the strike and premium below are right — confirming the cover
-> is yours.
+> ⚠  Schwab shows 0 shares of GOOG, so it cannot check your cover. Sizing
+> assumes 1 contract = 100 shares. The strike and premium are right either
+> way; the share count is yours to confirm.
+
+**Every covered-call line states the cover it needs**, in the order line
+itself:
+
+```
+→ TODAY: SELL 1 GOOG 2026-11-28 $360.00C — LIMIT $2.35 ($235)  — needs 100 shares
+```
+
+Added 2026-11-18. A demo printed `0 sh` and `SELL 2 GOOG` four lines apart
+and left the reader to reconcile them — Chakravarti: *"I don't have 200
+shares of Google lol. Only 100 in SoFi"*. A contract count is abstract;
+"needs 200 shares" is something you can check against your own account in
+one second, so it belongs where the order is read and not in a note above
+it. Puts say `needs $12,000 cash` for the same reason.
+
+Where Schwab *can* see the shares, `xN` is capped at what you actually hold.
+Where it cannot, nothing can cap it — so the implied share count is printed
+instead, and the warning says the size came from you.
 
 Two optional suffixes supply what Schwab cannot:
 
