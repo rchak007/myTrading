@@ -1567,6 +1567,16 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     except Exception:                                   # noqa: BLE001
         seen = {}
 
+    # DUE DATES, folded once like the notes above rather than per ticker.
+    # The DUE tab answers "what is overdue across the universe"; this puts the
+    # same answer where the decision is actually made — beside the position,
+    # the recommendations and the resting orders for that one name.
+    try:
+        import ticker_notes
+        due_by_ticker = ticker_notes.due_dates()
+    except Exception:                                   # noqa: BLE001
+        due_by_ticker = {}
+
     # TAO in dollars, once for the whole sheet. Subnet alpha prices come off
     # the chain denominated in TAO, so every SUBNET block needs this one
     # number and none of them should look it up for itself.
@@ -1624,8 +1634,12 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                 att = f"✓ {att}" + (f" ({age}d ago)" if age else " (today)")
             except Exception:                           # noqa: BLE001
                 att = f"✓ {att}"
+        # DUE sits in column G, clear of the ATTENDED text in D which runs
+        # long enough to spill across E and F. It is written for EVERY block,
+        # dated or not — see due_tag().
         hdr_row = add([ticker, "POSITIONS" if want("POSITIONS") else "",
-                       "BETH" if on_beth else "", att])
+                       "BETH" if on_beth else "", att, "", "",
+                       due_tag(due_by_ticker.get(str(ticker).upper(), ""))])
         marks["ticker"].append(hdr_row)
         if on_beth:
             marks["beth"].append(hdr_row)
@@ -2106,6 +2120,47 @@ def _due_sort_key(days):
     return (2, days)                # today, then tomorrow, ...
 
 
+def due_state(days) -> str:
+    """How many days out a due date is, in words. "" when it is unset.
+
+    ONE function because this wording appears twice: on the DUE tab, which
+    sorts the whole universe by it, and on each Dashboard ticker block, which
+    shows it in place. Two copies would drift, and the day they disagreed the
+    tab you happened to be looking at would decide what you believed.
+    """
+    if days is None:
+        return ""
+    if days < 0:
+        return f"🔴 PAST DUE {-days}d"
+    if days == 0:
+        return "🟠 DUE TODAY"
+    if days <= 7:
+        return f"🟡 in {days}d"
+    return f"in {days}d"
+
+
+def due_tag(iso, today=None) -> str:
+    """The Dashboard's due cell: "DUE 2026-12-10 · in 22d", or "DUE —".
+
+    THE BLANK CASE IS THE POINT. Chakravarti, 2026-11-18: "include DUE blank
+    for ones that are blank too". A block with no due date and a block where
+    the label was simply not written look identical if the label is omitted,
+    and the first needs a decision while the second is a bug. Printing "DUE —"
+    on every block makes the universe scannable for what has never been dated.
+    """
+    from datetime import date as _date
+    today = today or _date.today()
+    if not iso:
+        return "DUE —"
+    try:
+        y, m, d = (int(x) for x in str(iso).split("-"))
+        days = (_date(y, m, d) - today).days
+    except Exception:                                   # noqa: BLE001
+        return f"DUE {iso}"
+    state = due_state(days)
+    return f"DUE {iso} · {state}" if state else f"DUE {iso}"
+
+
 def due_rows(book_tickers, held, log=print, notes_path=None) -> tuple[list, dict]:
     """(rows, marks) for the DUE tab. Pure — no sheet access, so it is testable.
 
@@ -2138,16 +2193,7 @@ def due_rows(book_tickers, held, log=print, notes_path=None) -> tuple[list, dict
     for t, where in sorted(book_tickers.items()):
         iso = due.get(t, "")
         days = days_for(iso) if iso else None
-        if days is None:
-            state = ""
-        elif days < 0:
-            state = f"🔴 PAST DUE {-days}d"
-        elif days == 0:
-            state = "🟠 DUE TODAY"
-        elif days <= 7:
-            state = f"🟡 in {days}d"
-        else:
-            state = f"in {days}d"
+        state = due_state(days)
         att = seen.get(t, "")
         if att:
             try:
