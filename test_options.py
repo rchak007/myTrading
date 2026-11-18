@@ -396,16 +396,16 @@ def test_no_suggestion_without_a_hundred_shares():
     assert v == "⚪ NO SHARES" and "needs 100" in a
 
 
-def test_when_every_strike_is_under_basis_it_says_why():
-    # "Nothing found" and "nothing found above your basis" are different
-    # problems with different fixes, and the tab has to tell them apart.
+def test_the_tab_flags_a_below_basis_suggestion_rather_than_withholding_it():
     import options_sheet as osh
-    ch = _chain(60.0, [_contract(strike=62.0, delta=0.20, dte=14, oi=900)])
+    ch = _chain(60.0, [_contract(strike=62.0, delta=0.20, dte=14, mark=1.05,
+                                 oi=900)])
     p = osh.enrich({"Ticker": "CRWV", "Kind": "Covered Call"}, ch,
                    basis=80.0, shares=100)
     v, a = osh.suggest(p, ch)
-    assert v == "🟠 NONE ABOVE BASIS", (v, a)
-    assert "80.00" in a
+    assert v == "🟠 BELOW BASIS", (v, a)
+    assert "SELL 1 CRWV" in a and "$80.00 basis" in a
+    assert "net −$1,695" in a, a
 
 
 def test_the_most_urgent_row_is_first():
@@ -482,14 +482,48 @@ def test_the_pick_stays_inside_his_seven_to_fourteen_day_window():
     assert "$2,700 on the shares" in out       # what assignment really pays
 
 
-def test_advice_refuses_rather_than_inventing_a_strike_under_basis():
+def test_a_strike_under_basis_is_offered_with_the_arithmetic_not_refused():
+    # Corrected 2026-11-17. Chakravarti: "this means MSTR i can never do
+    # covered call since i am holding this when its down". Refusing bit
+    # hardest exactly where the income mattered most, and every strike
+    # offered is still OUT of the money — only below what he paid.
     import options_sheet as osh
     ch = _chain(131.0, [_contract(strike=142.0, expiry="2026-11-21", dte=11,
-                                  delta=0.14, oi=2000)])
+                                  delta=0.14, mark=1.20, oi=2000)])
     out = "\n".join(osh.advise("MSTR", ch, right="C", shares=100, basis=170.0,
                                earnings=False))
-    assert "above your $170.00 cost basis" in out
-    assert "SELL" not in out
+    assert "SELL 1 MSTR" in out, out
+    assert "UNDER" in out and "$170.00 basis" in out
+    assert "Your call, not the tab's." in out
+    # The loss if assigned has to be stated in dollars, not implied.
+    assert "$2,800" in out, out
+
+
+def test_an_above_basis_strike_still_wins_when_one_exists():
+    import options_sheet as osh
+    ch = _chain(131.0, [
+        _contract(strike=135.0, expiry="2026-11-28", dte=11, delta=0.30,
+                  mark=3.00, oi=2000),
+        _contract(strike=145.0, expiry="2026-11-28", dte=11, delta=0.16,
+                  mark=1.85, oi=2000)])
+    out = "\n".join(osh.advise("MSTR", ch, right="C", shares=100, basis=140.0,
+                               earnings=False))
+    assert "SELL 1 MSTR 2026-11-28 $145.00C" in out, out
+    assert "UNDER" not in out
+
+
+def test_below_basis_rungs_are_marked_in_the_ladder():
+    import options_sheet as osh
+    ch = _chain(131.0, [
+        _contract(strike=135.0, expiry="2026-11-28", dte=11, delta=0.16,
+                  mark=1.85, oi=2000),
+        _contract(strike=145.0, expiry="2026-12-19", dte=32, delta=0.16,
+                  mark=4.40, oi=9000)])
+    out = osh.advise("MSTR", ch, right="C", shares=100, basis=140.0,
+                     earnings=False)
+    ladder = [l for l in out if "$135.00" in l or "$145.00" in l]
+    assert any("⚠" in l and "$135.00" in l for l in ladder), ladder
+    assert not any("⚠" in l and "$145.00" in l for l in ladder), ladder
 
 
 def test_advice_says_when_you_are_already_short_the_name():

@@ -444,13 +444,35 @@ Premium per day of capital tied up is the only way two expiries compare.
 
 ### Two rules that are hard limits, not preferences
 
-**A covered call is never suggested below cost basis.** Being assigned there
-books a real loss on shares the strategy exists to keep. If every liquid
-strike sits under the basis, the verb says so and recommends **nothing**
-rather than finding something.
-
 **Nothing in the money is ever suggested to open.** That is a decision to be
-assigned, dressed up as income.
+assigned, dressed up as income, and it is a hard veto.
+
+**Below cost basis is a WARNING, not a veto — corrected 2026-11-17.** The
+first version refused outright. Chakravarti: *"this means MSTR i can never
+do covered call since i am holding this when its down"*. He was right, and
+the rule was worst exactly where it mattered: a position under water is when
+the income is most wanted, and the floor silenced the whole board there.
+
+Every strike offered is still **out of the money** — above spot. It is only
+below what he *paid*. Those are different claims and conflating them cost
+him the trade. So the ladder marks below-basis rungs with `⚠`, the pick
+prefers a clear strike when one exists in his window, and when none does it
+recommends the best out-of-the-money rung anyway with the arithmetic spelled
+out:
+
+```
+   ⚠  This strike is $13 UNDER your $118 basis. It is still out of the
+      money — you only get assigned if the stock rallies 9% from here, and
+      at that point you are down $1,300 against basis instead of today's
+      larger unrealised loss, plus $145 premium. Net −$1,155. Your call,
+      not the tab's.
+      Clear of basis: 2026-12-19 $120.00C at $210 (32d, 25%/yr) — longer
+      than your usual 7-14 days, but assignment there is a gain.
+```
+
+That last line matters as much as the warning. "Take the loss or earn
+nothing" is a false choice when a clear strike exists one expiry further
+out, and the old behaviour hid it.
 
 ### The defaults are his, not ours
 
