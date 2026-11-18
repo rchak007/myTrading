@@ -2003,3 +2003,67 @@ period filter still holds — a 20-F uses the same XBRL tags but the
 submission shape differs. Worth auditing which other holdings are foreign
 filers at the same time.
 
+
+---
+
+## 10. Options — covered calls and cash-secured puts
+
+Built 2026-11-17 (`6460283`): `option_chain.py`, `options_sheet.py`, the
+OPTIONS tab, and the `options` / `cc` / `csp` verbs. 44 tests.
+
+### ❓ UNVERIFIED — Schwab option chains have never been called from here
+
+Nothing in this repo has ever hit a Schwab **market-data** endpoint. Every
+existing call is accounts, positions, orders or transactions. So
+`option_chain.fetch_chain()` is written against the documented shape of
+`/marketdata/v1/chains` and has run only against fixtures.
+
+Three things could be wrong, in rising order of annoyance:
+
+1. **Method name.** `_call_chain()` already probes `option_chains`,
+   `option_chain`, `optionChains` and `chains` with two kwarg shapes, and
+   raises a named error rather than failing quietly. Cheap to fix.
+2. **Entitlement.** Option chains may need a market-data agreement accepted
+   on the developer app, separate from trading. That is a checkbox on
+   developer.schwab.com, not a code change — but it is not something Pi 2
+   can test or Pi 1 can fix unattended.
+3. **Units.** The code expects `volatility` as a percent (48.3, not 0.483)
+   and `-999.0` for a missing greek. If IV comes back as a decimal the
+   column reads wrong by 100x — and wrong by exactly 100x is the kind of
+   error that looks like a different ticker rather than a bug.
+
+Verify by running the `options` verb on Pi 1 once and reading the log. It
+names which of the three failed.
+
+### 💡 IDEA — yfinance as the fallback source
+
+`yfinance==1.7.0` returns full chains (every expiry, every strike, bid/ask,
+open interest, volume, IV, inTheMoney) for free with no token — but **no
+greeks**. Delta is computable from its IV with Black-Scholes and looks sound
+near the money; checked 2026-11-17 on MSTR 12/18, the ladder was monotone
+and sensible from Δ0.58 down to Δ0.13.
+
+It falls apart in the tail. A strike whose last trade is four days old
+produces a nonsense IV (MSTR 11/27 $30C showed 283%) and therefore a nonsense
+delta. The existing liquidity filter (OI ≥ 10, spread ≤ ⅓ of mid) discards
+most of those already.
+
+Worth building because the OPTIONS tab inherits the dependency that killed
+three tabs this week: an expired Schwab token. If it is built, yfinance rows
+must be labelled in `Src` and their greeks marked as computed — never
+silently mixed with Schwab's, because a second source that disagrees by a few
+cents on every row is a reconciliation job every time you look at the tab.
+
+Becomes the primary plan, not the fallback, if §10's entitlement question
+turns out badly.
+
+### 🐞 GAP — SoFi positions are typed, and nothing verifies them
+
+The OPTIONS tab's manual rows are the only numbers in this system with no
+second source. `covered_text()` deliberately refuses to call a hand-typed
+short call NAKED, because Schwab cannot see SoFi shares and crying wolf there
+would train the flag to be ignored on the Schwab rows where it is real. That
+is the right call, but it leaves a genuinely naked SoFi call invisible.
+
+No fix proposed. SoFi has no API worth the name. Noted so it is a known
+limit rather than a surprise.
