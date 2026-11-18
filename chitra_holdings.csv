@@ -16,28 +16,52 @@
 # they never touch reserves, coverage flags, totals, or the order engine.
 #
 #   Account   IRA-Edge 272-98230
-#   As_Of     2026-10-23 13:21 ET
+#   As_Of     2026-11-18 14:02 ET
 #
-# The statement showed $15,148.19 total value and +$604.28 (+4.15%)
-# unrealized. The Cost_Basis column below sums to $14,543.91, and
-# 15,148.19 − 14,543.91 = 604.28 EXACTLY — so every row is reproduced to the
+# The statement showed $12,980.93 total value and -$1,897.91 (-12.76%)
+# unrealized. The Cost_Basis column below sums to $14,878.84, and
+# 14,878.84 - 12,980.93 = 1,897.91 EXACTLY — so every row is reproduced to the
 # cent. Re-check that subtraction after any edit: if it stops matching, a row
 # was mistyped.
 #
-# CHANGED SINCE 2026-10-13 (previous As_Of)
-#   TSM    NEW    3 sh @ $1,239.69 — market buy 10/15, 3 @ $413.23 exactly
-#   SKHY   5 -> 10 sh — market buy 10/15, 5 @ $138.07; 760.60 + 690.35 = 1,450.95
-#   TSLA   4 -> 5 sh  — THE $360.00 DIP BID FILLED. Basis 1,384.00 -> 1,744.00,
-#                       a delta of exactly $360.00 for one share. That order
-#                       had been resting since 10/06 and is now gone from the
-#                       open list for the right reason.
-#   IIAXX  4,560.48 -> 911.11 — the sweep funding TSM, SKHY and TSLA
-#   MSFT   basis 407.30 -> 398.49 — REAL figure at last, replacing the
-#                       prorated estimate carried since the 1 sh sale on 10/10
-#   MU / MRVL / IBIT / CBRS / GOOG unchanged in both quantity and basis
+# THE ACCOUNT IS NOW UNDERWATER. It was +$604.28 (+4.15%) on 2026-10-23 and is
+# -$1,897.91 (-12.76%) today. Nothing was sold at a loss to get there; the
+# book repriced. MU 884.51 -> 699.75, MRVL 228.19 -> 143.80, SKHY 137.27 ->
+# 121.79, TSM 416.96 -> 360.38, CBRS 113.60 -> 94.31, GOOG 319.34 -> 280.32,
+# IBIT 46.22 -> 35.54. Only TSLA and AMD are green.
 #
-# AMD is NOT held. There is a BUY bid resting at $487 (see chitra_orders.csv);
-# if it fills, add the row here.
+# CHANGED SINCE 2026-10-23 (previous As_Of) — a busy month, both ways
+#   AMD    NEW    2 sh @ $906.84 total ($453.42 avg). The $487 dip bid is gone
+#                 from the open list; the average paid is well below it, so
+#                 either it filled and a second cheaper share followed, or it
+#                 was replaced. UNRESOLVED — ask for the Filled/Executed
+#                 filter next time, not just the Open one.
+#   NVDA   NEW    1 sh @ $209.00. Marked -27.27% at $152.00 already.
+#   GOOG   2.0037 -> 6.0037 sh — 4 bought, basis +$1,150.74 = $287.69 each
+#   MRVL   9 -> 12 sh — 3 bought, basis +$442.29 = $147.43 each
+#   CBRS   8 -> 9 sh  — 1 bought, basis +$88.40
+#   TSLA   5 -> 4 sh  — THE $412.00 TRIM FILLED. Basis 1,744.00 -> 1,398.00,
+#                       exactly -$346.00, which is 1,384.00/4 — the FIFO cost
+#                       of one of the four original shares. That order had
+#                       rested since 10/06. A NEW 1 @ 412.00 was entered today.
+#   IBIT   45 -> 24 sh — 21 sold. Basis 1,955.65 -> 1,113.72
+#   MSFT   1.0037 -> 0.0037 sh — the last whole share sold. What is left is
+#                       $1.89 of dust, kept so the position does not vanish
+#                       from the tab without a record.
+#   IIAXX  911.11 -> 33.37 — the sweep is SPENT. See the reconciliation below.
+#   MU / SKHY / TSM unchanged in both quantity and basis
+#
+# CASH RECONCILIATION — it closes, which is the point of doing it
+#   Bought  GOOG 1,150.74 + AMD 906.84 + MRVL 442.29 + NVDA 209.00
+#           + CBRS 88.40                                   = $2,797.27 out
+#   Sweep fell 911.11 -> 33.37                              =  $877.74
+#   So proceeds were about 2,797.27 - 877.74                = $1,919.53 in
+#   That is the TSLA share at 412.00 plus 21 IBIT plus 1 MSFT, which lands
+#   near 412 + ~1,008 + ~500. Consistent. If a future update does not close
+#   like this, a buy or a sale is missing from the screenshot.
+#
+# SHE IS NOW AT $33.37 OF CASH. Nothing is left to buy a dip with, and the
+# only open BUY order on the account was the AMD one that is no longer there.
 #
 # COLUMNS
 #   Ticker      symbol, or the sweep fund for cash
@@ -48,13 +72,15 @@
 #
 # To update: replace the rows, bump As_Of above, commit. No code change.
 Ticker,Qty,Cost_Basis,Asset,Note
-IIAXX,911.1100,911.11,CASH,Money account — BANK OF AMERICA NA RASP sweep
 MU,4,3485.82,EQUITY,
-MRVL,9,1574.42,EQUITY,
-IBIT,45,1955.65,EQUITY,iShares Bitcoin Trust ETF
-TSLA,5,1744.00,EQUITY,5th share from the 360.00 dip bid filling after 2026-10-13
+MRVL,12,2016.71,EQUITY,3 added since 2026-10-23 at 147.43
+GOOG,6.0037,1785.80,EQUITY,Alphabet Class C — 4 added since 2026-10-23 at 287.69
 SKHY,10,1450.95,EQUITY,SK Hynix ADR — 5 @ 152.12 on 10/13 plus 5 @ 138.07 on 10/15
+TSLA,4,1398.00,EQUITY,"was 5 — the 412.00 trim filled, FIFO basis 346.00 removed"
+CBRS,9,1237.12,EQUITY,Cerebras Systems Cl A — 1 added since 2026-10-23 at 88.40
 TSM,3,1239.69,EQUITY,Taiwan Semiconductor ADR — bought 2026-10-15 at 413.23
-CBRS,8,1148.72,EQUITY,Cerebras Systems Cl A — bought 2026-10-13 at 143.59
-GOOG,2.0037,635.06,EQUITY,Alphabet Class C
-MSFT,1.0037,398.49,EQUITY,
+IBIT,24,1113.72,EQUITY,iShares Bitcoin Trust ETF — was 45
+AMD,2,906.84,EQUITY,"NEW — 453.42 avg; the 487 dip bid is gone, fill price unconfirmed"
+NVDA,1,209.00,EQUITY,NEW
+IIAXX,33.3700,33.37,CASH,Money account — BANK OF AMERICA NA RASP sweep — all but spent
+MSFT,0.0037,1.82,EQUITY,dust — the last whole share was sold since 2026-10-23

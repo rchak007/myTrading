@@ -9,39 +9,40 @@
 # account the difference matters: her coverage flags are only honest if this
 # is current. (2026-10-02 read "No orders found" — a fact worth recording.)
 #
-#   As_Of     2026-10-23 13:24 ET
+#   As_Of     2026-11-18 14:04 ET
 #
 # DATES HERE ARE EASTERN, because Merrill's page is. Rows timestamped just
 # after midnight ET are the previous evening Pacific — not a future date, just
 # a timezone. Worth knowing before "correcting" it.
 #
-# ── THIS ONE IS COMPLETE, AND THAT IS NEW ──────────────────────────────────
-# The screenshot was filtered to Status = Open and footed "Showing 1-5 of 5
-# results". Every previous update came from an unfiltered list that might have
-# been cut off below the fold, which is why two orders had been carried as
-# UNKNOWN for ten days. Both are now resolved:
+# ── SEVEN NEW TRIMS WENT ON IN TEN MINUTES TODAY ──────────────────────────
+# 13:54 to 14:04 ET: TSLA, SKHY, TSM, AMD, IBIT, CBRS, NVDA. Every one a SELL
+# limit above the market, every one GTC expiring 2027-05-17. Before today
+# five of her names had no exit order at all; now every equity she holds has
+# one except the MSFT dust. Still no stops — see the coverage block below.
 #
-#   MU   SELL 1 @ 1,171.00  — STILL RESTING. Was below the fold, not gone.
-#   TSLA SELL 1 @   412.00  — STILL RESTING. Flagged UNKNOWN since 2026-10-13
-#                             with the note "if it is in fact still open, TSLA
-#                             has a trim and the Has_Trim flag is wrong."
-#                             It was, and it was. Now corrected.
+# ── ROW 10 IS INFERRED, AND THAT IS A GAP ─────────────────────────────────
+# The screenshot footed "Showing 1-10 of 10" but only nine rows were above the
+# fold. The list was sorted by Order date DESCENDING, so the missing row is
+# the OLDEST, dated on or before 2026-10-09. Of the orders carried from last
+# time only two are that old: MU 1 @ 1,171.00 (10/07) and TSLA 1 @ 412.00
+# (10/06). The TSLA one provably filled — her share count went 5 -> 4 and the
+# basis fell by exactly the FIFO cost of one original share — so row 10 is MU.
+# It is listed below as INFERRED. Next screenshot, scroll one row further.
 #
-# Ask for the Open filter every time. It is the difference between a list and
-# a guess.
+# ── GONE SINCE THE 2026-10-23 SCREENSHOT ──────────────────────────────────
 #
-# ── EXECUTED since the 2026-10-13 screenshot, so no longer resting ─────────
+#   TSLA SELL  1 @ limit 412.00 (entered 10/06)  ->  FILLED. Confirmed by the
+#        holdings arithmetic, not by the order page. A NEW 1 @ 412.00 was
+#        entered today at 13:54, same price, same size.
+#   AMD  BUY   1 @ limit 487.00 (entered 10/16)  ->  NOT on the open list, and
+#        she now holds 2 AMD at a $453.42 average — BELOW the bid price. So it
+#        did not simply fill at 487 and stop there. Either it filled and a
+#        cheaper second share followed, or it was cancelled and replaced.
+#        UNRESOLVED. Ask for the Filled/Executed filter, not only Open.
 #
-#   TSLA BUY   1 @ limit   360.00  ->  FILLED          (was the dip bid)
-#   TSM  BUY   3 @ market          ->  filled 3 @ $413.23   (10/15)
-#   SKHY BUY   5 @ market          ->  filled 5 @ $138.07   (10/15)
-#
-# All three are reflected in chitra_holdings.csv As_Of 2026-10-23.
-#
-# ── NEW SINCE LAST TIME ────────────────────────────────────────────────────
-#
-#   AMD  BUY   1 @ limit 487.00, entered 10/16 — a dip bid on a name she does
-#        NOT yet hold. Last 515.56, so it sits about 5.5% below the market.
+# Ask for the Open filter every time, and scroll to the footer. It is the
+# difference between a list and a guess.
 #
 # COLUMNS — match the ORDERS block on his Dashboard so both read alike
 #   Ticker        symbol
@@ -60,33 +61,46 @@
 # order carries no direction field and which side of price it sits on is the
 # only information there is.
 #
-# ── COVERAGE AS OF THIS SCREENSHOT: STILL NO STOPS ANYWHERE ────────────────
-# All four SELLs sit ABOVE the market, so all four are trims. The MSFT
+# ── COVERAGE: EVERY NAME HAS A TRIM, NOT ONE HAS A STOP ───────────────────
+# All ten SELLs sit above the market, so all ten classify as trims. The MSFT
 # trailing stop cancelled on 2026-10-09 remains the only stop-type order this
-# account has ever had. Nothing has downside protection:
+# account has ever had. With the book now -12.76%, nothing below the market
+# protects any of it:
 #
-#   held             trim           covers       stop
-#   MU      4        1 @ 1,171      1 of 4       none
-#   MRVL    9        3 @   323      3 of 9       none
-#   TSLA    5        1 @   412      1 of 5       none   ← trim CONFIRMED today
-#   GOOG    2.0037   1 @   380      1 of 2       none
-#   IBIT   45        —              0 of 45      none
-#   SKHY   10        —              0 of 10      none   ← doubled, still bare
-#   CBRS    8        —              0 of 8       none   ← -20.89%, 10% ATR
-#   TSM     3        —              0 of 3       none   ← new position
-#   MSFT    1.0037   —              0 of 1       none
+#   held            trim          covers      needs       stop
+#   MU      4       1 @ 1,171     1 of 4      +67%        none
+#   MRVL   12       3 @   323     3 of 12     +125%       none
+#   GOOG    6.0037  1 @   380     1 of 6      +36%        none
+#   SKHY   10       3 @   197     3 of 10     +62%        none
+#   TSLA    4       1 @   412     1 of 4      +7%         none  ← only one near
+#   CBRS    9       3 @   142     3 of 9      +51%        none
+#   TSM     3       1 @   431     1 of 3      +20%        none
+#   IBIT   24       5 @    42     5 of 24     +18%        none
+#   AMD     2       1 @   639     1 of 2      +22%        none
+#   NVDA    1       1 @   217     1 of 1      +43%        none  ← full exit
+#   MSFT    0.0037  —             0 of 1      —           none  ← dust
 #
-# Every trim is also a long way out of reach: MU needs +32%, MRVL +42%,
-# TSLA +11%, GOOG +19%. They are exits for a good outcome, not protection
-# against a bad one.
+# TSLA at +7% is the only trim within reach of a normal month. MRVL at +125%
+# and MU at +67% are aspirations, not exits. NVDA's order is for the whole
+# position, so it is an exit rather than a trim even though it classifies as
+# one.
 #
-# Last prices on the screenshot: AMD 515.56 · GOOG 319.11 · MRVL 227.89 ·
-# MU 884.51 · TSLA 371.83. From the positions page, 13:21 ET: MU 886.13 ·
-# IBIT 46.2150 · MRVL 228.1927 · TSLA 372.0044 · SKHY 137.27 · TSM 416.96 ·
-# CBRS 113.6001 · GOOG 319.3350 · MSFT 524.95.
+# NO OPEN BUYS AT ALL. With the AMD bid gone there is nothing resting on the
+# bid side, and the sweep is down to $33.37 anyway — so cash_position() will
+# show in_open_buys of zero not because she is patient but because she is out
+# of money.
+#
+# Last prices on the order page, 13:54-14:04 ET: NVDA 151.81 · CBRS 94.09 ·
+# IBIT 35.51 · AMD 521.32 · TSM 360.00 · SKHY 121.45 · TSLA 384.63 ·
+# GOOG 279.90 · MRVL 143.42.
 Ticker,Side,Type,Qty,Limit_Price,Stop_Price,Duration,Entered,Order_ID,Note
-AMD,BUY,LIMIT,1,487.00,,GTC,2026-10-16,,Exp 2027-04-14 · dip bid — NOT held yet (last 515.56)
-GOOG,SELL,LIMIT,1,380.00,,GTC,2026-10-10,,Exp 2027-04-09 · trim — 1 of 2 held (last 319.11)
-MRVL,SELL,LIMIT,3,323.00,,GTC,2026-10-09,,Exp 2027-04-09 · trim — 3 of 9 held (last 227.89)
-MU,SELL,LIMIT,1,1171.00,,GTC,2026-10-07,,Exp 2027-04-06 · trim — 1 of 4 held (last 884.51)
-TSLA,SELL,LIMIT,1,412.00,,GTC,2026-10-06,,Exp 2027-04-02 · trim — 1 of 5 held (last 371.83)
+NVDA,SELL,LIMIT,1,217.00,,GTC,2026-11-18,,Exp 2027-05-17 · full exit — 1 of 1 held (last 151.81)
+CBRS,SELL,LIMIT,3,142.00,,GTC,2026-11-18,,Exp 2027-05-17 · trim — 3 of 9 held (last 94.09)
+IBIT,SELL,LIMIT,5,42.00,,GTC,2026-11-18,,Exp 2027-05-17 · trim — 5 of 24 held (last 35.51)
+AMD,SELL,LIMIT,1,639.00,,GTC,2026-11-18,,Exp 2027-05-17 · trim — 1 of 2 held (last 521.32)
+TSM,SELL,LIMIT,1,431.00,,GTC,2026-11-18,,Exp 2027-05-17 · trim — 1 of 3 held (last 360.00)
+SKHY,SELL,LIMIT,3,197.00,,GTC,2026-11-18,,Exp 2027-05-17 · trim — 3 of 10 held (last 121.45)
+TSLA,SELL,LIMIT,1,412.00,,GTC,2026-11-18,,Exp 2027-05-17 · trim — 1 of 4 held (last 384.63) · re-entered after the 10/06 one filled
+GOOG,SELL,LIMIT,1,380.00,,GTC,2026-10-10,,Exp 2027-04-09 · trim — 1 of 6 held (last 279.90)
+MRVL,SELL,LIMIT,3,323.00,,GTC,2026-10-09,,Exp 2027-04-09 · trim — 3 of 12 held (last 143.42)
+MU,SELL,LIMIT,1,1171.00,,GTC,2026-10-07,,Exp 2027-04-06 · trim — 1 of 4 held · INFERRED — row 10 was below the fold
