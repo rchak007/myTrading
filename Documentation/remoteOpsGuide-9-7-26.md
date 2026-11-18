@@ -182,6 +182,8 @@ tab is invisible to it** and safe for notes, examples and usage text.
 | `svc_log` | — | 60s | last 80 `journalctl` lines for the bot service |
 | `ls` | optional | 30s | `ls -la` of a **dir key** (default `jobs`) |
 | `tail_log` | **required** | 60s | last 120 lines of a **log key** |
+| `locks` | — | 30s | who holds each lock file right now. Reach for this when a job has gone quiet — `flock -n` exits **silently** by design, so a stale lock makes every later run vanish without a word |
+| `pip_upgrade` | — | 300s | upgrade the venv's packages. The one subprocess verb that changes the machine |
 
 **Log keys** (`LOGS`): `stocks`, `crypto`, `45`, `ops`
 `ops` is the remote-ops audit log itself — useful for debugging the channel
@@ -196,13 +198,74 @@ Add keys to these dicts in code, **never** to the sheet.
 These bypass `subprocess` entirely and call `schwab_auth` / `cash_reserve`
 directly.
 
+Grouped by what they touch. **Nothing in this table places or cancels an
+order** — that is the engine's job, and the ops channel deliberately cannot
+do it. The verbs that move money move an *earmark*; the verbs that advise
+print text.
+
+**Auth and health**
+
 | Verb | Column B | Does |
 |------|----------|------|
 | `token_status` | — | Schwab token state as JSON — state, hours/days left, expiry |
 | `auth_url` | — | The tappable re-authorization link, plus instructions |
-| `auth_code` | **required** | Exchanges the pasted redirect URL for new tokens. Takes the job lock first, so it is safe at any time — see below |
+| `auth_code` | **required** | Exchanges the pasted redirect URL for new tokens. Takes the job lock first, so it is safe at any time — see below. **Redacted** in the audit log |
+| `taostats_key` | **required** | Installs the taostats API key for the CRYPTO tab's SUBNET section. Writes one file, mode 0600, and verifies it with one live call. **Redacted** |
+| `run_signals` | — | Rebuild every sheet tab now instead of waiting for `:15` / `:50`. Launches detached and returns at once |
+
+**Cash, reserves and parking**
+
+| Verb | Column B | Does |
+|------|----------|------|
 | `reserves` | — | The reserves table — what is fenced, deployed, available |
 | `seed` | **required** | Fences cash to a ticker. See below |
+| `fence` | **required** | Marks a (ticker, account) pair as off-limits to the engine |
+| `withdraw` | **required** | Returns some fenced cash to the free pool. See below |
+| `close` | **required** | Zeroes a reserve entirely and deactivates its config row |
+| `borrow` / `return_borrow` | **required** | Records cash borrowed from another account, and its repayment |
+| `owe` / `paid_back` | **required** | The same for money owed to a person |
+| `park` / `unpark` | **required** | Records reserve cash parked in a vehicle (a QQQ share, say) and its release |
+| `parked` | — | Everything currently parked, by owner and vehicle |
+
+**Orders**
+
+| Verb | Column B | Does |
+|------|----------|------|
+| `reconcile` | — | Ask Schwab what became of every `SUBMITTED` order and record it — `FILLED` / `CANCELLED` / `REJECTED` / `EXPIRED`, with filled quantity and average price. A chained row arms once its parent reads `FILLED` |
+| `apply_fills` | — | Fold recorded fills back into the reserve ledger |
+| `tidy_orders` | — | Normalise the Orders tab in place |
+| `orders_columns` | — | Report which column each Orders header currently sits in |
+
+**Options** — see §4c
+
+| Verb | Column B | Does |
+|------|----------|------|
+| `options` | — | Rebuild the OPTIONS tab now |
+| `cc` | **required** | What covered call to write on these tickers today |
+| `csp` | **required** | The same for a cash-secured put |
+
+**Notes, attention and due dates**
+
+| Verb | Column B | Does |
+|------|----------|------|
+| `note` / `note_replace` / `note_delete` | **required** | Append, replace or remove a ticker note. Append-only underneath — a delete is a new row, never an erasure |
+| `notes` | — | Every current note |
+| `attend` | **required** | Stamp a ticker as looked at today |
+| `attend_list` | — | When each ticker was last attended |
+| `due` | **required** | Set a due date. **The date goes LAST**, so one date updates any number of tickers: `due NVDA AMD MU 12/01`. Accepts `2026-12-01`, `12/01` (the *next* one), `30d`, `4w`, `3m`, `today`, `tomorrow`, `eom`, and `-` to clear. All-or-nothing: a typo in the fourth symbol leaves the first three undated |
+| `due_list` | — | Every due date, without opening the DUE tab |
+
+**Documentation**
+
+| Verb | Column B | Does |
+|------|----------|------|
+| `verbs_doc` | — | Write the `VERBS-howToUse` tab from the live allowlists |
+| `dash_doc` | — | Write the Dashboard's own how-to-read tab |
+| `orders_doc` | — | The same for the Orders tab |
+
+> This table is maintained by hand and the allowlists are not. `verbs_doc`
+> generates its tab **from the code**, so if the two ever disagree, run it
+> and believe the tab.
 
 Token states: `OK`, `RENEW_NOW` (past day 6 of 7), `EXPIRED`, `MISSING`
 (no token file), `UNKNOWN` (file exists but no issue stamp found).
@@ -325,6 +388,111 @@ stranding it. `token_status` is unaffected.
 
 ---
 
+## 4c. The options verbs
+
+Added 2026-11-17. Chakravarti: *"give me a verb that i can say hey for MSTR
+tell me covered call what is best way to do today?"*
+
+```
+cc   TICKER [TICKER ...]      e.g.  cc  MSTR
+csp  TICKER [TICKER ...]      e.g.  csp NVDA MRVL
+options                       rebuild the OPTIONS tab now
+```
+
+### What `cc` answers with
+
+```
+MSTR  $96.50  ·  IV 58% (rank 61%)  ·  100 sh  ·  basis $118.00
+
+COVERED CALL LADDER — closest strike to Δ0.15 at each expiry,
+never below your $118.00 basis
+
+   EXPIRY       DTE     STRIKE   DELTA      MID    PER CT    %/YR       OI
+   2026-11-21     4    $142.00    0.14    $0.80       $80     56%    2,000
+   2026-11-28    11    $145.00    0.16    $1.85      $185     47%    2,000
+   2026-12-19    32    $155.00    0.16    $4.40      $440     38%    9,000
+
+→ TODAY: SELL 1 MSTR 2026-11-28 $145.00C — LIMIT $1.85 ($185)
+   Δ0.16  ·  11 days  ·  47%/yr  ·  +10.7% from spot
+   Bid $1.80 / ask $1.90 — work the mid, do not hit the bid.
+
+   If assigned: you sell 100 shares at $145.00 — $2,700 on the shares
+   (+23% on basis) plus $185 premium.
+```
+
+One row per expiry, not one row per strike, because the question being asked
+is *which date* — and the **%/YR column is the whole point**. The $4.40 on
+the 32-day is the biggest number on the board and the worst trade on it.
+Premium per day of capital tied up is the only way two expiries compare.
+
+### Two rules that are hard limits, not preferences
+
+**A covered call is never suggested below cost basis.** Being assigned there
+books a real loss on shares the strategy exists to keep. If every liquid
+strike sits under the basis, the verb says so and recommends **nothing**
+rather than finding something.
+
+**Nothing in the money is ever suggested to open.** That is a decision to be
+assigned, dressed up as income.
+
+### The defaults are his, not ours
+
+Δ0.15, 7–14 days, close at 85% of premium captured, roll in gamma week —
+the programme stated on 2026-11-17, and the reason the 4-day at 56%/yr loses
+to the 11-day at 47% in the example above. Override with
+`OPTIONS_TARGET_DELTA`, `OPTIONS_DTE_LO`, `OPTIONS_DTE_HI`.
+
+### It places nothing
+
+Both verbs are read-only by construction: fetch a chain, print a ladder. An
+ops verb that both advised and acted would be one typo away from writing
+calls against shares meant to be held, so sizing and timing stay manual.
+
+### The OPTIONS tab
+
+`options` rebuilds it; `run_signals` also does, as the last tab written.
+
+**Columns A–G are yours.** `Ticker · Type · Strike · Premium · Expiry · Qty ·
+Acct` — type SoFi positions and anything else no API reaches here. Column H
+onward is regenerated every cycle: DTE, mark, P/L, kept %, delta, gamma,
+theta/day, IV, IV rank, distance to strike, verdict, action, roll candidate
+and its net credit.
+
+Leave strike and expiry **blank** and the row becomes a question — the tab
+suggests a contract instead of grading one.
+
+**Do not type Schwab positions.** They are already reported and already
+parsed; a typed copy drifts and gets counted twice. If you type one anyway,
+the merge drops it and says so in the log.
+
+**Why it cannot eat your typed rows.** The tab is both input and output,
+which is the one genuinely dangerous thing about it. Typed rows are mirrored
+to an append-only ledger (`options_manual.csv`) on every successful read, and
+the writer **refuses to write at all** if the read failed. Worst case is a
+stale tab, never a blank one.
+
+**A hand-typed short call is never reported NAKED.** Schwab cannot see SoFi
+shares, and crying wolf on those rows would train the flag to be ignored on
+the Schwab rows where it means something real.
+
+### Where the data comes from
+
+One Schwab `/marketdata/v1/chains` call per underlying, cached 15 minutes.
+The contract you are short and every contract you could roll into arrive in
+the same response, so the roll ladder costs nothing extra. Greeks are
+Schwab's own — nothing here prices an option.
+
+On failure it serves the stale cache and prints its age rather than blanking
+the row.
+
+> **Unverified as of 2026-11-17.** This is the first Schwab *market-data*
+> call this repo has ever made; everything before it was accounts, positions,
+> orders and transactions. Method name, entitlement and IV units are all
+> unconfirmed against the live API. Run `options` once on Pi 1 and the log
+> names which of the three failed. See PROJECT_PLAN §10.
+
+---
+
 ## 5. Command-line flags
 
 ```bash
@@ -357,6 +525,13 @@ credentials and no network.
 | `REMOTE_OPS_STATE` | `~/.local/state/myTrading` | audit log, spilled output |
 | `BOT_SERVICE` | `mytrading-bot.service` | target of `status` and `svc_log` |
 | `SCHWAB_TOKENS` | see `schwab_auth.py` | token file location |
+| `OPTIONS_TARGET_DELTA` | `0.15` | delta the `cc` / `csp` ladder aims at |
+| `OPTIONS_DTE_LO` / `_HI` | `7` / `14` | the expiry window a recommendation must fall in |
+| `OPTIONS_LADDER_DTE` | `60` | how far out the ladder *shows*, as against recommends |
+| `OPTION_CHAIN_TTL_MIN` | `15` | chain cache lifetime; stops three reminder runs becoming three times the calls |
+| `OPTIONS_WATCH` | *(empty)* | extra underlyings to pull a chain for, comma separated |
+| `GSHEET_OPTIONS_TAB` | `OPTIONS` | worksheet name |
+| `OPTIONS_MANUAL_PATH` | `$MYTRADING_STATE_DIR/options_manual.csv` | the mirror of your hand-typed rows |
 
 Scopes: this module uses full `spreadsheets` read/write and is **the only
 writer**. `gsheet_notes.py` uses `spreadsheets.readonly` and must keep doing so.
@@ -469,3 +644,8 @@ The audit log is never rotated by us. Read it from your phone with a
 | `auth_code` returns exit 1 | Code expired or already used, or the URL was truncated. Re-run `auth_url` and copy the **whole** address bar. |
 | `GSHEET_OPS_ID is not set` | Env missing from the systemd unit or `.env`. |
 | Only 5 rows ran | `MAX_ROWS_PER_RUN`. The rest run on the next tick. |
+| `cc` / `options` says *"no option chain available"* | The chain call failed. Column I carries the reason: a method-name miss, a 403 (market-data entitlement not granted on the developer app), or a throttle. See `remoteOpsGuide` §4c and PROJECT_PLAN §10. |
+| `cc` recommends nothing at all | Every liquid strike sits below your cost basis, and suggesting one is refused rather than risking assignment at a loss. The message says so outright. |
+| OPTIONS tab lost a hand-typed row | It should not be possible — the writer refuses to write when the read failed, and typed rows mirror to `options_manual.csv` on every read. Check that ledger; the most recent batch is the last good state. |
+| OPTIONS tab shows a position twice | A Schwab position was also typed by hand. Delete the typed copy — the merge normally drops it and logs that it did. |
+| `IV_Rank` is blank everywhere | Fewer than 20 daily readings exist for that ticker. It fills in on its own; a rank off four readings would be noise with a `%` on it. |

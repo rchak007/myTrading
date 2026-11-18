@@ -204,6 +204,8 @@ file.** If a file is on Pi 1's disk but not on GitHub, look at `gitpush.py`.
 |---|---|---|
 | `myTrading-ORDERS-pi1` · Positions, Cash, Dashboard, header | `jobStocksSignals.py` step 4d | `:15`, `:50` |
 | `myTrading-ORDERS-pi1` · `Live_Price`, `Day_%` | `orders_sheet_prices.py` | every 5 min |
+| `myTrading-ORDERS-pi1` · REST-DASHBOARD, CRYPTO, DUE, OPTIONS | `jobStocksSignals.py` step 4d | `:15`, `:50` |
+| `myTrading-ORDERS-pi1` · OPTIONS, on demand | `remote_ops.py` `options` verb | when you ask |
 | `myTrading-ops-pi1` · columns C–J | `remote_ops.py` | **every minute** |
 
 Both sheets are edited by `mytrading-ops@…` (Editor). Pi 2 reads them through
@@ -275,6 +277,18 @@ the live data contains**, not a hypothetical — FCEL's reverse-split ATH of
 234,900, SOFI's Supertrend sitting above price, MSTX's negative MRC band,
 TSLA's collapsed stop ladder. Run it with `smoke_test.py` after touching
 `core/recommend.py`.
+
+### Two unrelated things are both called OPTIONS
+
+Worth getting straight before reading further:
+
+| | What it is |
+|---|---|
+| **the OPTIONS *channel*** | `reminders.py --channel options` — three emails a day nagging about `options_reminders.csv`. Described immediately below |
+| **the OPTIONS *tab*** | a sheet tab holding live covered calls and cash-secured puts, with greeks and roll advice. Written by `options_sheet.py`; driven by the `options` / `cc` / `csp` verbs. See `remoteOpsGuide` §4c |
+
+They share a name and nothing else. The channel sends email and knows nothing
+about your positions; the tab reads Schwab and sends nothing.
 
 ### The OPTIONS channel checks the market itself
 
