@@ -261,6 +261,13 @@ PY_VERBS = {
     # safe to run at any time. The engine also runs it at the top of each
     # cycle; this is for when you want the answer now.
     "reconcile":    (False, False),
+    # Refresh the OPTIONS tab on its own. Reads positions and option chains,
+    # writes one tab. Places no order and cancels nothing.
+    "options":      (False, False),
+    # "hey for MSTR tell me covered call what is best way to do today?"
+    # Answers in the Status cell; writes nothing and places nothing.
+    "cc":           (True,  False),
+    "csp":          (True,  False),
     "apply_fills":  (False, False),
     "reserves":     (False, False),
     "tidy_orders":  (False, False),
@@ -454,6 +461,107 @@ def _run_taostats_key(arg: str) -> tuple[int, str]:
         out.append(f"⚠️  key written but the test call failed: "
                    f"{type(e).__name__}: {e}")
         return 1, "\n".join(out)
+    return 0, "\n".join(out)
+
+
+OPTION_USAGE = (
+    "cc  <TICKER> [TICKER ...]        best covered call to write today\n"
+    "csp <TICKER> [TICKER ...]        best cash-secured put to write today\n"
+    "\n"
+    "Reads the live option chain and answers here in the Status cell. It\n"
+    "writes nothing, places nothing and cancels nothing.\n"
+    "\n"
+    "A covered call is never suggested below your cost basis, because being\n"
+    "assigned there books a loss on shares you said you want to keep."
+)
+
+
+def _option_context(tickers: list[str]):
+    """(client, {ticker: shares}, {ticker: basis}, short positions). One
+    Schwab positions call shared across every ticker asked about."""
+    import jobStocksSignals as job
+    import orders_sheet as os_
+    client = job.get_schwab_client()
+    pos, opts = os_.fetch_positions_detailed(client, log=lambda *_: None,
+                                             with_options=True)
+    shares, basis = {}, {}
+    for _i, r in pos.iterrows():
+        t = str(r["Ticker"]).upper()
+        q = float(r["Qty"] or 0)
+        prev = shares.get(t, 0.0)
+        shares[t] = prev + q
+        if q and shares[t]:
+            basis[t] = ((basis.get(t, 0.0) * prev
+                         + float(r["Avg_Cost"] or 0) * q) / shares[t])
+    return client, shares, basis, opts
+
+
+def _run_option_advice(arg: str, right: str) -> tuple[int, str]:
+    """`cc MSTR` — what covered call to write on MSTR today.
+
+    Chakravarti, 2026-11-17: *"if i still did not put a option call - then
+    give me a verb that i can say hey for MSTR tell me covered call what is
+    best way to do today?"*
+
+    READ-ONLY BY CONSTRUCTION. It fetches a chain and prints a ladder. The
+    one thing it must never do is place the order it is recommending —
+    sizing and timing are his, and an ops verb that both advises and acts is
+    one typo away from writing calls against shares he meant to keep.
+    """
+    import options_sheet as osh
+    import option_chain as oc
+
+    tickers = [t.strip().upper() for t in (arg or "").replace(",", " ").split()
+               if t.strip()]
+    if not tickers:
+        return 2, OPTION_USAGE
+    bad = [t for t in tickers if not t.isalpha() or len(t) > 6]
+    if bad:
+        return 2, f"not a ticker: {', '.join(bad)}\n\n{OPTION_USAGE}"
+
+    client, shares, basis, opts = _option_context(tickers)
+    iv_rows = oc.read_iv()
+    out = []
+    for t in tickers:
+        chain = oc.fetch_chain(client, t, log=out.append)
+        if chain:
+            try:
+                oc.record_iv(t, oc.atm_iv(chain))
+            except Exception:                           # noqa: BLE001
+                pass
+        # What is already short on this name, so the answer can say the new
+        # contract would be ADDITIONAL rather than silently double-covering.
+        openp = [f"{abs(float(o['Qty'])):.0f}x {o['expiry']} "
+                 f"${o['strike']:,.2f}{o['right']}"
+                 for o in opts
+                 if str(o.get("underlying", "")).upper() == t
+                 and float(o.get("Qty") or 0) < 0
+                 and o.get("right") == right]
+        out += osh.advise(t, chain, right=right, shares=shares.get(t),
+                          basis=basis.get(t), open_positions=openp,
+                          iv_rows=iv_rows)
+        out.append("")
+        out.append("-" * 72)
+    out.append("Nothing was placed. Enter the order yourself, or add it to "
+               "the OPTIONS tab once filled.")
+    return 0, "\n".join(out)
+
+
+def _run_options() -> tuple[int, str]:
+    """Refresh the OPTIONS tab now instead of waiting for the next cycle."""
+    import options_sheet as osh
+    import orders_sheet as os_
+    import jobStocksSignals as job
+    out = []
+    client = job.get_schwab_client()
+    # write_tab only reads Ticker / Acct / Qty / Avg_Cost off the frame, all
+    # of which the raw fetch already has — so the whole positions-table build
+    # (signals, orders, reserves, fences) is not needed for one tab.
+    pos, opts = os_.fetch_positions_detailed(client, log=out.append,
+                                             with_options=True)
+    n = osh.write_tab(os_._open_book(), pos, opts, client, log=out.append)
+    out.append("")
+    out.append(f"OPTIONS tab refreshed — {n} short position(s).")
     return 0, "\n".join(out)
 
 
@@ -671,6 +779,12 @@ def _run_pyverb(verb: str, arg: str) -> tuple[int, str]:
 
     if verb in ("due", "due_list"):
         return _run_due(arg if verb == "due" else "")
+
+    if verb == "options":
+        return _run_options()
+
+    if verb in ("cc", "csp"):
+        return _run_option_advice(arg, "C" if verb == "cc" else "P")
 
     if verb == "reconcile":
         import jobStocksSignals as job
@@ -1186,6 +1300,9 @@ VERB_DOCS = [
 
     ("due", "TICKER… then the DATE", "due  NVDA AMD MU 12/01", "Set a due date on one or many tickers — THE DATE IS LAST, everything before it is a ticker. Accepts 2026-12-01, 12/01, 30d, 4w, 3m, today, tomorrow, eom, or '-' to clear. Shows on the DUE tab with past due first, then undated, then the rest."),
     ("due_list", "—", "due_list", "Every due date, soonest first, read right here instead of on the DUE tab."),
+    ("cc", "TICKER [TICKER ...]", "cc MSTR", "What covered call to write on this name TODAY. Prints a ladder — the closest strike to delta 0.15 at every expiry out to 60 days, with the premium, the per-contract dollars, the annualised yield and the open interest — then picks one inside your 7-14 day window and says what assignment would actually pay. NEVER suggests a strike below your cost basis, so being called away cannot book a loss. Warns on earnings before expiry, on cheap IV, and on a premium too small to clear commissions. Places nothing."),
+    ("csp", "TICKER [TICKER ...]", "csp NVDA", "The same for a cash-secured put: which strike and expiry to sell, and how much cash it ties up. Assignment means BUYING at the strike, so the strike has to be a price you want to own at — the answer says the dollar amount outright. Places nothing."),
+    ("options", "—", "options", "Rebuild the OPTIONS tab now rather than waiting for the next signals run. Reads your short calls and puts from Schwab, merges the rows you typed by hand (SoFi and anything else no API reaches), pulls one option chain per underlying and writes greeks, P/L, verdicts and roll candidates. Columns A-G of that tab are yours; H onward is regenerated."),
     ("reconcile", "—", "reconcile", "Ask Schwab what became of every SUBMITTED order and record it — FILLED / CANCELLED / REJECTED / EXPIRED, with the filled quantity and average price. Places and cancels nothing. The engine runs this itself each cycle; use it to get the answer now. A chained row arms once its parent reads FILLED."),
     ("run_signals", "—", "run_signals", "Rebuild Positions, Cash, Dashboard and the reserve tables now instead of waiting for the next cron. Returns as soon as it LAUNCHES; watch with tail_log stocks."),
     ("reserves", "—", "reserves", "The whole reserve table: what is fenced, deployed and available per ticker."),

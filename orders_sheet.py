@@ -2561,6 +2561,16 @@ def write_orders_sheet(*, client_wrapper, signals_df=None, orders_df=None,
     except Exception as e:                               # noqa: BLE001
         log(f"⚠️  DUE skipped ({type(e).__name__}: {e})")
 
+    # OPTIONS. Wrapped like the rest, and last, because it is the only tab
+    # that makes its own network calls (one option chain per underlying) —
+    # a slow or throttled market-data endpoint must cost this tab and
+    # nothing that was written above it.
+    try:
+        import options_sheet
+        options_sheet.write_tab(book, positions, opts, client_wrapper, log=log)
+    except Exception as e:                               # noqa: BLE001
+        log(f"⚠️  OPTIONS skipped ({type(e).__name__}: {e})")
+
     # ---- header block. LAST POLL is the health check: if this stops moving,
     # ---- whatever runs this module has died.
     free = cash["Free_To_Deploy"].sum() if not cash.empty else 0.0
