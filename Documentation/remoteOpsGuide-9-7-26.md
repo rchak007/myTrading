@@ -411,10 +411,44 @@ Added 2026-11-17. Chakravarti: *"give me a verb that i can say hey for MSTR
 tell me covered call what is best way to do today?"*
 
 ```
-cc   TICKER [TICKER ...]      e.g.  cc  MSTR
-csp  TICKER [TICKER ...]      e.g.  csp NVDA MRVL
+cc   TICKER[@basis][xN] ...   e.g.  cc  MSTR
+csp  TICKER[@basis][xN] ...   e.g.  csp NVDA MRVL
 options                       rebuild the OPTIONS tab now
 ```
+
+**Recommendation only.** Neither verb can place an order; there is no code
+path from here to a submission. Read the answer, decide, enter it at your
+broker yourself.
+
+### A ticker Schwab cannot see still gets an answer
+
+Corrected 2026-11-17. Chakravarti: *"Charles Schwab I don't have GOOG or
+CBRS .. but when I ask recommendations I need it"*.
+
+The first version refused with "you have 0 shares". That is this pipeline
+reporting **its own blind spot** as though it were a fact about the
+portfolio — the shares are at SoFi, and the premium, the greeks and the
+right strike do not depend on where they are custodied. Only the *cover*
+does, and that is his to confirm.
+
+So the ladder is printed either way, sizing assumes one contract, and the
+assumption is stated:
+
+> Schwab shows 0 shares, so sizing assumes 1 contract. If you hold these
+> elsewhere, the strike and premium below are right — confirming the cover
+> is yours.
+
+Two optional suffixes supply what Schwab cannot:
+
+| Written | Means |
+|---|---|
+| `cc GOOG` | one contract, no basis, no assignment maths |
+| `cc GOOG@175` | cost basis $175 — brings back what assignment pays |
+| `cc GOOGx2` | size it at two contracts |
+| `cc GOOG@175x2` | both |
+
+A typed `@basis` **wins over Schwab's**. If you are telling the verb what
+you paid, you know something it does not.
 
 ### What `cc` answers with
 

@@ -473,8 +473,13 @@ def suggest(p: dict, chain, *, target_delta=TARGET_DELTA,
     if right == "C":
         shares = p.get("shares") or 0
         if shares < 100:
+            # On the TAB a blank row with no visible shares really is nothing
+            # to act on, so the refusal stays — but it points at the verb,
+            # which answers without needing to see the shares at all.
             return ("⚪ NO SHARES",
-                    f"{shares:,.0f} shares — a covered call needs 100.")
+                    f"Schwab shows {shares:,.0f} shares. If you hold 100 "
+                    f"elsewhere, run `cc {p.get('ticker', '')}` — that "
+                    f"answers without needing to see them.")
         qty = min(qty, int(shares // 100))
 
     floor = p.get("basis") if right == "C" else None
@@ -934,13 +939,28 @@ def advise(ticker, chain, *, right="C", shares=None, basis=None, qty=None,
         head += f"  ·  basis ${basis:,.2f}"
     L += [head, ""]
 
+    unseen = False
     if want_call:
         n = int((shares or 0) // 100)
         if n < 1:
-            return L + [f"A covered call needs 100 shares. You have "
-                        f"{shares or 0:,.0f} visible here — if they are at "
-                        f"another broker, this cannot see them."]
+            # ASK AND YOU GET AN ANSWER. Corrected 2026-11-17 — Chakravarti:
+            # *"Charles Schwab I don't have GOOG or CBRS .. but when I ask
+            # recommendations I need it"*. Schwab cannot see a SoFi holding,
+            # and "you have no shares" is this pipeline reporting its own
+            # blind spot as though it were a fact about his portfolio.
+            #
+            # The premium, the greeks and the right strike do not depend on
+            # where the shares are custodied. Only the COVER does, and that
+            # is his to confirm — so the answer is given and the assumption
+            # is stated out loud.
+            unseen, n = True, (qty or 1)
         qty = min(qty or n, n)
+        if unseen:
+            L.append(f"Schwab shows {shares or 0:,.0f} shares, so sizing "
+                     f"assumes {qty} contract(s). If you hold these "
+                     f"elsewhere, the strike and premium below are right — "
+                     f"confirming the cover is yours.")
+            L.append("")
         for p in open_positions:
             L.append(f"NOTE: you are already short {p}. Anything below is "
                      f"ADDITIONAL, and you only have {n} contract(s) of "

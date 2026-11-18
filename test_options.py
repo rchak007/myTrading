@@ -388,12 +388,12 @@ def test_a_blank_row_gets_a_concrete_order_to_place():
     assert "SELL 1 CRWV 2026-12-19 $65.00C" in a and "$95" in a
 
 
-def test_no_suggestion_without_a_hundred_shares():
+def test_the_tab_points_at_the_verb_when_it_cannot_see_the_shares():
     import options_sheet as osh
     ch = _chain(60.0, [_contract(strike=65.0, delta=0.21, dte=14)])
     p = osh.enrich({"Ticker": "CRWV", "Kind": "Covered Call"}, ch, shares=40)
     v, a = osh.suggest(p, ch)
-    assert v == "⚪ NO SHARES" and "needs 100" in a
+    assert v == "⚪ NO SHARES" and "cc CRWV" in a
 
 
 def test_the_tab_flags_a_below_basis_suggestion_rather_than_withholding_it():
@@ -557,12 +557,49 @@ def test_a_premium_too_small_to_clear_commissions_is_flagged():
     assert "two commissions" in out
 
 
-def test_no_shares_means_no_covered_call_answer():
+def test_a_name_schwab_cannot_see_still_gets_an_answer():
+    # Chakravarti, 2026-11-17: "Charles Schwab I don't have GOOG or CBRS ..
+    # but when I ask recommendations I need it". Reporting this pipeline's
+    # blind spot as a fact about his portfolio is the bug.
     import options_sheet as osh
-    ch = _chain(60.0, [_contract(strike=70.0, dte=11, oi=900)])
-    out = "\n".join(osh.advise("CRWV", ch, right="C", shares=40,
+    ch = _chain(310.0, [_contract(strike=330.0, expiry="2026-12-05", dte=11,
+                                  delta=0.21, mark=2.20, oi=3000)])
+    out = "\n".join(osh.advise("GOOG", ch, right="C", shares=0,
                                earnings=False))
-    assert "needs 100 shares" in out and "SELL" not in out
+    assert "SELL 1 GOOG 2026-12-05 $330.00C" in out, out
+    assert "confirming the cover is yours" in out
+
+
+def test_a_typed_basis_brings_back_the_assignment_maths():
+    import options_sheet as osh
+    ch = _chain(310.0, [_contract(strike=330.0, expiry="2026-12-05", dte=11,
+                                  delta=0.21, mark=2.20, oi=3000)])
+    out = "\n".join(osh.advise("GOOG", ch, right="C", shares=0, basis=175.0,
+                               earnings=False))
+    assert "$15,500 on the shares" in out, out      # (330-175) x 100
+
+
+def test_an_unseen_name_can_be_sized_by_hand():
+    import options_sheet as osh
+    ch = _chain(310.0, [_contract(strike=330.0, expiry="2026-12-05", dte=11,
+                                  delta=0.21, mark=2.20, oi=3000)])
+    out = "\n".join(osh.advise("GOOG", ch, right="C", shares=0, qty=3,
+                               earnings=False))
+    assert "SELL 3 GOOG" in out and "$660" in out, out
+
+
+def test_the_ticker_token_parses_basis_and_size():
+    import re
+    pat = r"([A-Z][A-Z.]{0,5})(?:@([0-9]*\.?[0-9]+))?(?:X([0-9]{1,3}))?"
+    for tok, want in (("GOOG", ("GOOG", None, None)),
+                      ("GOOG@175", ("GOOG", "175", None)),
+                      ("GOOGX2", ("GOOG", None, "2")),
+                      ("GOOG@175.50X2", ("GOOG", "175.50", "2")),
+                      ("BRK.B", ("BRK.B", None, None))):
+        m = re.fullmatch(pat, tok)
+        assert m and m.groups() == want, (tok, m and m.groups())
+    assert re.fullmatch(pat, "MSTR123") is None
+    assert re.fullmatch(pat, "@@") is None
 
 
 OPT_VERDICT = None

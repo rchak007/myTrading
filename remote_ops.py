@@ -465,14 +465,19 @@ def _run_taostats_key(arg: str) -> tuple[int, str]:
 
 
 OPTION_USAGE = (
-    "cc  <TICKER> [TICKER ...]        best covered call to write today\n"
-    "csp <TICKER> [TICKER ...]        best cash-secured put to write today\n"
+    "cc  <TICKER[@basis][xN]> ...     best covered call to write today\n"
+    "csp <TICKER[@basis][xN]> ...     best cash-secured put to write today\n"
+    "\n"
+    "    cc GOOG              a name Schwab cannot see is fine\n"
+    "    cc GOOG@175          ...and @basis gets you the assignment maths\n"
+    "    cc GOOG@175x2        ...xN sizes it\n"
     "\n"
     "Reads the live option chain and answers here in the Status cell. It\n"
     "writes nothing, places nothing and cancels nothing.\n"
     "\n"
-    "A covered call is never suggested below your cost basis, because being\n"
-    "assigned there books a loss on shares you said you want to keep."
+    "Nothing in the money is ever suggested to open. A strike below your\n"
+    "cost basis IS offered, marked, with what assignment would cost you\n"
+    "spelled out - your call, not the verb's."
 )
 
 
@@ -511,18 +516,34 @@ def _run_option_advice(arg: str, right: str) -> tuple[int, str]:
     import options_sheet as osh
     import option_chain as oc
 
-    tickers = [t.strip().upper() for t in (arg or "").replace(",", " ").split()
-               if t.strip()]
-    if not tickers:
+    # TICKER, optionally @basis, optionally xContracts:
+    #     GOOG            GOOG@175        GOOGx2        GOOG@175x2
+    # The overrides exist because Schwab cannot see a SoFi holding, so for
+    # those names it knows neither the size nor the cost basis — and without
+    # a basis the assignment arithmetic, which is the part worth reading,
+    # cannot be shown at all.
+    tokens = [t.strip().upper() for t in (arg or "").replace(",", " ").split()
+              if t.strip()]
+    if not tokens:
         return 2, OPTION_USAGE
-    bad = [t for t in tickers if not t.isalpha() or len(t) > 6]
+    want, bad = [], []
+    for tok in tokens:
+        m = re.fullmatch(r"([A-Z][A-Z.]{0,5})(?:@([0-9]*\.?[0-9]+))?"
+                         r"(?:X([0-9]{1,3}))?", tok)
+        if not m:
+            bad.append(tok)
+            continue
+        want.append((m.group(1),
+                     float(m.group(2)) if m.group(2) else None,
+                     int(m.group(3)) if m.group(3) else None))
     if bad:
         return 2, f"not a ticker: {', '.join(bad)}\n\n{OPTION_USAGE}"
+    tickers = [t for t, _b, _q in want]
 
     client, shares, basis, opts = _option_context(tickers)
     iv_rows = oc.read_iv()
     out = []
-    for t in tickers:
+    for t, basis_ovr, qty_ovr in want:
         chain = oc.fetch_chain(client, t, log=out.append)
         if chain:
             try:
@@ -537,13 +558,18 @@ def _run_option_advice(arg: str, right: str) -> tuple[int, str]:
                  if str(o.get("underlying", "")).upper() == t
                  and float(o.get("Qty") or 0) < 0
                  and o.get("right") == right]
+        # A typed basis WINS over Schwab's. If he is telling the verb what he
+        # paid, he knows something it does not — most often that the shares
+        # are somewhere this pipeline cannot see.
         out += osh.advise(t, chain, right=right, shares=shares.get(t),
-                          basis=basis.get(t), open_positions=openp,
-                          iv_rows=iv_rows)
+                          basis=basis_ovr if basis_ovr is not None
+                          else basis.get(t),
+                          qty=qty_ovr, open_positions=openp, iv_rows=iv_rows)
         out.append("")
         out.append("-" * 72)
-    out.append("Nothing was placed. Enter the order yourself, or add it to "
-               "the OPTIONS tab once filled.")
+    out.append("RECOMMENDATION ONLY — nothing was placed and nothing can be. "
+               "Enter the order yourself, then add it to the OPTIONS tab "
+               "(or let Schwab report it) to track it from there.")
     return 0, "\n".join(out)
 
 
