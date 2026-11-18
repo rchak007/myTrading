@@ -411,8 +411,8 @@ Added 2026-11-17. Chakravarti: *"give me a verb that i can say hey for MSTR
 tell me covered call what is best way to do today?"*
 
 ```
-cc   TICKER[@basis][xN] ...   e.g.  cc  MSTR
-csp  TICKER[@basis][xN] ...   e.g.  csp NVDA MRVL
+cc   TICKER[xN] ...           e.g.  cc  MSTR
+csp  TICKER[xN] ...           e.g.  csp NVDA MRVL
 options                       rebuild the OPTIONS tab now
 ```
 
@@ -460,13 +460,11 @@ Two optional suffixes supply what Schwab cannot:
 
 | Written | Means |
 |---|---|
-| `cc GOOG` | one contract, no basis, no assignment maths |
-| `cc GOOG@175` | cost basis $175 — brings back what assignment pays |
+| `cc GOOG` | one contract |
 | `cc GOOGx2` | size it at two contracts |
-| `cc GOOG@175x2` | both |
 
-A typed `@basis` **wins over Schwab's**. If you are telling the verb what
-you paid, you know something it does not.
+`xN` exists only because Schwab cannot count shares it cannot see. Where it
+*can* see them, `xN` is capped at what you actually hold.
 
 ### What `cc` answers with
 
@@ -499,32 +497,22 @@ Premium per day of capital tied up is the only way two expiries compare.
 **Nothing in the money is ever suggested to open.** That is a decision to be
 assigned, dressed up as income, and it is a hard veto.
 
-**Below cost basis is a WARNING, not a veto — corrected 2026-11-17.** The
-first version refused outright. Chakravarti: *"this means MSTR i can never
-do covered call since i am holding this when its down"*. He was right, and
-the rule was worst exactly where it mattered: a position under water is when
-the income is most wanted, and the floor silenced the whole board there.
+**Cost basis plays no part.** Removed 2026-11-18 — Chakravarti: *"Don't
+need to look at basis .. that's not needed .. we just are putting covered
+call from current price .. strike should be above"*.
 
-Every strike offered is still **out of the money** — above spot. It is only
-below what he *paid*. Those are different claims and conflating them cost
-him the trade. So the ladder marks below-basis rungs with `⚠`, the pick
-prefers a clear strike when one exists in his window, and when none does it
-recommends the best out-of-the-money rung anyway with the arithmetic spelled
-out:
+It went through two wrong versions first: a hard floor at cost basis, then
+a warning at cost basis. Both anchored a live decision to a sunk cost. The
+only rule a covered call needs is that the strike is above the **current**
+price, because that is what decides whether the shares are kept.
+
+So assignment is reported against today's price, which is the comparison
+that means something when you still hold the shares:
 
 ```
-   ⚠  This strike is $13 UNDER your $118 basis. It is still out of the
-      money — you only get assigned if the stock rallies 9% from here, and
-      at that point you are down $1,300 against basis instead of today's
-      larger unrealised loss, plus $145 premium. Net −$1,155. Your call,
-      not the tab's.
-      Clear of basis: 2026-12-19 $120.00C at $210 (32d, 25%/yr) — longer
-      than your usual 7-14 days, but assignment there is a gain.
+   If assigned: you sell 100 shares at $300.00 — $2,240 above today's
+   $277.60 (+8.1%), plus $91 premium. Total $2,331.
 ```
-
-That last line matters as much as the warning. "Take the loss or earn
-nothing" is a false choice when a clear strike exists one expiry further
-out, and the old behaviour hid it.
 
 ### The defaults are his, not ours
 

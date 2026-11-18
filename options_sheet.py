@@ -331,7 +331,6 @@ def assess(p: dict) -> tuple[str, str]:
     dte, delta = p.get("dte"), p.get("delta")
     kept, px, strike = p.get("kept"), p.get("under"), p.get("strike")
     right, mark, qty = p.get("right"), p.get("mark"), p.get("qty") or 1
-    basis = p.get("basis")
     d = abs(delta) if delta is not None else None
     cost = f"${mark * MULT * qty:,.0f}" if mark is not None else "?"
 
@@ -340,14 +339,6 @@ def assess(p: dict) -> tuple[str, str]:
 
     itm = (px is not None and strike is not None
            and ((right == "C" and px > strike) or (right == "P" and px < strike)))
-
-    # A covered call struck under your cost basis is the one case where being
-    # assigned is a realised LOSS on shares you meant to keep. It outranks
-    # everything because no premium decision fixes it.
-    if right == "C" and basis and strike and strike < basis:
-        return ("🔴 BELOW BASIS",
-                f"Strike ${strike:,.2f} is under your ${basis:,.2f} basis — "
-                f"assignment books a loss. Roll up even for a small debit.")
 
     if itm:
         if right == "C":
@@ -410,7 +401,7 @@ def covered_text(p: dict) -> str:
 
 
 # ─────────────────────────────────────────────────────────── enrichment
-def enrich(entry: dict, chain, iv_rows=None, basis=None, shares=None,
+def enrich(entry: dict, chain, iv_rows=None, shares=None,
            today=None) -> dict:
     """One tab entry plus everything the chain knows about it."""
     right = right_of(entry.get("Kind"))
@@ -422,7 +413,7 @@ def enrich(entry: dict, chain, iv_rows=None, basis=None, shares=None,
          "strike": strike, "expiry": expiry, "premium": prem, "qty": qty,
          "acct": entry.get("Acct") or "", "src": entry.get("Src") or "MANUAL",
          "kind": entry.get("Kind") or kind_of(right),
-         "basis": basis, "shares": shares,
+         "shares": shares,
          "dte": dte_of(expiry, today), "under": None, "mark": None,
          "delta": None, "gamma": None, "theta": None, "iv": None,
          "ivr": None, "kept": None, "pl": None, "to_strike": None,
@@ -460,8 +451,11 @@ def suggest(p: dict, chain, *, target_delta=TARGET_DELTA,
     Chakravarti: *"if i still did not sell any calls - i will keep it blank
     and you can tell me which option date i should pick and strike that is
     best in my interest."* "In my interest" is the constraint that does the
-    work: for a covered call the strike floor is his cost basis, so the
-    suggestion can never be one that books a loss if assigned.
+    work: the strike must be ABOVE the current price. Chakravarti,
+    2026-11-18: *"we just are putting covered call from current price ..
+    strike should be above"*. Cost basis plays no part — it is a sunk cost,
+    and anchoring a live decision to what you once paid is how a position
+    stops being managed on its own merits.
     """
     right = p.get("right")
     if not right:
@@ -482,21 +476,8 @@ def suggest(p: dict, chain, *, target_delta=TARGET_DELTA,
                     f"answers without needing to see them.")
         qty = min(qty, int(shares // 100))
 
-    floor = p.get("basis") if right == "C" else None
     best = oc.pick(chain, right, target_delta=target_delta,
-                   dte_lo=dte_lo, dte_hi=dte_hi, floor_strike=floor)
-    under_basis = False
-    if best is None and floor:
-        # BELOW BASIS IS A WARNING, NOT A VETO. Corrected 2026-11-17 after
-        # Chakravarti: *"this means MSTR i can never do covered call since i
-        # am holding this when its down"*. He is right. Spot below basis is
-        # exactly when the income matters most, and refusing outright meant
-        # the rule bit hardest on the positions it was supposed to help.
-        # Every strike offered is still OUT of the money; it is only below
-        # what he paid. So: offer it, and state the assignment arithmetic.
-        best = oc.pick(chain, right, target_delta=target_delta,
-                       dte_lo=dte_lo, dte_hi=dte_hi)
-        under_basis = best is not None
+                   dte_lo=dte_lo, dte_hi=dte_hi)
     if best is None:
         return ("⚪ NOTHING LIQUID",
                 f"No liquid strike near Δ{target_delta:.2f} in {dte_lo}-{dte_hi}d.")
@@ -514,16 +495,6 @@ def suggest(p: dict, chain, *, target_delta=TARGET_DELTA,
            f"${best['strike']:,.2f}{right} @ ~${best['mark']:.2f} "
            f"→ ${gross:,.0f} (Δ{abs(best['delta']):.2f}, {best['dte']}d"
            f", OI {best['oi']:,.0f}){ann}")
-    if under_basis:
-        short = (floor - best["strike"]) * 100 * qty
-        net = gross - short
-        return ("🟠 BELOW BASIS",
-                f"{msg}  ⚠ strike is ${floor - best['strike']:,.2f} under "
-                f"your ${floor:,.2f} basis: if assigned you book "
-                f"−${short:,.0f} on the shares against ${gross:,.0f} "
-                f"premium, net "
-                + (f"${net:,.0f}" if net >= 0 else f"−${-net:,.0f}")
-                + ". Your call.")
     return ("🔵 SUGGESTION", msg)
 
 
@@ -534,10 +505,8 @@ def plan_roll(p: dict, chain) -> tuple[str, str]:
     cur = oc.find(chain, p["right"], p["expiry"], p["strike"])
     if not cur:
         return "", ""
-    floor = p.get("basis") if p["right"] == "C" else None
     best, credit = oc.roll(chain, cur, right=p["right"], strike=p["strike"],
-                           expiry=p["expiry"], target_delta=TARGET_DELTA,
-                           floor_strike=floor)
+                           expiry=p["expiry"], target_delta=TARGET_DELTA)
     if best is None:
         return "", ""
     qty = p.get("qty") or 1
@@ -551,9 +520,9 @@ def plan_roll(p: dict, chain) -> tuple[str, str]:
 
 # ───────────────────────────────────────────────────────── rendering
 VERDICT_RANK = {
-    "🔴 BELOW BASIS": 0, "🔴 ITM": 1, "🔴 ROLL": 2,
+    "🔴 ITM": 1, "🔴 ROLL": 2,
     "🟢 CLOSE": 3,                      # actionable: money sitting there
-    "🟠 WATCH": 4, "🟠 BELOW BASIS": 4,
+    "🟠 WATCH": 4,
     "🟡 UNDERWATER": 5, "🟢 DECAY": 6,
     "⚪ EXPIRED": 7,
 }
@@ -583,7 +552,7 @@ def _money(v):
     return "" if v is None else f"${v:,.2f}"
 
 
-def build_rows(entries, chains, *, basis=None, shares=None, iv_rows=None,
+def build_rows(entries, chains, *, shares=None, iv_rows=None,
                auto=(), log=print, today=None, stale=None):
     """(rows, marks) for the whole tab. Pure — no sheet, no network.
 
@@ -592,11 +561,11 @@ def build_rows(entries, chains, *, basis=None, shares=None, iv_rows=None,
     for. Everything that decides anything lives in assess()/suggest(); this
     only lays it out.
     """
-    basis, shares = basis or {}, shares or {}
+    shares = shares or {}
     open_pos, wanted = [], []
     for e in entries:
         t = str(e.get("Ticker", "")).upper()
-        p = enrich(e, chains.get(t), iv_rows=iv_rows, basis=basis.get(t),
+        p = enrich(e, chains.get(t), iv_rows=iv_rows,
                    shares=shares.get(t), today=today)
         if p["strike"] and p["expiry"]:
             p["verdict"], p["action"] = assess(p)
@@ -613,8 +582,7 @@ def build_rows(entries, chains, *, basis=None, shares=None, iv_rows=None,
             continue
         p = enrich({"Ticker": t, "Kind": "Covered Call", "Qty": 1,
                     "Acct": "", "Src": "AUTO"}, chains.get(t),
-                   iv_rows=iv_rows, basis=basis.get(t), shares=shares.get(t),
-                   today=today)
+                   iv_rows=iv_rows, shares=shares.get(t), today=today)
         p["src"] = "AUTO"
         p["verdict"], p["action"] = suggest(p, chains.get(t))
         wanted.append(p)
@@ -702,8 +670,8 @@ def build_rows(entries, chains, *, basis=None, shares=None, iv_rows=None,
         "Kept % is how much of the premium you have already earned.",
         "Theta/day is what the position earns you per day if nothing moves. "
         "Roll_Credit is NET of buying the current one back.",
-        "A covered-call suggestion is never struck below your cost basis, so "
-        "being assigned can never book a loss on the shares.",
+        "Every suggested strike is ABOVE the current price. Cost basis "
+        "plays no part — it is a sunk cost, not a reason to hold or sell.",
         "IV_Rank needs ~20 daily readings before it says anything; blank "
         "means not enough history yet.",
     ):
@@ -782,23 +750,19 @@ def write_tab(book, positions, options, client_wrapper, log=print) -> int:
 
     entries = merge(from_schwab(options, log=log), typed, log=log)
 
-    # Cost basis and share counts, summed across accounts. A covered call in
-    # one account is still covered by shares in another only if you can move
-    # them, so this is deliberately the AGGREGATE and `Covered` says which.
-    basis, shares = {}, {}
+    # Share counts, summed across accounts. A covered call in one account is
+    # still covered by shares in another only if you can move them, so this
+    # is deliberately the AGGREGATE and `Covered` says which.
+    shares = {}
     try:
         import pandas as pd
         live = positions[positions["Acct"] != "TOTAL"]
         for t, grp in live.groupby(live["Ticker"].astype(str).str.upper()):
-            q = pd.to_numeric(grp["Qty"], errors="coerce").fillna(0).sum()
-            c = pd.to_numeric(grp["Avg_Cost"], errors="coerce").fillna(0)
-            shares[t] = float(q)
-            if q:
-                basis[t] = float((c * pd.to_numeric(
-                    grp["Qty"], errors="coerce").fillna(0)).sum() / q)
+            shares[t] = float(
+                pd.to_numeric(grp["Qty"], errors="coerce").fillna(0).sum())
     except Exception as e:                              # noqa: BLE001
-        log(f"⚠️  OPTIONS: no cost basis available ({e}) — suggestions will "
-            f"not be floored at it")
+        log(f"⚠️  OPTIONS: share counts unavailable ({e}) — the covered "
+            f"check will read '?'")
 
     # Which underlyings to pull a chain for: everything with a position or a
     # typed row, plus anything this book has written against before. Bounded
@@ -824,7 +788,7 @@ def write_tab(book, positions, options, client_wrapper, log=print) -> int:
                 pass
     iv_rows = oc.read_iv()
 
-    rows, marks = build_rows(entries, chains, basis=basis, shares=shares,
+    rows, marks = build_rows(entries, chains, shares=shares,
                              iv_rows=iv_rows, auto=universe, log=log,
                              stale=", ".join(stale) if stale else None)
 
@@ -909,7 +873,7 @@ def _earnings_before(ticker, iso_expiry):
         return ""
 
 
-def advise(ticker, chain, *, right="C", shares=None, basis=None, qty=None,
+def advise(ticker, chain, *, right="C", shares=None, qty=None,
            open_positions=(), target_delta=TARGET_DELTA, dte_lo=DTE_LO,
            dte_hi=DTE_HI, iv_rows=None, earnings=True) -> list[str]:
     """Plain-text answer to "what covered call should I write on MSTR today".
@@ -937,8 +901,6 @@ def advise(ticker, chain, *, right="C", shares=None, basis=None, qty=None,
         # "0 sh" next to "SELL 2" on the same screen is how a reader is left
         # to reconcile two numbers that disagree. Name the source.
         head += f"  ·  {shares:,.0f} sh at Schwab"
-    if basis:
-        head += f"  ·  basis ${basis:,.2f}"
     L += [head, ""]
 
     unseen = False
@@ -974,24 +936,24 @@ def advise(ticker, chain, *, right="C", shares=None, basis=None, qty=None,
         if open_positions:
             L.append("")
 
-    # NO BASIS FLOOR ON THE LADDER. Corrected 2026-11-17 — Chakravarti:
-    # *"this means MSTR i can never do covered call since i am holding this
-    # when its down"*. He is right, and the old behaviour was worst exactly
-    # where it mattered: a position under water is when the income is most
-    # wanted, and the floor silenced the whole board there. Every rung is
-    # still OUT of the money; the below-basis ones are MARKED and the
-    # arithmetic is spelled out, so it is a decision rather than a veto.
+    # COST BASIS PLAYS NO PART. Removed 2026-11-18 — Chakravarti: *"Don't
+    # need to look at basis .. that's not needed .. we just are putting
+    # covered call from current price .. strike should be above"*.
+    #
+    # He is right, and it went through two wrong versions first: a hard
+    # floor at basis, then a warning at basis. Both anchored a live decision
+    # to a sunk cost. The only rule a covered call needs is that the strike
+    # is above the CURRENT price — that is what decides whether you keep the
+    # shares, and `oc.pick` enforces it. What you paid is history.
     rows = per_expiry(chain, right, target_delta=target_delta,
                       underlying_px=px)
     if not rows:
         return L + [f"Nothing liquid near Δ{target_delta:.2f} in the next "
                     f"{LADDER_MAX_DTE} days."]
-    under = [c for c in rows if basis and want_call and c["strike"] < basis]
 
     kind = "COVERED CALL" if want_call else "CASH-SECURED PUT"
     L.append(f"{kind} LADDER — closest strike to Δ{target_delta:.2f} at each "
-             f"expiry" + (f"  (⚠ = under your ${basis:,.2f} basis)"
-                          if under else ""))
+             f"expiry, all above the ${px:,.2f} spot")
     L.append("")
     L.append(f"   {'EXPIRY':<12}{'DTE':>4}{'STRIKE':>11}{'DELTA':>8}"
              f"{'MID':>9}{'PER CT':>10}{'%/YR':>8}{'OI':>9}")
@@ -1003,19 +965,13 @@ def advise(ticker, chain, *, right="C", shares=None, basis=None, qty=None,
                  f"{'$' + format(c['mark'] * MULT, ',.0f'):>10}"
                  f"{(format(c['ann'], '.0f') + '%') if c['ann'] else '—':>8}"
                  f"{c['oi']:>9,.0f}"
-                 + ("  ⚠" if c in under else ""))
+)
     L.append("")
 
     # THE PICK. His stated window first; the ladder's best annualised yield
     # inside it. Only if that window is empty do we look outside it, and then
     # we say so rather than quietly changing his strategy for him.
     inwin = [c for c in rows if dte_lo <= c["dte"] <= dte_hi]
-    # Prefer a strike above basis when one exists; fall back to the best OTM
-    # rung otherwise, flagged, rather than recommending nothing at all.
-    clean = [c for c in inwin if c not in under]
-    picked_under = bool(inwin) and not clean
-    if clean:
-        inwin = clean
     note_window = ""
     if not inwin:
         inwin = [c for c in rows if c["dte"] <= dte_hi + 21]
@@ -1049,37 +1005,17 @@ def advise(ticker, chain, *, right="C", shares=None, basis=None, qty=None,
     L.append(f"   Bid ${best['bid']:.2f} / ask ${best['ask']:.2f} — work the "
              f"mid, do not hit the bid.")
 
-    # What assignment actually means in dollars. The number that decides
-    # whether the premium was worth the risk you took to earn it.
-    if picked_under and basis:
-        short = (basis - best["strike"]) * 100 * (qty or 1)
-        L.append("")
-        L.append(f"   ⚠  This strike is {_m(basis - best['strike'])} UNDER "
-                 f"your {_m(basis)} basis. It is still out of the money — you "
-                 f"only get assigned if the stock rallies "
-                 f"{(best['strike'] / px - 1) * 100:.0f}% from here, and at "
-                 f"that point you are down {_m(short)} against basis instead "
-                 f"of today's larger unrealised loss, plus {_m(gross)} "
-                 f"premium. Net {_m(gross - short)}. Your call, not the tab's.")
-        # An above-basis rung may exist just outside his window. Saying so is
-        # the difference between "take the loss or earn nothing" and a real
-        # third option.
-        clear = [c for c in rows if c not in under]
-        if clear:
-            alt = min(clear, key=lambda c: c["dte"])
-            L.append(f"      Clear of basis: {alt['expiry']} "
-                     f"${alt['strike']:,.2f}C at {_m(alt['mark'] * MULT)} "
-                     f"({alt['dte']}d, {alt['ann']:.0f}%/yr) — longer than "
-                     f"your usual {dte_lo}-{dte_hi} days, but assignment "
-                     f"there is a gain.")
-    if want_call and basis:
-        gain = (best["strike"] - basis) * 100 * (qty or 1)
+    # What assignment means, measured from TODAY'S PRICE. That is the real
+    # comparison: you still hold the shares, so the question is what you give
+    # up from here by capping them — not what you paid for them years ago.
+    if want_call:
+        up = (best["strike"] - px) * 100 * (qty or 1)
         L.append("")
         L.append(f"   If assigned: you sell {100 * (qty or 1):,.0f} shares at "
-                 f"${best['strike']:,.2f} — {_m(gain)} on the shares "
-                 f"({(best['strike'] / basis - 1) * 100:+.0f}% "
-                 f"on basis) plus {_m(gross)} premium.")
-    elif not want_call:
+                 f"${best['strike']:,.2f} — {_m(up)} above today's "
+                 f"${px:,.2f} ({(best['strike'] / px - 1) * 100:+.1f}%), "
+                 f"plus {_m(gross)} premium. Total {_m(up + gross)}.")
+    else:
         cash = best["strike"] * 100 * (qty or 1)
         L.append("")
         L.append(f"   If assigned: you buy {100 * (qty or 1):,.0f} shares at "

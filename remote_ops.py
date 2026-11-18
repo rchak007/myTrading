@@ -465,19 +465,17 @@ def _run_taostats_key(arg: str) -> tuple[int, str]:
 
 
 OPTION_USAGE = (
-    "cc  <TICKER[@basis][xN]> ...     best covered call to write today\n"
-    "csp <TICKER[@basis][xN]> ...     best cash-secured put to write today\n"
+    "cc  <TICKER[xN]> ...            best covered call to write today\n"
+    "csp <TICKER[xN]> ...            best cash-secured put to write today\n"
     "\n"
     "    cc GOOG              a name Schwab cannot see is fine\n"
-    "    cc GOOG@175          ...and @basis gets you the assignment maths\n"
-    "    cc GOOG@175x2        ...xN sizes it\n"
+    "    cc GOOGx2            ...xN sizes it when it cannot count your shares\n"
     "\n"
     "Reads the live option chain and answers here in the Status cell. It\n"
     "writes nothing, places nothing and cancels nothing.\n"
     "\n"
-    "Nothing in the money is ever suggested to open. A strike below your\n"
-    "cost basis IS offered, marked, with what assignment would cost you\n"
-    "spelled out - your call, not the verb's."
+    "Every strike suggested is ABOVE the current price. Cost basis plays\n"
+    "no part - it is a sunk cost, not a reason to hold or sell."
 )
 
 
@@ -516,34 +514,35 @@ def _run_option_advice(arg: str, right: str) -> tuple[int, str]:
     import options_sheet as osh
     import option_chain as oc
 
-    # TICKER, optionally @basis, optionally xContracts:
-    #     GOOG            GOOG@175        GOOGx2        GOOG@175x2
-    # The overrides exist because Schwab cannot see a SoFi holding, so for
-    # those names it knows neither the size nor the cost basis — and without
-    # a basis the assignment arithmetic, which is the part worth reading,
-    # cannot be shown at all.
+    # TICKER, optionally xContracts:  GOOG   GOOGx2
+    # The size override exists because Schwab cannot see a SoFi holding, so
+    # for those names it has no idea how many contracts are covered.
+    #
+    # There is no @basis. Removed 2026-11-18 — Chakravarti: *"Don't need to
+    # look at basis .. we just are putting covered call from current price
+    # .. strike should be above"*. Cost basis is a sunk cost and played no
+    # part in any decision here; carrying it only invited the reader to
+    # anchor on it.
     tokens = [t.strip().upper() for t in (arg or "").replace(",", " ").split()
               if t.strip()]
     if not tokens:
         return 2, OPTION_USAGE
     want, bad = [], []
     for tok in tokens:
-        m = re.fullmatch(r"([A-Z][A-Z.]{0,5})(?:@([0-9]*\.?[0-9]+))?"
-                         r"(?:X([0-9]{1,3}))?", tok)
+        m = re.fullmatch(r"([A-Z][A-Z.]{0,5})(?:X([0-9]{1,3}))?", tok)
         if not m:
             bad.append(tok)
             continue
         want.append((m.group(1),
-                     float(m.group(2)) if m.group(2) else None,
-                     int(m.group(3)) if m.group(3) else None))
+                     int(m.group(2)) if m.group(2) else None))
     if bad:
         return 2, f"not a ticker: {', '.join(bad)}\n\n{OPTION_USAGE}"
-    tickers = [t for t, _b, _q in want]
+    tickers = [t for t, _q in want]
 
-    client, shares, basis, opts = _option_context(tickers)
+    client, shares, _basis, opts = _option_context(tickers)
     iv_rows = oc.read_iv()
     out = []
-    for t, basis_ovr, qty_ovr in want:
+    for t, qty_ovr in want:
         chain = oc.fetch_chain(client, t, log=out.append)
         if chain:
             try:
@@ -558,12 +557,7 @@ def _run_option_advice(arg: str, right: str) -> tuple[int, str]:
                  if str(o.get("underlying", "")).upper() == t
                  and float(o.get("Qty") or 0) < 0
                  and o.get("right") == right]
-        # A typed basis WINS over Schwab's. If he is telling the verb what he
-        # paid, he knows something it does not — most often that the shares
-        # are somewhere this pipeline cannot see.
         out += osh.advise(t, chain, right=right, shares=shares.get(t),
-                          basis=basis_ovr if basis_ovr is not None
-                          else basis.get(t),
                           qty=qty_ovr, open_positions=openp, iv_rows=iv_rows)
         out.append("")
         out.append("-" * 72)

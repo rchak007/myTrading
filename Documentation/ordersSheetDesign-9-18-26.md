@@ -715,12 +715,16 @@ it, and none of them needs an opinion about where the stock is going.
 The one judgement baked in is Chakravarti's own, stated twice in
 `options_reminders.csv` and again on 2026-11-17: these are shares he wants
 to **keep**. Assignment is the thing being managed, not an outcome to be
-optimised into. Two consequences are hard limits rather than preferences:
+optimised into. One hard limit follows: nothing **in the money** is ever suggested to open,
+because that is a decision to be assigned dressed up as income. Every
+suggested strike sits above the current price.
 
-- a covered call is **never** suggested below cost basis — assignment there
-  books a real loss on shares meant to be held;
-- nothing **in the money** is ever suggested to open, because that is a
-  decision to be assigned dressed up as income.
+**Cost basis plays no part** — corrected 2026-11-18, after a hard floor at
+basis and then a warning at basis both turned out to be wrong. Chakravarti:
+*"we just are putting covered call from current price .. strike should be
+above"*. What you paid is sunk; the live question is what capping the
+shares costs you *from here*, so assignment is reported against today's
+price.
 
 ### Two restraints worth knowing
 
