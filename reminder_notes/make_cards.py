@@ -11,6 +11,7 @@ reminder email:
     06-benter-method.png   a pointer to the expected-value doc
     07-vix-regime.png      the VIX fear-gauge bands, with what the data says
     08-market-cycle.png    the four-phase Wyckoff cycle, and the tool per phase
+    09-fib-sizing.png      Fibonacci as a swing-line cross-check and dip ladder
 
     .venv/bin/python reminder_notes/make_cards.py
 
@@ -34,6 +35,7 @@ OUT_WINNERS = HERE / "05-catch-winners.png"
 OUT_BENTER = HERE / "06-benter-method.png"
 OUT_VIX = HERE / "07-vix-regime.png"
 OUT_CYCLE = HERE / "08-market-cycle.png"
+OUT_FIB = HERE / "09-fib-sizing.png"
 W, H = 1600, 1120
 
 BG = (13, 13, 16)
@@ -397,7 +399,95 @@ def vix_regime() -> Path:
     return OUT_VIX
 
 
+def fib_sizing() -> Path:
+    """Fibonacci as a CROSS-CHECK on his own swing lines and as a SIZING map,
+    from the MU discussion of 2026-11-21. Not a new signal.
+
+    His words: "I could also use the fib just to check myself" and "the fib
+    gives me a little better idea for sizing point of view". The swing lines
+    say WHERE price may turn; only the fib turns the whole move into 0-100%,
+    so the dip cash can be split before the drop starts.
+
+    The MU line is on the card for the same reason the MU numbers are on
+    BUY CHEAP: anchored at the 652 swing low, the ladder ran out of cash at
+    652; anchored at the 312 base of the last big correction, cash was still
+    left at 594. Anchor choice is art; the sizing rule is what protects.
+    """
+    w, h = 1600, 900
+    img = Image.new("RGB", (w, h), BG)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, 14, h], fill=AMBER)
+
+    d.text((78, 76), "FIBONACCI  —  SIZE THE DIP", font=font(62, True),
+           fill=AMBER, anchor="lm")
+    d.text((78, 136),
+           "A cross-check on your swing lines, and a map for HOW MUCH to buy "
+           "at each depth.",
+           font=font(30), fill=WHITE, anchor="lm")
+
+    d.line([(78, 180), (w - 78, 180)], fill=LINE, width=2)
+    d.text((78, 220), "ANCHOR", font=font(30, True), fill=AMBER, anchor="lm")
+    d.text((250, 220),
+           "Meaningful swing low → the high. The base of the last BIG, long "
+           "correction,",
+           font=font(27), fill=WHITE, anchor="lm")
+    d.text((250, 258),
+           "not a one- or two-week dip. It is an art — nobody knows which "
+           "fib will hold.",
+           font=font(27), fill=MUTED, anchor="lm")
+
+    # The ladder: one box per level, deeper = bigger tranche.
+    d.text((78, 320), "LADDER  (% of the cash planned for THIS name)",
+           font=font(30, True), fill=AMBER, anchor="lm")
+    steps = [("0.382", "10%", (148, 163, 184)),
+             ("0.5", "15%", TEAL),
+             ("0.618", "25%", GREEN),
+             ("0.786", "25%", (251, 146, 60)),
+             ("1.0", "25%  if business OK", RED)]
+    x = 78
+    for lvl, pct, colour in steps:
+        d.rectangle([x, 356, x + 274, 454], outline=colour, width=3)
+        d.text((x + 18, 386), lvl, font=font(32, True), fill=colour,
+               anchor="lm")
+        d.text((x + 18, 428), pct, font=font(24), fill=WHITE, anchor="lm")
+        x += 290
+
+    d.line([(78, 494), (w - 78, 494)], fill=LINE, width=2)
+    d.text((78, 534), "CONFLUENCE", font=font(30, True), fill=AMBER,
+           anchor="lm")
+    d.text((330, 534),
+           "Draw 2-3 fibs. Put the bigger buys where they agree with each "
+           "other",
+           font=font(27), fill=WHITE, anchor="lm")
+    d.text((330, 572),
+           "and with your own swing lines. If they disagree, trust your lines.",
+           font=font(27), fill=MUTED, anchor="lm")
+
+    d.rectangle([78, 616, w - 78, 758], outline=(120, 40, 40), width=3)
+    d.text((106, 652), "1.0 IS NOT A FLOOR", font=font(30, True), fill=RED,
+           anchor="lm")
+    d.text((106, 694),
+           "A full retracement means that fib FAILED. Redraw, re-check the "
+           "business —",
+           font=font(26), fill=WHITE, anchor="lm")
+    d.text((106, 726),
+           "never put most of the cash on a short-swing fib's 1.0.",
+           font=font(26), fill=WHITE, anchor="lm")
+
+    d.text((78, 802),
+           "MU 2026:  anchored at the 652 swing low, the ladder was spent by "
+           "652.",
+           font=font(26), fill=(252, 165, 165), anchor="lm")
+    d.text((78, 842),
+           "Anchored at the 312 base (-34% correction), cash was still left "
+           "at 594.",
+           font=font(26), fill=MUTED, anchor="lm")
+
+    img.save(OUT_FIB, optimize=True)
+    return OUT_FIB
+
+
 if __name__ == "__main__":
     for p in (main(), buy_cheap(), catch_winners(), benter(), vix_regime(),
-              market_cycle()):
+              market_cycle(), fib_sizing()):
         print(f"wrote {p.name:<24} ({p.stat().st_size/1024:.0f} KB)")
