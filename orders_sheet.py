@@ -1225,6 +1225,73 @@ def _oracle_rows(ticker, price, width):
     return out
 
 
+def _fib_rows(ticker, price, signals_df, width):
+    """(label_row, rows, action) for the FIB section, or (None, [], "").
+
+    Chakravarti, 2026-11-22, drawing a green bar under MOMENTUM: *"build some
+    FIB series - based on current situation ... if its time to sell or buy -
+    Make the highlighted row RED or GREEN - if neutral keep blue"*.
+
+    The anchors and levels come from fib.py via the signals CSV; only the
+    verdict is worked out HERE, against the live price, so the colour moves
+    with the market between signal runs instead of lagging a day.
+    """
+    if signals_df is None or getattr(signals_df, "empty", True) \
+            or "Fib_A" not in signals_df.columns:
+        return None, [], ""
+    try:
+        import fib
+        hit = signals_df[signals_df["Ticker"].astype(str).str.upper()
+                         == str(ticker).upper()]
+        if hit.empty or pd.isna(pd.to_numeric(hit.iloc[0].get("Fib_A"),
+                                               errors="coerce")):
+            return None, [], ""
+        f = hit.iloc[0]
+        p = price
+        if p is None:
+            for col in ("Current Price", "Last Close", "Close"):
+                v = pd.to_numeric(f.get(col), errors="coerce")
+                if pd.notna(v):
+                    p = float(v)
+                    break
+        action, why = fib.classify(f, p)
+        tag = {"BUY": "🟢 BUY ZONE", "TRIM": "🔴 TRIM ZONE",
+               "HOLD": "🔵 HOLD", "FAILED": "🔵 FIB FAILED"}.get(action, "")
+
+        def v(c):
+            x = f.get(c)
+            return "" if x is None or str(x) in ("nan", "None") else x
+
+        A, B = float(f["Fib_A"]), float(f["Fib_B"])
+        depth = (round((B - float(p)) / (B - A) * 100, 1)
+                 if p is not None and B > A else "")
+        groups = [
+            ("ANCHORS", ["A_Low", "A_Date", "B_High", "B_Date", "C_Low",
+                         "C_Date", "Price", "Retraced_%"],
+             [v("Fib_A"), v("Fib_A_Date"), v("Fib_B"), v("Fib_B_Date"),
+              v("Fib_C"), v("Fib_C_Date"),
+              round(float(p), 2) if p is not None else "", depth]),
+            ("BUY · retrace", ["0.382 →10%", "0.5 →25%", "0.618 →50%",
+                               "0.786 →75%", "1.0 →100%*"],
+             [v("Fib_382"), v("Fib_500"), v("Fib_618"), v("Fib_786"),
+              v("Fib_1000")]),
+            ("TRIM · extend", ["From", "1.272 →10%", "1.618 →25%",
+                               "2.0 →35%", "2.618 →50%"],
+             [v("Fib_Ext_From"), v("Fib_E1272"), v("Fib_E1618"),
+              v("Fib_E2000"), v("Fib_E2618")]),
+        ]
+        rows = []
+        for label, names, vals in groups:
+            head = ["", label] + names
+            line = ["", ""] + vals
+            rows.append(head[:width] + [""] * max(0, width - len(head)))
+            rows.append(line[:width] + [""] * max(0, width - len(line)))
+        label_row = ["", "FIB", tag, why]
+        return label_row, rows, action
+    except Exception:                                   # noqa: BLE001
+        return None, [], ""
+
+
 def _financial_rows(ticker, width):
     """(rows, verdict, why, peg_col). Fail-soft like the ORACLE block above.
 
@@ -1428,7 +1495,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
     one batch afterwards.
 
     `sections` limits which blocks render, by name: POSITIONS, RECOMMENDED,
-    ORDERS, INDICATORS, SUBNET, ORACLE, FINANCIALS. None means all of them,
+    ORDERS, INDICATORS, FIB, SUBNET, ORACLE, FINANCIALS. None means all of them,
     which is every existing caller — the Dashboard and REST-DASHBOARD are
     unchanged (SUBNET renders only on Bittensor tickers, so asking for it
     everywhere costs the stock tabs nothing).
@@ -1449,7 +1516,7 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
              "warn": [], "rec": [], "warn_row": [], "chitra": [],
              "intent": [], "option": [], "ind": [], "beth": [],
              "note": [], "fin_good": [], "fin_bad": [], "fin_neutral": [],
-             "peg": []}
+             "peg": [], "fib_buy": [], "fib_trim": [], "fib_hold": []}
 
     # Which (acct, ticker) have a resting BUY — so a seed waiting to be spent
     # by one can be painted yellow rather than looking freely available.
@@ -1817,6 +1884,22 @@ def build_dashboard(positions: pd.DataFrame, orders_df=None,
                 # names get the header tint so the pairs stay legible.
                 (marks["header"] if i % 2 == 0 else marks["ind"]).append(r)
 
+        # FIB, directly under INDICATORS — where he drew the green bar. The
+        # label row carries the verdict and is the one painted: green in a
+        # buy zone, red in a trim zone, blue otherwise. Rendered only where
+        # the signals CSV carries Fib_* columns, so the CRYPTO tab (whose
+        # sections exclude it) and an old CSV are both untouched.
+        fib_label, fib_lines, fib_action = _fib_rows(
+            ticker, px, signals_df, DASH_WIDTH) if want("FIB") else (None, [], "")
+        if fib_label:
+            add([])
+            r = add(fib_label)
+            marks[{"BUY": "fib_buy", "TRIM": "fib_trim"}.get(
+                fib_action, "fib_hold")].append(r)
+            for i, line in enumerate(fib_lines):
+                r = add(line)
+                (marks["header"] if i % 2 == 0 else marks["ind"]).append(r)
+
         # SUBNET, directly under INDICATORS and in FINANCIALS' slot — the
         # on-chain fundamentals for a Bittensor subnet alpha. Renders on
         # exactly the six tickers taostats.TICKER_NETUID knows and nothing
@@ -2010,6 +2093,17 @@ def _paint(ws, marks, log):
                          ("fin_neutral", (0.78, 0.87, 0.98))):
             if marks.get(key):
                 ws.format([f"B{r}:{_last_col()}{r}" for r in marks[key]],
+                          {"backgroundColor": dict(zip(
+                               ("red", "green", "blue"), rgb)),
+                           "textFormat": {"bold": True}})
+        # FIB verdict — the whole row, A to the last column, the way he drew
+        # it. Same three shades as the FINANCIALS verdict so green / red /
+        # blue mean the same thing everywhere on the tab.
+        for key, rgb in (("fib_buy", (0.72, 0.93, 0.72)),
+                         ("fib_trim", (0.98, 0.76, 0.76)),
+                         ("fib_hold", (0.78, 0.87, 0.98))):
+            if marks.get(key):
+                ws.format([f"A{r}:{_last_col()}{r}" for r in marks[key]],
                           {"backgroundColor": dict(zip(
                                ("red", "green", "blue"), rgb)),
                            "textFormat": {"bold": True}})

@@ -508,6 +508,17 @@ def main(no_push: bool = False):
     except Exception as e:
         log(f"⚠️  Benter rating failed (continuing without it): {e}")
 
+    # ── 3c3. Fibonacci buy / trim ladders, anchored automatically ──────────
+    # Appended at the end: the Dashboard's FIB section reads them by name.
+    # Fail-soft like the rest — a missing ladder costs a section, not the job.
+    try:
+        from fib import attach_fib_columns
+        log("Anchoring Fibonacci ladders...")
+        df, fib_msg = attach_fib_columns(df, SIGNALS_TICKERS, log_fn=log)
+        log(fib_msg)
+    except Exception as e:
+        log(f"⚠️  FIB failed (continuing without it): {e}")
+
     # ── 3d. Decorate MRC_Zone with legend emoji (survives CSV / GitHub previews) ─
     # Done on the real df so the fund sub-tables (filtered below) inherit it.
     if "MRC_Zone" in df.columns:
