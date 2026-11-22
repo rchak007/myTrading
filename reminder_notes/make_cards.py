@@ -12,6 +12,7 @@ reminder email:
     07-vix-regime.png      the VIX fear-gauge bands, with what the data says
     08-market-cycle.png    the four-phase Wyckoff cycle, and the tool per phase
     09-fib-sizing.png      Fibonacci as a swing-line cross-check and dip ladder
+    10-fib-trim.png        the way up: fib extension trim ladder, core kept
 
     .venv/bin/python reminder_notes/make_cards.py
 
@@ -36,6 +37,7 @@ OUT_BENTER = HERE / "06-benter-method.png"
 OUT_VIX = HERE / "07-vix-regime.png"
 OUT_CYCLE = HERE / "08-market-cycle.png"
 OUT_FIB = HERE / "09-fib-sizing.png"
+OUT_FIB_TRIM = HERE / "10-fib-trim.png"
 W, H = 1600, 1120
 
 BG = (13, 13, 16)
@@ -487,7 +489,85 @@ def fib_sizing() -> Path:
     return OUT_FIB
 
 
+def fib_trim() -> Path:
+    """The way UP, companion to 09. Trend-based fib EXTENSION for trims.
+
+    The warning line is his own backtest (2026-11-21, 33 names, 3 years):
+    unfiltered band trims in uptrends cost a median ~18 pts vs holding. So
+    the card keeps trims small, from the higher extensions only, and out of
+    a non-core slice — and points back at BUY CHEAP for the re-entry.
+    """
+    w, h = 1600, 880
+    img = Image.new("RGB", (w, h), BG)
+    d = ImageDraw.Draw(img)
+    d.rectangle([0, 0, 14, h], fill=GREEN)
+
+    d.text((78, 76), "FIBONACCI  —  TRIM THE RIP", font=font(62, True),
+           fill=GREEN, anchor="lm")
+    d.text((78, 136),
+           "The way up: Trend-Based Fib EXTENSION. Trim a slice, never the core.",
+           font=font(30), fill=WHITE, anchor="lm")
+
+    d.line([(78, 180), (w - 78, 180)], fill=LINE, width=2)
+    d.text((78, 220), "DRAW", font=font(30, True), fill=GREEN, anchor="lm")
+    d.text((210, 220),
+           "3 clicks:   A = swing low   →   B = swing high   →   "
+           "C = the pullback low",
+           font=font(27), fill=WHITE, anchor="lm")
+    d.text((210, 258),
+           "Projects the A→B move up from C. On the bounce, the old "
+           "retracement levels are pauses, not sells.",
+           font=font(25), fill=MUTED, anchor="lm")
+
+    d.text((78, 320), "TRIM LADDER  (only from the non-core part)",
+           font=font(30, True), fill=GREEN, anchor="lm")
+    steps = [("CORE", "50-60%  never sold", TEAL),
+             ("1.272", "trim 10%", (148, 163, 184)),
+             ("1.618", "trim 15%", AMBER),
+             ("2.0", "trim 10%", (251, 146, 60)),
+             ("2.618", "trim 15%", RED)]
+    x = 78
+    for lvl, pct, colour in steps:
+        d.rectangle([x, 356, x + 274, 454], outline=colour, width=3)
+        d.text((x + 18, 386), lvl, font=font(32, True), fill=colour,
+               anchor="lm")
+        d.text((x + 18, 428), pct, font=font(24), fill=WHITE, anchor="lm")
+        x += 290
+
+    d.line([(78, 494), (w - 78, 494)], fill=LINE, width=2)
+    d.text((78, 534), "BEFORE YOU TRIM", font=font(30, True), fill=GREEN,
+           anchor="lm")
+    d.text((424, 534),
+           "Know where you would buy it back — a retracement",
+           font=font(27), fill=WHITE, anchor="lm")
+    d.text((424, 572),
+           "of the new leg. Chasing the re-entry is what costs (BUY CHEAP).",
+           font=font(27), fill=MUTED, anchor="lm")
+
+    d.rectangle([78, 616, w - 78, 758], outline=(90, 70, 20), width=3)
+    d.text((106, 652), "YOUR OWN BACKTEST", font=font(30, True), fill=AMBER,
+           anchor="lm")
+    d.text((106, 694),
+           "Mechanical trims in uptrends cost a median ~18 pts vs holding "
+           "(33 names, 3 yrs).",
+           font=font(26), fill=WHITE, anchor="lm")
+    d.text((106, 730),
+           "So: small slices, higher extensions only, core untouched.",
+           font=font(26), fill=WHITE, anchor="lm")
+
+    d.text((78, 802),
+           "MU, if 594 holds  (A 312 · B 1,255 · C 594):",
+           font=font(26, True), fill=(134, 239, 172), anchor="lm")
+    d.text((78, 842),
+           "1.0 ≈ 1,537   ·   1.272 ≈ 1,793   ·   1.618 ≈ 2,120   ·   "
+           "2.618 ≈ 3,063",
+           font=font(26), fill=MUTED, anchor="lm")
+
+    img.save(OUT_FIB_TRIM, optimize=True)
+    return OUT_FIB_TRIM
+
+
 if __name__ == "__main__":
     for p in (main(), buy_cheap(), catch_winners(), benter(), vix_regime(),
-              market_cycle(), fib_sizing()):
+              market_cycle(), fib_sizing(), fib_trim()):
         print(f"wrote {p.name:<24} ({p.stat().st_size/1024:.0f} KB)")
