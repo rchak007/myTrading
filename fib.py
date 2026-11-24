@@ -248,6 +248,54 @@ def classify(f, price) -> tuple[str, str]:
     return "HOLD", note
 
 
+def ladder_text(f, price) -> str:
+    """Every level on ONE line, for the Dashboard's FIB row.
+
+    Chakravarti, 2026-11-23: *"give me all level on that line ... separate
+    with semi colon"*. Per-tranche sizes, not the cumulative ones on the rows
+    below — the line answers "how much do I buy HERE": cards 09 and 10 as
+    10/15/25/25/25 in and 10/15/10/15 of the non-core out. ✓ marks a level
+    price has reached, ◀ next the one it has not.
+    """
+    def g(k):
+        try:
+            v = float(f.get(k))
+            return v if math.isfinite(v) else None
+        except (TypeError, ValueError):
+            return None
+
+    try:
+        P = float(price)
+    except (TypeError, ValueError):
+        P = None
+    B = g("Fib_B")
+    if B is None:
+        return ""
+    fmt = (lambda x: f"{x:,.0f}") if B >= 10_000 else (lambda x: f"{x:,.2f}")
+
+    def side(levels, cols, sizes, reached, _sign):
+        parts, flagged = [], False
+        for lvl, col, size in zip(levels, cols, sizes):
+            x = g(col)
+            if x is None:
+                continue
+            mark = ""
+            if P is not None and reached(P, x):
+                mark = " ✓"
+            elif not flagged:
+                mark, flagged = " ◀ next", True
+            tail = " only if thesis holds" if lvl == 1.0 else ""
+            name = f"{lvl:.1f}" if lvl in (1.0, 2.0) else f"{lvl:g}"
+            parts.append(f"{name} @ {fmt(x)} → {size}%{tail}{mark}")
+        return "; ".join(parts)
+
+    buy = side(RETRACE, [_R_COL[r] for r in RETRACE], (10, 15, 25, 25, 25),
+               lambda p, x: p <= x, "")
+    trim = side(EXTEND, [_E_COL[k] for k in EXTEND], (10, 15, 10, 15),
+                lambda p, x: p >= x, "")
+    return f"BUY: {buy}   ‖   TRIM: {trim}"
+
+
 def _ohlc_for(raw, ticker: str):
     if raw is None or len(raw) == 0:
         return None

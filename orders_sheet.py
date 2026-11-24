@@ -1289,7 +1289,12 @@ def _fib_rows(ticker, price, signals_df, width):
             line = ["", ""] + vals
             rows.append(head[:width] + [""] * max(0, width - len(head)))
             rows.append(line[:width] + [""] * max(0, width - len(line)))
-        label_row = ["", "FIB", tag, why]
+        # The whole ladder rides on the painted row after the verdict, in
+        # the same cell so it spills across the row instead of being cut off
+        # by a neighbour.
+        ladder = fib.ladder_text(f, p)
+        label_row = ["", "FIB", tag,
+                     f"{why}   ‖   {ladder}" if ladder else why]
         return label_row, rows, action
     except Exception:                                   # noqa: BLE001
         return None, [], ""
