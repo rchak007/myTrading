@@ -1006,7 +1006,10 @@ CRYPTO_TAB = os.getenv("GSHEET_CRYPTO_TAB", "CRYPTO")
 # SUBNET is the replacement for FINANCIALS, added 2026-11-15: the on-chain
 # figures off taostats. It appears on the five subnet alphas and on TAO
 # itself, and silently on nothing else.
-CRYPTO_SECTIONS = {"INDICATORS", "RECOMMENDED", "SUBNET"}
+#
+# FIB added 2026-11-23. Every name on this tab is priced by Yahoo through
+# jobStocksSignals, so the Fib_* columns are already computed for it.
+CRYPTO_SECTIONS = {"INDICATORS", "RECOMMENDED", "SUBNET", "FIB"}
 
 
 def _chitra_line(ticker, chitra_rows, quotes):
