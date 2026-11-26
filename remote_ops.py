@@ -222,6 +222,14 @@ VERBS = {
     # 300s: pip on a Pi builds wheels and is slow. svc_log's 60s cap already
     # cost us a FAIL on a journalctl that simply needed longer.
     "pip_upgrade": (_pip_upgrade, 300, True),
+    # RUNS ON PI 2, NOT HERE. Pi 1 only acknowledges it, so the row is
+    # stamped rather than REJECTED; pi2_ops.py on Pi 2 reads the sheet
+    # (viewer-only), sees the stamped row, runs ~/start-claude-sessions.sh
+    # there and emails the result. The QueuedAt stamp written here is what
+    # Pi 2 keys the request on.
+    "wakeup_claude": (lambda a: [["echo", "handed to Pi 2 — it wakes the Claude "
+                                  "sessions within ~2 min and emails the result"]],
+                      20, False),
 }
 
 # Verbs handled in-process rather than via subprocess. They may take a
