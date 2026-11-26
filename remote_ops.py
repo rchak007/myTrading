@@ -1442,6 +1442,7 @@ VERB_DOCS = [
     ("note_delete", "TICKER", "note_delete  PBLS", "Clear a ticker's note. It stays in the archive log and can be read back."),
     ("notes", "—", "notes", "Every live note, one ticker per block, with the date each line was written."),
     ("orders_doc", "—", "orders_doc", "Rebuild the howOrdersWork tab in the ORDERS book — every column, both trigger kinds, all four Qty forms, chaining and the status vocabulary."),
+    ("wakeup_claude", "—", "wakeup_claude", "Wake the Claude Code sessions on PI 2 (restart any that stopped, re-enable Remote Control). Pi 1 only stamps the row 'handed to Pi 2'; within ~2 min Pi 2 runs ~/start-claude-sessions.sh and EMAILS the per-session result — it cannot write here. Rows older than 30 min are ignored."),
     ("verbs_doc", "—", "verbs_doc", "Rebuild this tab from the code. Run it after a new verb is added."),
 ]
 
